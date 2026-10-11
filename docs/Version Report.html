@@ -1,0 +1,1082 @@
+<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>STT Progress Report</title>
+<style>
+:root { --bg:#ffffff; --fg:#111827; --muted:#6b7280; --card:#f9fafb; --line:#e5e7eb; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0b0f17; --fg:#e5e7eb; --muted:#9ca3af; --card:#111827; --line:#1f2937; } }
+:root[data-theme="dark"] { color-scheme: dark; --bg:#0b0f17; --fg:#e5e7eb; --muted:#9ca3af; --card:#111827; --line:#1f2937; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 28px 16px 48px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 19px; margin: 34px 0 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+h3 { font-size: 15px; margin: 18px 0 4px; color: var(--muted); font-weight: 600; }
+p, li { color: var(--fg); }
+.sub { color: var(--muted); margin: 0 0 18px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 18px 0 6px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.card .big { font-size: 24px; font-weight: 700; }
+.card .from { color: var(--muted); font-size: 13px; }
+svg text { fill: var(--fg); font-size: 13px; }
+svg text.note { fill: var(--muted); font-size: 12px; }
+svg text.val { font-weight: 600; }
+.foot { color: var(--muted); font-size: 13px; margin-top: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td:first-child { white-space: nowrap; color: var(--muted); width: 80px; }
+table.vk td { padding: 4px 8px; }
+table.vk td:nth-child(2), table.vk td:nth-child(3) { white-space: nowrap; color: var(--muted); }
+@media (max-width: 640px) { table.vk td:nth-child(3) { display: none; } td:first-child { width: auto; } }
+.warn { border-left: 3px solid #d97706; padding: 2px 10px; margin: 8px 0; }
+</style></head><body><main>
+<h1>On-device speech-to-text: what we gained</h1>
+<p class="sub">HardwareOne P4 + G2 glasses, Oct 3-11 2026. Every number below was measured in this project unless marked as an estimate. Version numbers are labels for the test builds, in the order they were made; the firmware's own version did not change.</p>
+<table class="vk"><tr><td><b>1.1</b></td><td>Oct 10</td><td>deployed</td><td>The firmware on the P4 (gen2-25397). The model is rebuilt for every phrase.</td></tr><tr><td><b>1.2</b></td><td>Oct 10, afternoon</td><td>c3x</td><td>Design version: early final, short-reply rule, model kept for the session with its bookkeeping in PSRAM.</td></tr><tr><td><b>1.3</b></td><td>Oct 10, evening</td><td>c4a</td><td>Faster depthwise layers on both cores; head start for short replies.</td></tr><tr><td><b>1.4</b></td><td>Oct 10, 18:30</td><td>c5</td><td>Faster language-model decoder (identical text).</td></tr><tr><td><b>1.5</b></td><td>Oct 11, 00:45</td><td>c7</td><td>Each layer&#x27;s setup prepared once per session; 200 ms tail confirmed.</td></tr><tr><td><b>1.6</b></td><td>Oct 11, 03:15</td><td>c9</td><td>Head start grabs the audio at once, even while a preview runs.</td></tr><tr><td><b>1.7</b></td><td>Oct 11, 05:30</td><td>c11</td><td>Continuous phrases capped at 10 s (half the session audio buffers).</td></tr><tr><td><b>1.8</b></td><td>Oct 11, 08:20</td><td>c12 + card LM</td><td>1.6 MB language model with 9.2k tech terms (43k words) instead of 2.5 MB.</td></tr><tr><td><b>1.9</b></td><td>Oct 11, 08:30</td><td>c13, first</td><td>Speaker labels (&quot;Person N&quot;), computed in the speech worker.</td></tr><tr><td><b>2.0</b></td><td>Oct 11, 09:20-10:45</td><td>c13, final</td><td>Speaker labels in a background task, ESP-IDF fix, trimmed kernels, labelled transcript lines.</td></tr></table>
+<div class="cards">
+  <div class="card"><div class="from">Caption delay after you stop talking</div><div class="big">3.6 s &rarr; ~1.0-1.1 s</div><div class="from">1.1 &rarr; 1.3-1.8, P4 mic, quiet room</div></div>
+  <div class="card"><div class="from">Short replies ("yeah", "okay")</div><div class="big">3.4-17 s &rarr; ~0.9 s</div><div class="from">no longer wait for the next sentence</div></div>
+  <div class="card"><div class="from">Free PSRAM at its lowest, long speech</div><div class="big">1.6 &rarr; 5.4 MB</div><div class="from">1.6 &rarr; 1.7, the 10 s phrase cap</div></div>
+  <div class="card"><div class="from">Speaker labels (2.0)</div><div class="big">91% right</div><div class="from">no caption delay added</div></div>
+  <div class="card"><div class="from">Invented words on pure noise</div><div class="big">30 &rarr; 9.5 /min</div><div class="from">deployed model vs old model</div></div>
+  <div class="card"><div class="from">500-hour training run on the Mac</div><div class="big">33 h &rarr; ~10 h</div><div class="from">same results, 3x faster steps</div></div>
+</div>
+
+<h2>1. The model: accuracy and noise</h2>
+<h3>Broad error rate on the full test sets (lower is better)</h3>
+<svg viewBox="0 0 760 190" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">NVIDIA original</text>
+<rect x="300" y="10" width="277.2" height="26" rx="4" fill="#9ca3af"/>
+<text x="583.2" y="27.68" class="val">26.83 %</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">Old P4 model (general)</text>
+<rect x="300" y="46" width="238.8" height="26" rx="4" fill="#9ca3af"/>
+<text x="544.8" y="63.68" class="val">23.11 %</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">general2, LR 2e-5</text>
+<rect x="300" y="82" width="247.2" height="26" rx="4" fill="#d97706"/>
+<text x="553.2" y="99.68" class="val">23.92 %</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">general + noise clips</text>
+<rect x="300" y="118" width="239.5" height="26" rx="4" fill="#2563eb"/>
+<text x="545.5" y="135.68" class="val">23.18 %</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">ON THE P4: general2, LR 1e-5</text>
+<rect x="300" y="154" width="235.6" height="26" rx="4" fill="#16a34a"/>
+<text x="541.6" y="171.68" class="val">22.80 %</text>
+<text x="756" y="171.68" text-anchor="end" class="note">best</text>
+</svg>
+<h3>Words invented on pure background noise (lower is better)</h3>
+<svg viewBox="0 0 760 190" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">NVIDIA original</text>
+<rect x="300" y="10" width="171.4" height="26" rx="4" fill="#9ca3af"/>
+<text x="477.4" y="27.68" class="val">18.8 words/min</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">Old P4 model (general)</text>
+<rect x="300" y="46" width="274.4" height="26" rx="4" fill="#dc2626"/>
+<text x="580.4" y="63.68" class="val">30.1 words/min</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">general2, LR 2e-5</text>
+<rect x="300" y="82" width="72.9" height="26" rx="4" fill="#16a34a"/>
+<text x="378.9" y="99.68" class="val">8.0 words/min</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">general + noise clips</text>
+<rect x="300" y="118" width="80.2" height="26" rx="4" fill="#16a34a"/>
+<text x="386.2" y="135.68" class="val">8.8 words/min</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">ON THE P4: general2, LR 1e-5</text>
+<rect x="300" y="154" width="86.6" height="26" rx="4" fill="#16a34a"/>
+<text x="392.6" y="171.68" class="val">9.5 words/min</text>
+<text x="756" y="171.68" text-anchor="end" class="note">-68% vs old</text>
+</svg>
+<p class="foot">The noise-only training clips cut invented words by about 70% at no accuracy cost (general + noise clips: 23.18 vs 23.11). The new data and the 500-hour run gave the deployed model its accuracy edge. The 2e-5 learning rate was the mistake to avoid.</p>
+
+<h2>2. Training speed on the Mac</h2>
+<h3>Training throughput (audio seconds processed per second)</h3>
+<svg viewBox="0 0 760 82" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">Stock trainer</text>
+<rect x="300" y="10" width="92.5" height="26" rx="4" fill="#9ca3af"/>
+<text x="398.5" y="27.68" class="val">18.5 audio-s/s</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">Depthwise-conv fix + masks + fused AdamW</text>
+<rect x="300" y="46" width="275.5" height="26" rx="4" fill="#16a34a"/>
+<text x="581.5" y="63.68" class="val">55.1 audio-s/s</text>
+<text x="756" y="63.68" text-anchor="end" class="note">3.0x</text>
+</svg>
+<h3>One checkpoint scoring pass</h3>
+<svg viewBox="0 0 760 82" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">Checkpoint scoring on the CPU</text>
+<rect x="300" y="10" width="277.9" height="26" rx="4" fill="#9ca3af"/>
+<text x="583.9" y="27.68" class="val">1300 s</text>
+<text x="756" y="27.68" text-anchor="end" class="note">16 per run</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">On the graphics chip</text>
+<rect x="300" y="46" width="23.3" height="26" rx="4" fill="#16a34a"/>
+<text x="329.3" y="63.68" class="val">109 s</text>
+<text x="756" y="63.68" text-anchor="end" class="note">same scores</text>
+</svg>
+<h3>Where a 500-hour run's time goes</h3>
+<svg viewBox="0 0 760 150" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="220" y="37.08" text-anchor="end" class="lbl">Before</text>
+<rect x="230.0" y="16" width="339.9" height="34" fill="#2563eb"><title>training steps: 26.6 h</title></rect>
+<rect x="569.9" y="16" width="74.1" height="34" fill="#d97706"><title>checkpoint scoring: 5.8 h</title></rect>
+<rect x="644.0" y="16" width="7.7" height="34" fill="#9ca3af"><title>test sets: 0.6 h</title></rect>
+<text x="657.7" y="37.08" class="val">33.0 h</text>
+<text x="220" y="87.08" text-anchor="end" class="lbl">After (projected)</text>
+<rect x="230.0" y="66" width="109.9" height="34" fill="#2563eb"><title>training steps: 8.6 h</title></rect>
+<rect x="339.9" y="66" width="5.8" height="34" fill="#d97706"><title>checkpoint scoring: 0.5 h</title></rect>
+<rect x="345.6" y="66" width="8.1" height="34" fill="#9ca3af"><title>test sets: 0.6 h</title></rect>
+<text x="359.7" y="87.08" class="val">9.7 h</text>
+<rect x="230" y="124" width="12" height="12" fill="#2563eb"/>
+<text x="246" y="134" class="note">training steps</text>
+<rect x="368.8" y="124" width="12" height="12" fill="#d97706"/>
+<text x="384.8" y="134" class="note">checkpoint scoring</text>
+<rect x="536.4" y="124" width="12" height="12" fill="#9ca3af"/>
+<text x="552.4" y="134" class="note">test sets</text>
+</svg>
+<p class="foot">The cause: one operation (the backward pass of the depthwise convolutions) was very slow on the Mac's GPU. A replacement written in this project gives the same gradients to within a millionth.</p>
+
+<h2>3. Caption delay on the P4</h2>
+<h3>End of speech to caption ready (median, P4 mic)</h3>
+<svg viewBox="0 0 760 334" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.1</text>
+<rect x="300" y="10" width="225.6" height="26" rx="4" fill="#9ca3af"/>
+<text x="531.6" y="27.68" class="val">3.61 s</text>
+<text x="756" y="27.68" text-anchor="end" class="note">all phrases</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.1 + cache, -O2, model reuse</text>
+<rect x="300" y="46" width="181.2" height="26" rx="4" fill="#2563eb"/>
+<text x="487.2" y="63.68" class="val">2.90 s</text>
+<text x="756" y="63.68" text-anchor="end" class="note">step toward 1.2</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.2</text>
+<rect x="300" y="82" width="105.6" height="26" rx="4" fill="#2563eb"/>
+<text x="411.6" y="99.68" class="val">1.69 s</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">1.3</text>
+<rect x="300" y="118" width="67.7" height="26" rx="4" fill="#2563eb"/>
+<text x="373.7" y="135.68" class="val">1.08 s</text>
+<text x="756" y="135.68" text-anchor="end" class="note">3 sessions, 55 phrases</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">1.4</text>
+<rect x="300" y="154" width="75.8" height="26" rx="4" fill="#16a34a"/>
+<text x="381.8" y="171.68" class="val">1.21 s</text>
+<text x="756" y="171.68" text-anchor="end" class="note">1 session, 18 phrases</text>
+<text x="290" y="207.68" text-anchor="end" class="lbl">1.5</text>
+<rect x="300" y="190" width="66.9" height="26" rx="4" fill="#16a34a"/>
+<text x="372.9" y="207.68" class="val">1.07 s</text>
+<text x="756" y="207.68" text-anchor="end" class="note">11 sessions, 203 phrases</text>
+<text x="290" y="243.68" text-anchor="end" class="lbl">1.6</text>
+<rect x="300" y="226" width="67.8" height="26" rx="4" fill="#16a34a"/>
+<text x="373.8" y="243.68" class="val">1.08 s</text>
+<text x="756" y="243.68" text-anchor="end" class="note">6 sessions, 112 phrases</text>
+<text x="290" y="279.68" text-anchor="end" class="lbl">1.7</text>
+<rect x="300" y="262" width="66.8" height="26" rx="4" fill="#16a34a"/>
+<text x="372.8" y="279.68" class="val">1.07 s</text>
+<text x="756" y="279.68" text-anchor="end" class="note">3 sessions, 50 phrases</text>
+<text x="290" y="315.68" text-anchor="end" class="lbl">1.8</text>
+<rect x="300" y="298" width="62.8" height="26" rx="4" fill="#16a34a"/>
+<text x="368.8" y="315.68" class="val">1.00 s</text>
+<text x="756" y="315.68" text-anchor="end" class="note">1 session, 14 phrases</text>
+</svg>
+<p class="foot">From 1.3 on, each change saved tens of milliseconds, which is smaller than the spread between sessions (about &plusmn;0.1 s, more for one-session versions). So the medians from 1.4 on move up and down by noise; what each change did is in the per-change chart below, measured clip by clip. 1.4 and 1.8 were run once, so their medians rest on 14-18 phrases.</p>
+<h3>Short replies</h3>
+<svg viewBox="0 0 760 334" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.1</text>
+<rect x="300" y="10" width="195.5" height="26" rx="4" fill="#9ca3af"/>
+<text x="501.5" y="27.68" class="val">3.40 s</text>
+<text x="756" y="27.68" text-anchor="end" class="note">and up to 17 s when merged</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.1 + cache, -O2, model reuse</text>
+<rect x="300" y="46" width="207.0" height="26" rx="4" fill="#2563eb"/>
+<text x="513.0" y="63.68" class="val">3.60 s</text>
+<text x="756" y="63.68" text-anchor="end" class="note">step toward 1.2</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.2</text>
+<rect x="300" y="82" width="83.4" height="26" rx="4" fill="#2563eb"/>
+<text x="389.4" y="99.68" class="val">1.45 s</text>
+<text x="756" y="99.68" text-anchor="end" class="note">1-s close for short replies</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">1.3</text>
+<rect x="300" y="118" width="51.3" height="26" rx="4" fill="#2563eb"/>
+<text x="357.3" y="135.68" class="val">0.89 s</text>
+<text x="756" y="135.68" text-anchor="end" class="note">head start in the pause</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">1.4</text>
+<rect x="300" y="154" width="31.9" height="26" rx="4" fill="#16a34a"/>
+<text x="337.9" y="171.68" class="val">0.55 s</text>
+<text x="756" y="171.68" text-anchor="end" class="note">1 session</text>
+<text x="290" y="207.68" text-anchor="end" class="lbl">1.5</text>
+<rect x="300" y="190" width="50.8" height="26" rx="4" fill="#16a34a"/>
+<text x="356.8" y="207.68" class="val">0.88 s</text>
+<text x="290" y="243.68" text-anchor="end" class="lbl">1.6</text>
+<rect x="300" y="226" width="50.5" height="26" rx="4" fill="#16a34a"/>
+<text x="356.5" y="243.68" class="val">0.88 s</text>
+<text x="290" y="279.68" text-anchor="end" class="lbl">1.7</text>
+<rect x="300" y="262" width="41.4" height="26" rx="4" fill="#16a34a"/>
+<text x="347.4" y="279.68" class="val">0.72 s</text>
+<text x="290" y="315.68" text-anchor="end" class="lbl">1.8</text>
+<rect x="300" y="298" width="49.6" height="26" rx="4" fill="#16a34a"/>
+<text x="355.6" y="315.68" class="val">0.86 s</text>
+<text x="756" y="315.68" text-anchor="end" class="note">1 session</text>
+</svg>
+<h3>Longer phrases</h3>
+<svg viewBox="0 0 760 298" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.1</text>
+<rect x="300" y="10" width="195.0" height="26" rx="4" fill="#9ca3af"/>
+<text x="501.0" y="27.68" class="val">3.39 s</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.2</text>
+<rect x="300" y="46" width="113.8" height="26" rx="4" fill="#2563eb"/>
+<text x="419.8" y="63.68" class="val">1.98 s</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.3</text>
+<rect x="300" y="82" width="101.1" height="26" rx="4" fill="#2563eb"/>
+<text x="407.1" y="99.68" class="val">1.76 s</text>
+<text x="756" y="99.68" text-anchor="end" class="note">faster model</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">1.4</text>
+<rect x="300" y="118" width="97.6" height="26" rx="4" fill="#16a34a"/>
+<text x="403.6" y="135.68" class="val">1.70 s</text>
+<text x="756" y="135.68" text-anchor="end" class="note">1 session</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">1.5</text>
+<rect x="300" y="154" width="93.7" height="26" rx="4" fill="#16a34a"/>
+<text x="399.7" y="171.68" class="val">1.63 s</text>
+<text x="290" y="207.68" text-anchor="end" class="lbl">1.6</text>
+<rect x="300" y="190" width="96.2" height="26" rx="4" fill="#16a34a"/>
+<text x="402.2" y="207.68" class="val">1.67 s</text>
+<text x="290" y="243.68" text-anchor="end" class="lbl">1.7</text>
+<rect x="300" y="226" width="92.2" height="26" rx="4" fill="#16a34a"/>
+<text x="398.2" y="243.68" class="val">1.60 s</text>
+<text x="290" y="279.68" text-anchor="end" class="lbl">1.8</text>
+<rect x="300" y="262" width="99.2" height="26" rx="4" fill="#16a34a"/>
+<text x="405.2" y="279.68" class="val">1.73 s</text>
+<text x="756" y="279.68" text-anchor="end" class="note">1 session</text>
+</svg>
+<h3>Speech model time per second of audio (median phrase)</h3>
+<svg viewBox="0 0 760 298" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.1</text>
+<rect x="300" y="10" width="357.8" height="26" rx="4" fill="#9ca3af"/>
+<text x="663.8" y="27.68" class="val">412 ms per audio-s</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.2</text>
+<rect x="300" y="46" width="264.2" height="26" rx="4" fill="#2563eb"/>
+<text x="570.2" y="63.68" class="val">304 ms per audio-s</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.3</text>
+<rect x="300" y="82" width="230.9" height="26" rx="4" fill="#2563eb"/>
+<text x="536.9" y="99.68" class="val">266 ms per audio-s</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">1.4</text>
+<rect x="300" y="118" width="227.7" height="26" rx="4" fill="#16a34a"/>
+<text x="533.7" y="135.68" class="val">262 ms per audio-s</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">1.5</text>
+<rect x="300" y="154" width="218.3" height="26" rx="4" fill="#16a34a"/>
+<text x="524.3" y="171.68" class="val">251 ms per audio-s</text>
+<text x="290" y="207.68" text-anchor="end" class="lbl">1.6</text>
+<rect x="300" y="190" width="219.9" height="26" rx="4" fill="#16a34a"/>
+<text x="525.9" y="207.68" class="val">253 ms per audio-s</text>
+<text x="290" y="243.68" text-anchor="end" class="lbl">1.7</text>
+<rect x="300" y="226" width="224.4" height="26" rx="4" fill="#16a34a"/>
+<text x="530.4" y="243.68" class="val">258 ms per audio-s</text>
+<text x="290" y="279.68" text-anchor="end" class="lbl">1.8</text>
+<rect x="300" y="262" width="227.3" height="26" rx="4" fill="#16a34a"/>
+<text x="533.3" y="279.68" class="val">261 ms per audio-s</text>
+</svg>
+<h3>Language-model step per phrase (median)</h3>
+<svg viewBox="0 0 760 298" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.1</text>
+<rect x="300" y="10" width="305.0" height="26" rx="4" fill="#9ca3af"/>
+<text x="611.0" y="27.68" class="val">157 ms</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.2</text>
+<rect x="300" y="46" width="198.2" height="26" rx="4" fill="#2563eb"/>
+<text x="504.2" y="63.68" class="val">102 ms</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.3</text>
+<rect x="300" y="82" width="202.1" height="26" rx="4" fill="#2563eb"/>
+<text x="508.1" y="99.68" class="val">104 ms</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">1.4</text>
+<rect x="300" y="118" width="93.3" height="26" rx="4" fill="#16a34a"/>
+<text x="399.3" y="135.68" class="val">48 ms</text>
+<text x="756" y="135.68" text-anchor="end" class="note">faster decoder</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">1.5</text>
+<rect x="300" y="154" width="83.5" height="26" rx="4" fill="#16a34a"/>
+<text x="389.5" y="171.68" class="val">43 ms</text>
+<text x="290" y="207.68" text-anchor="end" class="lbl">1.6</text>
+<rect x="300" y="190" width="88.4" height="26" rx="4" fill="#16a34a"/>
+<text x="394.4" y="207.68" class="val">46 ms</text>
+<text x="290" y="243.68" text-anchor="end" class="lbl">1.7</text>
+<rect x="300" y="226" width="94.2" height="26" rx="4" fill="#16a34a"/>
+<text x="400.2" y="243.68" class="val">48 ms</text>
+<text x="290" y="279.68" text-anchor="end" class="lbl">1.8</text>
+<rect x="300" y="262" width="91.3" height="26" rx="4" fill="#16a34a"/>
+<text x="397.3" y="279.68" class="val">47 ms</text>
+</svg>
+<p class="foot">Model time fell about 40% from 1.1 to 1.5 and then stayed flat: 1.6-1.8 changed when the model starts and how much memory it needs, not its speed. The language-model step halved with the new decoder in 1.4; its size (2.5 or 1.6 MB) does not change its speed.</p>
+<h3>Long unbroken speech: the 10 s phrase cap (12-17 s utterances)</h3>
+<svg viewBox="0 0 760 82" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.6 (20 s phrase cap)</text>
+<rect x="300" y="10" width="96.7" height="26" rx="4" fill="#2563eb"/>
+<text x="402.7" y="27.68" class="val">1.93 s</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.7 (10 s phrase cap)</text>
+<rect x="300" y="46" width="71.4" height="26" rx="4" fill="#16a34a"/>
+<text x="377.4" y="63.68" class="val">1.43 s</text>
+<text x="756" y="63.68" text-anchor="end" class="note">per clip: median -34 ms, mean -369 ms</text>
+</svg>
+<p class="foot">Medians over the same 14 clips, 3 sessions each. With a 20 s cap a long utterance is transcribed in one piece after you stop; with 10 s the first part is cut and transcribed while you are still talking. For a typical clip that changes little (-34 ms), but some finish much sooner (95% range -416 to +19 ms). The main gain is memory (section 4).</p>
+<h3>Where the time goes, step by step: all phrases</h3>
+<svg viewBox="0 0 860 486" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="140" y="37.08" text-anchor="end" class="lbl">1.1</text>
+<rect x="150.0" y="16" width="124.8" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.94 s</title></rect>
+<rect x="274.8" y="16" width="4.1" height="34" fill="#a78bfa"><title>waiting for the processor: 0.03 s</title></rect>
+<rect x="278.8" y="16" width="21.9" height="34" fill="#d97706"><title>model rebuild: 0.16 s</title></rect>
+<rect x="300.7" y="16" width="20.1" height="34" fill="#0891b2"><title>audio features: 0.15 s</title></rect>
+<rect x="320.9" y="16" width="202.2" height="34" fill="#1d4ed8"><title>model: pointwise layers: 1.52 s</title></rect>
+<rect x="523.0" y="16" width="111.1" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.83 s</title></rect>
+<rect x="634.1" y="16" width="11.0" height="34" fill="#93c5fd"><title>model: adds and others: 0.08 s</title></rect>
+<rect x="645.2" y="16" width="20.3" height="34" fill="#16a34a"><title>language model: 0.15 s</title></rect>
+<rect x="665.4" y="16" width="2.0" height="34" fill="#db2777"><title>hand-off to the caption: 0.02 s</title></rect>
+<text x="673.4" y="37.08" class="val">3.88 s</text>
+<text x="140" y="87.08" text-anchor="end" class="lbl">1.2</text>
+<rect x="150.0" y="66" width="65.0" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.49 s</title></rect>
+<rect x="215.0" y="66" width="3.9" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.03 s</title></rect>
+<rect x="218.9" y="66" width="0.7" height="34" fill="#a78bfa"><title>waiting for the processor: 0.01 s</title></rect>
+<rect x="220.1" y="66" width="1.6" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="221.7" y="66" width="91.8" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.69 s</title></rect>
+<rect x="313.5" y="66" width="48.0" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.36 s</title></rect>
+<rect x="361.5" y="66" width="4.0" height="34" fill="#93c5fd"><title>model: adds and others: 0.03 s</title></rect>
+<rect x="365.5" y="66" width="11.3" height="34" fill="#16a34a"><title>language model: 0.09 s</title></rect>
+<rect x="376.8" y="66" width="1.3" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="384.1" y="87.08" class="val">1.71 s</text>
+<text x="140" y="137.07999999999998" text-anchor="end" class="lbl">1.3</text>
+<rect x="150.0" y="116" width="11.9" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.09 s</title></rect>
+<rect x="161.9" y="116" width="10.3" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.08 s</title></rect>
+<rect x="172.6" y="116" width="1.6" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="174.2" y="116" width="92.8" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.70 s</title></rect>
+<rect x="267.0" y="116" width="32.6" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.24 s</title></rect>
+<rect x="299.6" y="116" width="4.4" height="34" fill="#93c5fd"><title>model: adds and others: 0.03 s</title></rect>
+<rect x="304.1" y="116" width="11.2" height="34" fill="#16a34a"><title>language model: 0.08 s</title></rect>
+<rect x="315.2" y="116" width="1.2" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="322.5" y="137.07999999999998" class="val">1.25 s</text>
+<text x="140" y="187.07999999999998" text-anchor="end" class="lbl">1.4</text>
+<rect x="150.0" y="166" width="2.2" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.02 s</title></rect>
+<rect x="152.2" y="166" width="4.2" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.03 s</title></rect>
+<rect x="157.0" y="166" width="1.9" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="159.0" y="166" width="107.3" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.80 s</title></rect>
+<rect x="266.2" y="166" width="37.9" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.28 s</title></rect>
+<rect x="304.1" y="166" width="5.1" height="34" fill="#93c5fd"><title>model: adds and others: 0.04 s</title></rect>
+<rect x="309.2" y="166" width="6.0" height="34" fill="#16a34a"><title>language model: 0.05 s</title></rect>
+<rect x="315.2" y="166" width="1.3" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="322.5" y="187.07999999999998" class="val">1.25 s</text>
+<text x="140" y="237.07999999999998" text-anchor="end" class="lbl">1.5</text>
+<rect x="150.0" y="216" width="14.5" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.11 s</title></rect>
+<rect x="164.5" y="216" width="10.3" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.08 s</title></rect>
+<rect x="175.2" y="216" width="1.6" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="176.9" y="216" width="88.0" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.66 s</title></rect>
+<rect x="264.8" y="216" width="28.7" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.22 s</title></rect>
+<rect x="293.5" y="216" width="4.8" height="34" fill="#93c5fd"><title>model: adds and others: 0.04 s</title></rect>
+<rect x="298.4" y="216" width="5.2" height="34" fill="#16a34a"><title>language model: 0.04 s</title></rect>
+<rect x="303.5" y="216" width="1.2" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="310.8" y="237.07999999999998" class="val">1.16 s</text>
+<text x="140" y="287.08" text-anchor="end" class="lbl">1.6</text>
+<rect x="150.0" y="266" width="17.9" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.13 s</title></rect>
+<rect x="167.9" y="266" width="11.0" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.08 s</title></rect>
+<rect x="179.3" y="266" width="1.8" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="181.1" y="266" width="84.7" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.64 s</title></rect>
+<rect x="265.7" y="266" width="27.4" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.21 s</title></rect>
+<rect x="293.2" y="266" width="4.7" height="34" fill="#93c5fd"><title>model: adds and others: 0.04 s</title></rect>
+<rect x="297.9" y="266" width="5.0" height="34" fill="#16a34a"><title>language model: 0.04 s</title></rect>
+<rect x="302.8" y="266" width="1.0" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="309.8" y="287.08" class="val">1.15 s</text>
+<text x="140" y="337.08" text-anchor="end" class="lbl">1.7</text>
+<rect x="150.0" y="316" width="13.3" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.10 s</title></rect>
+<rect x="163.3" y="316" width="7.2" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.05 s</title></rect>
+<rect x="170.9" y="316" width="1.9" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="172.8" y="316" width="88.1" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.66 s</title></rect>
+<rect x="260.9" y="316" width="28.4" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.21 s</title></rect>
+<rect x="289.2" y="316" width="4.9" height="34" fill="#93c5fd"><title>model: adds and others: 0.04 s</title></rect>
+<rect x="294.2" y="316" width="5.0" height="34" fill="#16a34a"><title>language model: 0.04 s</title></rect>
+<rect x="299.2" y="316" width="1.2" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="306.4" y="337.08" class="val">1.13 s</text>
+<text x="140" y="387.08" text-anchor="end" class="lbl">1.8</text>
+<rect x="150.0" y="366" width="15.0" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.11 s</title></rect>
+<rect x="164.9" y="366" width="9.5" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.07 s</title></rect>
+<rect x="174.9" y="366" width="1.7" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="176.6" y="366" width="79.8" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.60 s</title></rect>
+<rect x="256.4" y="366" width="25.5" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.19 s</title></rect>
+<rect x="281.9" y="366" width="4.6" height="34" fill="#93c5fd"><title>model: adds and others: 0.03 s</title></rect>
+<rect x="286.4" y="366" width="4.5" height="34" fill="#16a34a"><title>language model: 0.03 s</title></rect>
+<rect x="290.9" y="366" width="1.0" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="297.9" y="387.08" class="val">1.06 s</text>
+<rect x="150" y="424" width="12" height="12" fill="#9ca3af"/>
+<text x="166" y="434" class="note">waiting for the phrase to end</text>
+<rect x="396.8" y="424" width="12" height="12" fill="#cbd5e1"/>
+<text x="412.8" y="434" class="note">head start: 200 ms of quiet</text>
+<rect x="629.2" y="424" width="12" height="12" fill="#a78bfa"/>
+<text x="645.2" y="434" class="note">waiting for the processor</text>
+<rect x="150" y="442" width="12" height="12" fill="#d97706"/>
+<text x="166" y="452" class="note">model rebuild</text>
+<rect x="281.6" y="442" width="12" height="12" fill="#0891b2"/>
+<text x="297.6" y="452" class="note">audio features</text>
+<rect x="420.40000000000003" y="442" width="12" height="12" fill="#1d4ed8"/>
+<text x="436.40000000000003" y="452" class="note">model: pointwise layers</text>
+<rect x="624.0" y="442" width="12" height="12" fill="#60a5fa"/>
+<text x="640.0" y="452" class="note">model: depthwise layers</text>
+<rect x="150" y="460" width="12" height="12" fill="#93c5fd"/>
+<text x="166" y="470" class="note">model: adds and others</text>
+<rect x="346.4" y="460" width="12" height="12" fill="#16a34a"/>
+<text x="362.4" y="470" class="note">language model</text>
+<rect x="485.2" y="460" width="12" height="12" fill="#db2777"/>
+<text x="501.2" y="470" class="note">hand-off to the caption</text>
+</svg>
+<h3>Short replies (same colours)</h3>
+<svg viewBox="0 0 860 420" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="140" y="37.08" text-anchor="end" class="lbl">1.1</text>
+<rect x="150.0" y="16" width="288.8" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 2.17 s</title></rect>
+<rect x="438.8" y="16" width="3.7" height="34" fill="#a78bfa"><title>waiting for the processor: 0.03 s</title></rect>
+<rect x="442.5" y="16" width="21.7" height="34" fill="#d97706"><title>model rebuild: 0.16 s</title></rect>
+<rect x="464.2" y="16" width="16.5" height="34" fill="#0891b2"><title>audio features: 0.12 s</title></rect>
+<rect x="480.8" y="16" width="169.5" height="34" fill="#1d4ed8"><title>model: pointwise layers: 1.27 s</title></rect>
+<rect x="650.3" y="16" width="93.2" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.70 s</title></rect>
+<rect x="743.5" y="16" width="9.2" height="34" fill="#93c5fd"><title>model: adds and others: 0.07 s</title></rect>
+<rect x="752.7" y="16" width="16.6" height="34" fill="#16a34a"><title>language model: 0.12 s</title></rect>
+<rect x="769.4" y="16" width="2.1" height="34" fill="#db2777"><title>hand-off to the caption: 0.02 s</title></rect>
+<text x="777.4" y="37.08" class="val">4.66 s</text>
+<text x="140" y="87.08" text-anchor="end" class="lbl">1.2</text>
+<rect x="150.0" y="66" width="99.6" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.75 s</title></rect>
+<rect x="249.6" y="66" width="1.1" height="34" fill="#a78bfa"><title>waiting for the processor: 0.01 s</title></rect>
+<rect x="251.2" y="66" width="0.8" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="251.9" y="66" width="53.1" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.40 s</title></rect>
+<rect x="305.0" y="66" width="25.3" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.19 s</title></rect>
+<rect x="330.3" y="66" width="2.3" height="34" fill="#93c5fd"><title>model: adds and others: 0.02 s</title></rect>
+<rect x="332.5" y="66" width="7.1" height="34" fill="#16a34a"><title>language model: 0.05 s</title></rect>
+<rect x="339.6" y="66" width="1.2" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="346.8" y="87.08" class="val">1.43 s</text>
+<text x="140" y="137.07999999999998" text-anchor="end" class="lbl">1.3</text>
+<rect x="150.0" y="116" width="20.3" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.15 s</title></rect>
+<rect x="170.7" y="116" width="0.9" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="171.6" y="116" width="56.1" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.42 s</title></rect>
+<rect x="227.8" y="116" width="19.2" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.14 s</title></rect>
+<rect x="246.9" y="116" width="2.8" height="34" fill="#93c5fd"><title>model: adds and others: 0.02 s</title></rect>
+<rect x="249.8" y="116" width="7.8" height="34" fill="#16a34a"><title>language model: 0.06 s</title></rect>
+<rect x="257.6" y="116" width="1.0" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="264.6" y="137.07999999999998" class="val">0.81 s</text>
+<text x="140" y="187.07999999999998" text-anchor="end" class="lbl">1.4</text>
+<rect x="150.0" y="166" width="1.0" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.01 s</title></rect>
+<rect x="151.5" y="166" width="0.9" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="152.3" y="166" width="55.1" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.41 s</title></rect>
+<rect x="207.5" y="166" width="18.8" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.14 s</title></rect>
+<rect x="226.3" y="166" width="2.8" height="34" fill="#93c5fd"><title>model: adds and others: 0.02 s</title></rect>
+<rect x="229.1" y="166" width="3.5" height="34" fill="#16a34a"><title>language model: 0.03 s</title></rect>
+<rect x="232.5" y="166" width="0.9" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="239.4" y="187.07999999999998" class="val">0.63 s</text>
+<text x="140" y="237.07999999999998" text-anchor="end" class="lbl">1.5</text>
+<rect x="150.0" y="216" width="21.0" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.16 s</title></rect>
+<rect x="171.4" y="216" width="0.9" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="172.3" y="216" width="50.6" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.38 s</title></rect>
+<rect x="222.9" y="216" width="15.1" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.11 s</title></rect>
+<rect x="238.0" y="216" width="3.2" height="34" fill="#93c5fd"><title>model: adds and others: 0.02 s</title></rect>
+<rect x="241.3" y="216" width="3.5" height="34" fill="#16a34a"><title>language model: 0.03 s</title></rect>
+<rect x="244.8" y="216" width="1.0" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="251.8" y="237.07999999999998" class="val">0.72 s</text>
+<text x="140" y="287.08" text-anchor="end" class="lbl">1.6</text>
+<rect x="150.0" y="266" width="22.3" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.17 s</title></rect>
+<rect x="172.8" y="266" width="0.9" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="173.7" y="266" width="52.0" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.39 s</title></rect>
+<rect x="225.7" y="266" width="15.5" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.12 s</title></rect>
+<rect x="241.2" y="266" width="3.3" height="34" fill="#93c5fd"><title>model: adds and others: 0.02 s</title></rect>
+<rect x="244.6" y="266" width="3.4" height="34" fill="#16a34a"><title>language model: 0.03 s</title></rect>
+<rect x="248.0" y="266" width="0.7" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="254.7" y="287.08" class="val">0.74 s</text>
+<text x="140" y="337.08" text-anchor="end" class="lbl">1.7</text>
+<rect x="150.0" y="316" width="19.7" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.15 s</title></rect>
+<rect x="170.1" y="316" width="1.0" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="171.2" y="316" width="51.1" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.38 s</title></rect>
+<rect x="222.2" y="316" width="14.9" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.11 s</title></rect>
+<rect x="237.1" y="316" width="3.4" height="34" fill="#93c5fd"><title>model: adds and others: 0.03 s</title></rect>
+<rect x="240.5" y="316" width="3.2" height="34" fill="#16a34a"><title>language model: 0.02 s</title></rect>
+<rect x="243.7" y="316" width="0.8" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="250.5" y="337.08" class="val">0.71 s</text>
+<text x="140" y="387.08" text-anchor="end" class="lbl">1.8</text>
+<rect x="150.0" y="366" width="24.4" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.18 s</title></rect>
+<rect x="174.9" y="366" width="1.2" height="34" fill="#0891b2"><title>audio features: 0.01 s</title></rect>
+<rect x="176.0" y="366" width="58.3" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.44 s</title></rect>
+<rect x="234.3" y="366" width="17.6" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.13 s</title></rect>
+<rect x="251.9" y="366" width="3.7" height="34" fill="#93c5fd"><title>model: adds and others: 0.03 s</title></rect>
+<rect x="255.6" y="366" width="3.4" height="34" fill="#16a34a"><title>language model: 0.03 s</title></rect>
+<rect x="259.0" y="366" width="0.8" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="265.8" y="387.08" class="val">0.82 s</text>
+</svg>
+<h3>Longer phrases (same colours)</h3>
+<svg viewBox="0 0 860 420" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="140" y="37.08" text-anchor="end" class="lbl">1.1</text>
+<rect x="150.0" y="16" width="55.8" height="34" fill="#9ca3af"><title>waiting for the phrase to end: 0.42 s</title></rect>
+<rect x="205.8" y="16" width="3.8" height="34" fill="#a78bfa"><title>waiting for the processor: 0.03 s</title></rect>
+<rect x="209.6" y="16" width="22.0" height="34" fill="#d97706"><title>model rebuild: 0.17 s</title></rect>
+<rect x="231.6" y="16" width="21.9" height="34" fill="#0891b2"><title>audio features: 0.16 s</title></rect>
+<rect x="253.5" y="16" width="216.7" height="34" fill="#1d4ed8"><title>model: pointwise layers: 1.63 s</title></rect>
+<rect x="470.3" y="16" width="119.1" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.89 s</title></rect>
+<rect x="589.4" y="16" width="11.8" height="34" fill="#93c5fd"><title>model: adds and others: 0.09 s</title></rect>
+<rect x="601.2" y="16" width="22.1" height="34" fill="#16a34a"><title>language model: 0.17 s</title></rect>
+<rect x="623.3" y="16" width="2.0" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="631.3" y="37.08" class="val">3.56 s</text>
+<text x="140" y="87.08" text-anchor="end" class="lbl">1.2</text>
+<rect x="150.0" y="66" width="10.1" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.08 s</title></rect>
+<rect x="160.5" y="66" width="2.7" height="34" fill="#0891b2"><title>audio features: 0.02 s</title></rect>
+<rect x="163.2" y="66" width="145.2" height="34" fill="#1d4ed8"><title>model: pointwise layers: 1.09 s</title></rect>
+<rect x="308.4" y="66" width="79.3" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.59 s</title></rect>
+<rect x="387.7" y="66" width="6.4" height="34" fill="#93c5fd"><title>model: adds and others: 0.05 s</title></rect>
+<rect x="394.0" y="66" width="16.7" height="34" fill="#16a34a"><title>language model: 0.13 s</title></rect>
+<rect x="410.7" y="66" width="1.4" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="418.2" y="87.08" class="val">1.97 s</text>
+<text x="140" y="137.07999999999998" text-anchor="end" class="lbl">1.3</text>
+<rect x="150.0" y="116" width="21.0" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.16 s</title></rect>
+<rect x="171.4" y="116" width="2.4" height="34" fill="#0891b2"><title>audio features: 0.02 s</title></rect>
+<rect x="173.9" y="116" width="134.1" height="34" fill="#1d4ed8"><title>model: pointwise layers: 1.01 s</title></rect>
+<rect x="308.0" y="116" width="47.7" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.36 s</title></rect>
+<rect x="355.7" y="116" width="6.3" height="34" fill="#93c5fd"><title>model: adds and others: 0.05 s</title></rect>
+<rect x="361.9" y="116" width="15.6" height="34" fill="#16a34a"><title>language model: 0.12 s</title></rect>
+<rect x="377.6" y="116" width="1.4" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="385.0" y="137.07999999999998" class="val">1.72 s</text>
+<text x="140" y="187.07999999999998" text-anchor="end" class="lbl">1.4</text>
+<rect x="150.0" y="166" width="4.3" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.03 s</title></rect>
+<rect x="155.2" y="166" width="3.0" height="34" fill="#0891b2"><title>audio features: 0.02 s</title></rect>
+<rect x="158.2" y="166" width="149.2" height="34" fill="#1d4ed8"><title>model: pointwise layers: 1.12 s</title></rect>
+<rect x="307.4" y="166" width="53.2" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.40 s</title></rect>
+<rect x="360.6" y="166" width="6.9" height="34" fill="#93c5fd"><title>model: adds and others: 0.05 s</title></rect>
+<rect x="367.5" y="166" width="8.1" height="34" fill="#16a34a"><title>language model: 0.06 s</title></rect>
+<rect x="375.6" y="166" width="1.3" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="383.0" y="187.07999999999998" class="val">1.70 s</text>
+<text x="140" y="237.07999999999998" text-anchor="end" class="lbl">1.5</text>
+<rect x="150.0" y="216" width="17.8" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.13 s</title></rect>
+<rect x="168.3" y="216" width="2.5" height="34" fill="#0891b2"><title>audio features: 0.02 s</title></rect>
+<rect x="170.8" y="216" width="134.1" height="34" fill="#1d4ed8"><title>model: pointwise layers: 1.01 s</title></rect>
+<rect x="304.9" y="216" width="45.4" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.34 s</title></rect>
+<rect x="350.3" y="216" width="6.8" height="34" fill="#93c5fd"><title>model: adds and others: 0.05 s</title></rect>
+<rect x="357.1" y="216" width="7.4" height="34" fill="#16a34a"><title>language model: 0.06 s</title></rect>
+<rect x="364.5" y="216" width="1.5" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="372.0" y="237.07999999999998" class="val">1.62 s</text>
+<text x="140" y="287.08" text-anchor="end" class="lbl">1.6</text>
+<rect x="150.0" y="266" width="6.8" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.05 s</title></rect>
+<rect x="157.4" y="266" width="3.3" height="34" fill="#0891b2"><title>audio features: 0.02 s</title></rect>
+<rect x="160.6" y="266" width="143.5" height="34" fill="#1d4ed8"><title>model: pointwise layers: 1.08 s</title></rect>
+<rect x="304.1" y="266" width="48.8" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.37 s</title></rect>
+<rect x="352.9" y="266" width="7.2" height="34" fill="#93c5fd"><title>model: adds and others: 0.05 s</title></rect>
+<rect x="360.1" y="266" width="7.8" height="34" fill="#16a34a"><title>language model: 0.06 s</title></rect>
+<rect x="367.9" y="266" width="1.3" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="375.1" y="287.08" class="val">1.64 s</text>
+<text x="140" y="337.08" text-anchor="end" class="lbl">1.7</text>
+<rect x="150.0" y="316" width="21.8" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.16 s</title></rect>
+<rect x="172.2" y="316" width="2.8" height="34" fill="#0891b2"><title>audio features: 0.02 s</title></rect>
+<rect x="175.1" y="316" width="130.1" height="34" fill="#1d4ed8"><title>model: pointwise layers: 0.98 s</title></rect>
+<rect x="305.2" y="316" width="44.0" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.33 s</title></rect>
+<rect x="349.2" y="316" width="6.6" height="34" fill="#93c5fd"><title>model: adds and others: 0.05 s</title></rect>
+<rect x="355.8" y="316" width="7.2" height="34" fill="#16a34a"><title>language model: 0.05 s</title></rect>
+<rect x="363.0" y="316" width="1.4" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="370.4" y="337.08" class="val">1.61 s</text>
+<text x="140" y="387.08" text-anchor="end" class="lbl">1.8</text>
+<rect x="150.0" y="366" width="8.4" height="34" fill="#cbd5e1"><title>head start: 200 ms of quiet: 0.06 s</title></rect>
+<rect x="159.0" y="366" width="3.6" height="34" fill="#0891b2"><title>audio features: 0.03 s</title></rect>
+<rect x="162.6" y="366" width="142.6" height="34" fill="#1d4ed8"><title>model: pointwise layers: 1.07 s</title></rect>
+<rect x="305.2" y="366" width="48.5" height="34" fill="#60a5fa"><title>model: depthwise layers: 0.36 s</title></rect>
+<rect x="353.7" y="366" width="7.1" height="34" fill="#93c5fd"><title>model: adds and others: 0.05 s</title></rect>
+<rect x="360.9" y="366" width="7.8" height="34" fill="#16a34a"><title>language model: 0.06 s</title></rect>
+<rect x="368.6" y="366" width="1.4" height="34" fill="#db2777"><title>hand-off to the caption: 0.01 s</title></rect>
+<text x="376.0" y="387.08" class="val">1.65 s</text>
+</svg>
+<p class="foot">The model's split by layer type uses each build's own per-layer timing on the chip: 1.4 changed only the language-model decoder, so it uses 1.3's; 1.5 to 1.8 share one model build, timed in the 1.8 test sessions. 1.4 and 1.8 were run once (7-18 phrases per bar), so their bars are rougher; 2.0 is not shown because it was tested on conversation recordings, where it matched the same build without speaker labels clip by clip (-2 ms). Each bar starts when you stop talking and ends when the caption is ready, and the pieces are in the order they happen. Each bar is the average of the middle half of that group's phrases (so one odd phrase cannot skew it), so totals sit close to the medians above. With the head start, the model runs while the end-of-phrase wait is still going, so the grey wait mostly disappears; the light grey piece is the 200 ms of quiet the P4 needs before it starts. The model's split by layer type comes from each version's own per-layer timing on the chip (1.1: an older build of the same model).</p>
+<h3>Inside the model run, by layer type (a 5-second phrase)</h3>
+<svg viewBox="0 0 860 286" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="140" y="37.08" text-anchor="end" class="lbl">1.1*</text>
+<rect x="150.0" y="16" width="262.5" height="34" fill="#1d4ed8"><title>pointwise 512x512 (53): 1.07 s</title></rect>
+<rect x="412.5" y="16" width="34.6" height="34" fill="#3b82f6"><title>pointwise 256x256 (36): 0.14 s</title></rect>
+<rect x="447.1" y="16" width="17.8" height="34" fill="#93c5fd"><title>pointwise head + first (5): 0.07 s</title></rect>
+<rect x="464.9" y="16" width="68.3" height="34" fill="#0f766e"><title>depthwise k75 (15): 0.28 s</title></rect>
+<rect x="533.2" y="16" width="39.5" height="34" fill="#14b8a6"><title>depthwise k63 (15): 0.16 s</title></rect>
+<rect x="572.7" y="16" width="28.1" height="34" fill="#5eead4"><title>depthwise k51 (15): 0.11 s</title></rect>
+<rect x="600.8" y="16" width="20.3" height="34" fill="#a7f3d0"><title>depthwise k87 dilated (1): 0.08 s</title></rect>
+<rect x="621.1" y="16" width="17.6" height="34" fill="#d1fae5"><title>depthwise k33/k39 (31): 0.07 s</title></rect>
+<rect x="638.7" y="16" width="17.2" height="34" fill="#d97706"><title>adds + ReLU (30): 0.07 s</title></rect>
+<text x="661.8" y="37.08" class="val">2.06 s</text>
+<text x="140" y="87.08" text-anchor="end" class="lbl">1.2</text>
+<rect x="150.0" y="66" width="214.8" height="34" fill="#1d4ed8"><title>pointwise 512x512 (53): 0.87 s</title></rect>
+<rect x="364.8" y="66" width="32.8" height="34" fill="#3b82f6"><title>pointwise 256x256 (36): 0.13 s</title></rect>
+<rect x="397.6" y="66" width="14.4" height="34" fill="#93c5fd"><title>pointwise head + first (5): 0.06 s</title></rect>
+<rect x="412.1" y="66" width="54.6" height="34" fill="#0f766e"><title>depthwise k75 (15): 0.22 s</title></rect>
+<rect x="466.7" y="66" width="34.8" height="34" fill="#14b8a6"><title>depthwise k63 (15): 0.14 s</title></rect>
+<rect x="501.4" y="66" width="26.2" height="34" fill="#5eead4"><title>depthwise k51 (15): 0.11 s</title></rect>
+<rect x="527.6" y="66" width="10.2" height="34" fill="#a7f3d0"><title>depthwise k87 dilated (1): 0.04 s</title></rect>
+<rect x="537.7" y="66" width="16.9" height="34" fill="#d1fae5"><title>depthwise k33/k39 (31): 0.07 s</title></rect>
+<rect x="554.7" y="66" width="11.5" height="34" fill="#d97706"><title>adds + ReLU (30): 0.05 s</title></rect>
+<text x="572.2" y="87.08" class="val">1.69 s</text>
+<text x="140" y="137.07999999999998" text-anchor="end" class="lbl">1.3, 1.4</text>
+<rect x="150.0" y="116" width="205.5" height="34" fill="#1d4ed8"><title>pointwise 512x512 (53): 0.83 s</title></rect>
+<rect x="355.5" y="116" width="34.1" height="34" fill="#3b82f6"><title>pointwise 256x256 (36): 0.14 s</title></rect>
+<rect x="389.6" y="116" width="12.8" height="34" fill="#93c5fd"><title>pointwise head + first (5): 0.05 s</title></rect>
+<rect x="402.5" y="116" width="26.1" height="34" fill="#0f766e"><title>depthwise k75 (15): 0.11 s</title></rect>
+<rect x="428.6" y="116" width="22.5" height="34" fill="#14b8a6"><title>depthwise k63 (15): 0.09 s</title></rect>
+<rect x="451.0" y="116" width="20.0" height="34" fill="#5eead4"><title>depthwise k51 (15): 0.08 s</title></rect>
+<rect x="471.0" y="116" width="3.3" height="34" fill="#a7f3d0"><title>depthwise k87 dilated (1): 0.01 s</title></rect>
+<rect x="474.3" y="116" width="18.0" height="34" fill="#d1fae5"><title>depthwise k33/k39 (31): 0.07 s</title></rect>
+<rect x="492.3" y="116" width="11.8" height="34" fill="#d97706"><title>adds + ReLU (30): 0.05 s</title></rect>
+<text x="510.1" y="137.07999999999998" class="val">1.44 s</text>
+<text x="140" y="187.07999999999998" text-anchor="end" class="lbl">1.5-1.8</text>
+<rect x="150.0" y="166" width="205.8" height="34" fill="#1d4ed8"><title>pointwise 512x512 (53): 0.84 s</title></rect>
+<rect x="355.8" y="166" width="31.0" height="34" fill="#3b82f6"><title>pointwise 256x256 (36): 0.13 s</title></rect>
+<rect x="386.8" y="166" width="12.8" height="34" fill="#93c5fd"><title>pointwise head + first (5): 0.05 s</title></rect>
+<rect x="399.6" y="166" width="25.3" height="34" fill="#0f766e"><title>depthwise k75 (15): 0.10 s</title></rect>
+<rect x="424.9" y="166" width="21.5" height="34" fill="#14b8a6"><title>depthwise k63 (15): 0.09 s</title></rect>
+<rect x="446.4" y="166" width="18.8" height="34" fill="#5eead4"><title>depthwise k51 (15): 0.08 s</title></rect>
+<rect x="465.2" y="166" width="3.3" height="34" fill="#a7f3d0"><title>depthwise k87 dilated (1): 0.01 s</title></rect>
+<rect x="468.5" y="166" width="15.7" height="34" fill="#d1fae5"><title>depthwise k33/k39 (31): 0.06 s</title></rect>
+<rect x="484.2" y="166" width="12.6" height="34" fill="#d97706"><title>adds + ReLU (30): 0.05 s</title></rect>
+<text x="502.8" y="187.07999999999998" class="val">1.41 s</text>
+<rect x="150" y="224" width="12" height="12" fill="#1d4ed8"/>
+<text x="166" y="234" class="note">pointwise 512x512 (53)</text>
+<rect x="346.4" y="224" width="12" height="12" fill="#3b82f6"/>
+<text x="362.4" y="234" class="note">pointwise 256x256 (36)</text>
+<rect x="542.8" y="224" width="12" height="12" fill="#93c5fd"/>
+<text x="558.8" y="234" class="note">pointwise head + first (5)</text>
+<rect x="150" y="242" width="12" height="12" fill="#0f766e"/>
+<text x="166" y="252" class="note">depthwise k75 (15)</text>
+<rect x="317.6" y="242" width="12" height="12" fill="#14b8a6"/>
+<text x="333.6" y="252" class="note">depthwise k63 (15)</text>
+<rect x="485.20000000000005" y="242" width="12" height="12" fill="#5eead4"/>
+<text x="501.20000000000005" y="252" class="note">depthwise k51 (15)</text>
+<rect x="150" y="260" width="12" height="12" fill="#a7f3d0"/>
+<text x="166" y="270" class="note">depthwise k87 dilated (1)</text>
+<rect x="368.0" y="260" width="12" height="12" fill="#d1fae5"/>
+<text x="384.0" y="270" class="note">depthwise k33/k39 (31)</text>
+<rect x="564.4" y="260" width="12" height="12" fill="#d97706"/>
+<text x="580.4" y="270" class="note">adds + ReLU (30)</text>
+</svg>
+<p class="foot">Numbers in brackets are how many layers of that type the model has. Depthwise layers are 9% of the model's arithmetic but took about a third of its time: each step read more data than the chip's 64 KB fast cache holds. Working in 64-channel blocks and splitting the channels across both cores fixed that, with bit-identical output. 1.5's prepared layer setups took a further 30 ms off, mostly in the smaller layers, where setup is a larger share; the 512-wide pointwise layers are now 60% of the run. *1.1's split comes from an older per-layer profile of the same model.</p>
+<h3>What each change did (compared one at a time)</h3>
+<svg viewBox="0 0 1000 885" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<line x1="620" y1="0" x2="620" y2="869" stroke="#6b7280" stroke-width="1"/>
+<text x="614" y="882" text-anchor="end" class="note">← faster</text>
+<text x="626" y="882" class="note">slower →</text>
+<text x="310" y="25.799999999999997" text-anchor="end" class="lbl">Larger cache line (128 B L2)</text>
+<rect x="466.5" y="9" width="153.5" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="25.799999999999997" class="val">-344 ms</text>
+<text x="310" y="58.8" text-anchor="end" class="lbl">Build the model once per session</text>
+<rect x="536.6" y="42" width="83.4" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="58.8" class="val">-187 ms  (now in PSRAM)</text>
+<text x="310" y="91.8" text-anchor="end" class="lbl">Faster memory clock 250 MHz</text>
+<rect x="589.7" y="75" width="30.3" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="91.8" class="val">-68 ms  (not used yet)</text>
+<text x="310" y="124.8" text-anchor="end" class="lbl">Compiler -O2 for speech code</text>
+<rect x="601.7" y="108" width="18.3" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="124.8" class="val">-41 ms</text>
+<text x="310" y="157.8" text-anchor="end" class="lbl">Features computed while you talk</text>
+<rect x="566.5" y="141" width="53.5" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="157.8" class="val">-120 ms</text>
+<text x="310" y="190.8" text-anchor="end" class="lbl">Cheaper pause between model stages</text>
+<rect x="589.2" y="174" width="30.8" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="190.8" class="val">-69 ms</text>
+<text x="310" y="223.8" text-anchor="end" class="lbl">16 KB filter tiles</text>
+<rect x="594.1" y="207" width="25.9" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="223.8" class="val">-58 ms</text>
+<text x="310" y="256.8" text-anchor="end" class="lbl">Early final + silence trim</text>
+<rect x="396.5" y="240" width="223.5" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="256.8" class="val">-501 ms</text>
+<text x="310" y="289.8" text-anchor="end" class="lbl">Short replies close after 1 s silence</text>
+<rect x="330.0" y="273" width="290.0" height="24" rx="3" fill="#16a34a"/>
+<text x="338.0" y="289.8" class="val" style="fill:#fff">-2.2 s  (short replies)</text>
+<text x="310" y="322.8" text-anchor="end" class="lbl">Both cores for long filters</text>
+<rect x="620.0" y="306" width="36.1" height="24" rx="3" fill="#dc2626"/>
+<text x="662.1" y="322.8" class="val">+81 ms  (rejected)</text>
+<text x="310" y="355.8" text-anchor="end" class="lbl">Smaller frame tiles</text>
+<rect x="620.0" y="339" width="113.8" height="24" rx="3" fill="#dc2626"/>
+<text x="739.8" y="355.8" class="val">+255 ms  (rejected)</text>
+<text x="310" y="388.8" text-anchor="end" class="lbl">Depthwise in 64-channel blocks</text>
+<rect x="477.2" y="372" width="142.8" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="388.8" class="val">-320 ms  (6.6 s input; 0 on 4 s)</text>
+<text x="310" y="421.8" text-anchor="end" class="lbl">+ both cores, split by channels</text>
+<rect x="572.3" y="405" width="47.7" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="421.8" class="val">-107 ms  (4 s input; -96 on 2.5 s)</text>
+<text x="310" y="454.8" text-anchor="end" class="lbl">+ 64-step pointwise tiles</text>
+<rect x="579.0" y="438" width="41.0" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="454.8" class="val">-92 ms  (4 s; -136 on 6.6 s)</text>
+<text x="310" y="487.8" text-anchor="end" class="lbl">Head start for short replies</text>
+<rect x="356.8" y="471" width="263.2" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="487.8" class="val">-590 ms  (short replies, median)</text>
+<text x="310" y="520.8" text-anchor="end" class="lbl">Bigger 256 KB cache (4 s input)</text>
+<rect x="512.9" y="504" width="107.1" height="24" rx="3" fill="#9ca3af"/>
+<text x="628.0" y="520.8" class="val">-240 ms  (Rejected for excessive RAM consumption)</text>
+<text x="310" y="553.8" text-anchor="end" class="lbl">1.4: faster LM decoder</text>
+<rect x="595.0" y="537" width="25.0" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="553.8" class="val">-56 ms  (LM step per phrase, same text)</text>
+<text x="310" y="586.8" text-anchor="end" class="lbl">1.5: layer setups prepared once</text>
+<rect x="597.7" y="570" width="22.3" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="586.8" class="val">-50 ms  (43-57 ms, fixed audio; 0 internal RAM)</text>
+<text x="310" y="619.8" text-anchor="end" class="lbl">Tail 100 ms instead of 200 ms (long phrases)</text>
+<rect x="554.4" y="603" width="65.6" height="24" rx="3" fill="#9ca3af"/>
+<text x="628.0" y="619.8" class="val">-147 ms  (rejected: +1.1 WER points)</text>
+<text x="310" y="652.8" text-anchor="end" class="lbl">Tail 150 ms instead of 200 ms</text>
+<rect x="610.2" y="636" width="9.8" height="24" rx="3" fill="#9ca3af"/>
+<text x="628.0" y="652.8" class="val">-22 ms  (rejected: no clear gain)</text>
+<text x="310" y="685.8" text-anchor="end" class="lbl">Pointwise split by channels</text>
+<rect x="620.0" y="669" width="127.6" height="24" rx="3" fill="#dc2626"/>
+<text x="753.6" y="685.8" class="val">+286 ms  (rejected (4 s input))</text>
+<text x="310" y="718.8" text-anchor="end" class="lbl">Vector ReLU (branch only)</text>
+<rect x="616.9" y="702" width="3.1" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="718.8" class="val">-7 ms  (3-10 ms, fixed audio)</text>
+<text x="310" y="751.8" text-anchor="end" class="lbl">1.6: grab audio from a running preview</text>
+<rect x="605.7" y="735" width="14.3" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="751.8" class="val">-32 ms  (head-start wait, longer phrases)</text>
+<text x="310" y="784.8" text-anchor="end" class="lbl">16 ms mic chunks</text>
+<rect x="620.0" y="768" width="10.7" height="24" rx="3" fill="#dc2626"/>
+<text x="636.7" y="784.8" class="val">+24 ms  (rejected: -22 ms short, +21-27 ms longer)</text>
+<text x="310" y="817.8" text-anchor="end" class="lbl">1.7: 10 s phrase cap</text>
+<rect x="604.7" y="801" width="15.3" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="817.8" class="val">-34 ms  (long speech; +3.8 MB PSRAM free)</text>
+<text x="310" y="850.8" text-anchor="end" class="lbl">2.0: speaker labels in background</text>
+<rect x="618.9" y="834" width="2.0" height="24" rx="3" fill="#16a34a"/>
+<text x="628.0" y="850.8" class="val">-2 ms  (no caption cost (matched))</text>
+</svg>
+<p class="foot">The chip has no neural-net accelerator; its SIMD units were mostly waiting on memory. That is why the cache line was the biggest early win, and why using both cores only paid off once each core worked on its own channels. The last five rows were measured on fixed test audio (model time) or, for short replies, in speaker sessions.</p>
+
+
+<h2>3b. Through the G2 glasses (Bluetooth)</h2>
+<p>With the glasses, the speech engine on the P4 is the same; Bluetooth adds the trip in (mic audio) and the trip out (the caption). Green boxes are the parts this work changed.</p>
+<svg viewBox="0 0 900 208" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#6b7280"/></marker></defs>
+<rect x="8" y="8" width="150" height="58" rx="8" fill="none" stroke="#9ca3af" stroke-width="2.5"/>
+<text x="83.0" y="32" text-anchor="middle" class="val">G2 mic</text>
+<text x="83.0" y="51" text-anchor="middle" class="note">left temple</text>
+<line x1="160" y1="37.0" x2="183" y2="37.0" stroke="#6b7280" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="186" y="8" width="150" height="58" rx="8" fill="none" stroke="#9ca3af" stroke-width="2.5"/>
+<text x="261.0" y="32" text-anchor="middle" class="val">LC3 encode</text>
+<text x="261.0" y="51" text-anchor="middle" class="note">10 ms frames</text>
+<line x1="338" y1="37.0" x2="361" y2="37.0" stroke="#6b7280" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="364" y="8" width="150" height="58" rx="8" fill="none" stroke="#9ca3af" stroke-width="2.5"/>
+<text x="439.0" y="32" text-anchor="middle" class="val">Bluetooth LE</text>
+<text x="439.0" y="51" text-anchor="middle" class="note">1 packet / 50 ms</text>
+<line x1="516" y1="37.0" x2="539" y2="37.0" stroke="#6b7280" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="542" y="8" width="150" height="58" rx="8" fill="none" stroke="#9ca3af" stroke-width="2.5"/>
+<text x="617.0" y="32" text-anchor="middle" class="val">C6 radio chip</text>
+<text x="617.0" y="51" text-anchor="middle" class="note">to the P4 (SDIO)</text>
+<line x1="694" y1="37.0" x2="717" y2="37.0" stroke="#6b7280" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="720" y="8" width="150" height="58" rx="8" fill="none" stroke="#9ca3af" stroke-width="2.5"/>
+<text x="795.0" y="32" text-anchor="middle" class="val">LC3 decode</text>
+<text x="795.0" y="51" text-anchor="middle" class="note">on the P4</text>
+<path d="M795.0,68 L795.0,89.0 L83.0,89.0 L83.0,108" fill="none" stroke="#6b7280" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="8" y="112" width="150" height="58" rx="8" fill="none" stroke="#16a34a" stroke-width="2.5"/>
+<text x="83.0" y="136" text-anchor="middle" class="val">Phrase detector</text>
+<text x="83.0" y="155" text-anchor="middle" class="note">end + short replies</text>
+<line x1="160" y1="141.0" x2="183" y2="141.0" stroke="#6b7280" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="186" y="112" width="150" height="58" rx="8" fill="none" stroke="#16a34a" stroke-width="2.5"/>
+<text x="261.0" y="136" text-anchor="middle" class="val">Speech model</text>
+<text x="261.0" y="155" text-anchor="middle" class="note">int8, ESP-DL</text>
+<line x1="338" y1="141.0" x2="361" y2="141.0" stroke="#6b7280" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="364" y="112" width="150" height="58" rx="8" fill="none" stroke="#16a34a" stroke-width="2.5"/>
+<text x="439.0" y="136" text-anchor="middle" class="val">Language model</text>
+<text x="439.0" y="155" text-anchor="middle" class="note">word search</text>
+<line x1="516" y1="141.0" x2="539" y2="141.0" stroke="#6b7280" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="542" y="112" width="150" height="58" rx="8" fill="none" stroke="#16a34a" stroke-width="2.5"/>
+<text x="617.0" y="136" text-anchor="middle" class="val">Caption sender</text>
+<text x="617.0" y="155" text-anchor="middle" class="note">wakes on publish</text>
+<line x1="694" y1="141.0" x2="717" y2="141.0" stroke="#6b7280" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="720" y="112" width="150" height="58" rx="8" fill="none" stroke="#9ca3af" stroke-width="2.5"/>
+<text x="795.0" y="136" text-anchor="middle" class="val">Bluetooth LE</text>
+<text x="795.0" y="155" text-anchor="middle" class="note">right temple</text>
+</svg>
+<h3>End of speech to caption on the glasses (longer phrases)</h3>
+<svg viewBox="0 0 760 468" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="220" y="37.08" text-anchor="end" class="lbl">1.1</text>
+<rect x="230.0" y="16" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="16" width="69.0" height="34" fill="#9ca3af"><title>end-of-phrase wait: 0.60 s</title></rect>
+<rect x="308.2" y="16" width="321.1" height="34" fill="#2563eb"><title>speech processing: 2.79 s</title></rect>
+<rect x="629.3" y="16" width="12.7" height="34" fill="#d97706"><title>caption timer: 0.11 s</title></rect>
+<rect x="641.9" y="16" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="656.0" y="37.08" class="val">3.65 s</text>
+<text x="220" y="87.08" text-anchor="end" class="lbl">1.2</text>
+<rect x="230.0" y="66" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="66" width="227.7" height="34" fill="#2563eb"><title>speech processing: 1.98 s</title></rect>
+<rect x="466.9" y="66" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="480.9" y="87.08" class="val">2.13 s</text>
+<text x="220" y="137.07999999999998" text-anchor="end" class="lbl">1.3</text>
+<rect x="230.0" y="116" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="116" width="202.2" height="34" fill="#2563eb"><title>speech processing: 1.76 s</title></rect>
+<rect x="441.4" y="116" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="455.5" y="137.07999999999998" class="val">1.91 s</text>
+<text x="220" y="187.07999999999998" text-anchor="end" class="lbl">1.4</text>
+<rect x="230.0" y="166" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="166" width="195.3" height="34" fill="#2563eb"><title>speech processing: 1.70 s</title></rect>
+<rect x="434.5" y="166" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="448.5" y="187.07999999999998" class="val">1.85 s</text>
+<text x="220" y="237.07999999999998" text-anchor="end" class="lbl">1.5</text>
+<rect x="230.0" y="216" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="216" width="187.4" height="34" fill="#2563eb"><title>speech processing: 1.63 s</title></rect>
+<rect x="426.6" y="216" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="440.7" y="237.07999999999998" class="val">1.78 s</text>
+<text x="220" y="287.08" text-anchor="end" class="lbl">1.6</text>
+<rect x="230.0" y="266" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="266" width="192.4" height="34" fill="#2563eb"><title>speech processing: 1.67 s</title></rect>
+<rect x="431.6" y="266" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="445.7" y="287.08" class="val">1.82 s</text>
+<text x="220" y="337.08" text-anchor="end" class="lbl">1.7</text>
+<rect x="230.0" y="316" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="316" width="184.3" height="34" fill="#2563eb"><title>speech processing: 1.60 s</title></rect>
+<rect x="423.5" y="316" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="437.6" y="337.08" class="val">1.75 s</text>
+<text x="220" y="387.08" text-anchor="end" class="lbl">1.8</text>
+<rect x="230.0" y="366" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="366" width="198.4" height="34" fill="#2563eb"><title>speech processing: 1.73 s</title></rect>
+<rect x="437.6" y="366" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="451.6" y="387.08" class="val">1.88 s</text>
+<rect x="230" y="424" width="12" height="12" fill="#64748b"/>
+<text x="246" y="434" class="note">mic audio over Bluetooth (est.)</text>
+<rect x="491.20000000000005" y="424" width="12" height="12" fill="#9ca3af"/>
+<text x="507.20000000000005" y="434" class="note">end-of-phrase wait</text>
+<rect x="230" y="442" width="12" height="12" fill="#2563eb"/>
+<text x="246" y="452" class="note">speech processing</text>
+<rect x="390.4" y="442" width="12" height="12" fill="#d97706"/>
+<text x="406.4" y="452" class="note">caption timer</text>
+<rect x="522.0" y="442" width="12" height="12" fill="#16a34a"/>
+<text x="538.0" y="452" class="note">caption to glasses + ack</text>
+</svg>
+<h3>Short replies ("yeah", "okay")</h3>
+<svg viewBox="0 0 760 468" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="220" y="37.08" text-anchor="end" class="lbl">1.1</text>
+<rect x="230.0" y="16" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="16" width="391.0" height="34" fill="#2563eb"><title>wait + processing: 3.40 s</title></rect>
+<rect x="630.2" y="16" width="12.7" height="34" fill="#d97706"><title>caption timer: 0.11 s</title></rect>
+<rect x="642.9" y="16" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="656.9" y="37.08" class="val">3.66 s</text>
+<text x="220" y="87.08" text-anchor="end" class="lbl">1.2</text>
+<rect x="230.0" y="66" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="66" width="166.8" height="34" fill="#2563eb"><title>wait + processing: 1.45 s</title></rect>
+<rect x="405.9" y="66" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="420.0" y="87.08" class="val">1.60 s</text>
+<text x="220" y="137.07999999999998" text-anchor="end" class="lbl">1.3</text>
+<rect x="230.0" y="116" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="116" width="102.6" height="34" fill="#2563eb"><title>wait + processing: 0.89 s</title></rect>
+<rect x="341.8" y="116" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="355.8" y="137.07999999999998" class="val">1.04 s</text>
+<text x="220" y="187.07999999999998" text-anchor="end" class="lbl">1.4</text>
+<rect x="230.0" y="166" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="166" width="63.8" height="34" fill="#2563eb"><title>wait + processing: 0.55 s</title></rect>
+<rect x="303.0" y="166" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="317.0" y="187.07999999999998" class="val">0.70 s</text>
+<text x="220" y="237.07999999999998" text-anchor="end" class="lbl">1.5</text>
+<rect x="230.0" y="216" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="216" width="101.7" height="34" fill="#2563eb"><title>wait + processing: 0.88 s</title></rect>
+<rect x="340.9" y="216" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="354.9" y="237.07999999999998" class="val">1.03 s</text>
+<text x="220" y="287.08" text-anchor="end" class="lbl">1.6</text>
+<rect x="230.0" y="266" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="266" width="101.0" height="34" fill="#2563eb"><title>wait + processing: 0.88 s</title></rect>
+<rect x="340.2" y="266" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="354.3" y="287.08" class="val">1.03 s</text>
+<text x="220" y="337.08" text-anchor="end" class="lbl">1.7</text>
+<rect x="230.0" y="316" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="316" width="82.8" height="34" fill="#2563eb"><title>wait + processing: 0.72 s</title></rect>
+<rect x="322.0" y="316" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="336.0" y="337.08" class="val">0.87 s</text>
+<text x="220" y="387.08" text-anchor="end" class="lbl">1.8</text>
+<rect x="230.0" y="366" width="9.2" height="34" fill="#64748b"><title>mic audio over Bluetooth (est.): 0.08 s</title></rect>
+<rect x="239.2" y="366" width="99.1" height="34" fill="#2563eb"><title>wait + processing: 0.86 s</title></rect>
+<rect x="338.3" y="366" width="8.1" height="34" fill="#16a34a"><title>caption to glasses + ack: 0.07 s</title></rect>
+<text x="352.3" y="387.08" class="val">1.01 s</text>
+<rect x="230" y="424" width="12" height="12" fill="#64748b"/>
+<text x="246" y="434" class="note">mic audio over Bluetooth (est.)</text>
+<rect x="491.20000000000005" y="424" width="12" height="12" fill="#2563eb"/>
+<text x="507.20000000000005" y="434" class="note">wait + processing</text>
+<rect x="230" y="442" width="12" height="12" fill="#d97706"/>
+<text x="246" y="452" class="note">caption timer</text>
+<rect x="361.6" y="442" width="12" height="12" fill="#16a34a"/>
+<text x="377.6" y="452" class="note">caption to glasses + ack</text>
+</svg>
+<p class="foot">Measured: speech processing (P4, same engine as with the glasses), the caption timer (0-200 ms, about 0.11 s on average; from 1.2 on the sender wakes as soon as a caption is ready) and the caption write to the glasses with its acknowledgement (30-102 ms). Estimated: the mic audio trip over Bluetooth (packets every 50 ms plus radio transfer; not measured directly) and the glasses' own drawing time (not included). From 1.2 on the end-of-phrase wait and the processing overlap (the final starts early), so they are one blue bar. With the glasses 1.2 should land at about 2.1 s for longer phrases and 1.3 at about 1.9 s (short replies about 1.0 s), and 1.4-1.8 at about 1.8-1.9 s (short replies 0.7-1.0 s), against about 3.7 s; none of them has been timed on the glasses yet. 2.0 is not shown: its speaker labels add nothing to the caption path (section 6), so it behaves like 1.8. Earlier glasses logs reported 3.6-5.5 s because up to ~1 s of that was a clock offset in the glasses' audio stream, not real delay.</p>
+
+<h2>4. Memory and accuracy by version</h2>
+<h3>Lowest free PSRAM during a session (standard playlist)</h3>
+<svg viewBox="0 0 760 370" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.1</text>
+<rect x="300" y="10" width="143.9" height="26" rx="4" fill="#9ca3af"/>
+<text x="449.9" y="27.68" class="val">4.15 MB</text>
+<text x="756" y="27.68" text-anchor="end" class="note">model rebuilt per phrase</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.2</text>
+<rect x="300" y="46" width="86.3" height="26" rx="4" fill="#2563eb"/>
+<text x="392.3" y="63.68" class="val">2.49 MB</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.3</text>
+<rect x="300" y="82" width="84.9" height="26" rx="4" fill="#2563eb"/>
+<text x="390.9" y="99.68" class="val">2.45 MB</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">1.4</text>
+<rect x="300" y="118" width="84.2" height="26" rx="4" fill="#16a34a"/>
+<text x="390.2" y="135.68" class="val">2.43 MB</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">1.5</text>
+<rect x="300" y="154" width="78.7" height="26" rx="4" fill="#16a34a"/>
+<text x="384.7" y="171.68" class="val">2.27 MB</text>
+<text x="290" y="207.68" text-anchor="end" class="lbl">1.6</text>
+<rect x="300" y="190" width="78.0" height="26" rx="4" fill="#16a34a"/>
+<text x="384.0" y="207.68" class="val">2.25 MB</text>
+<text x="290" y="243.68" text-anchor="end" class="lbl">1.7</text>
+<rect x="300" y="226" width="182.0" height="26" rx="4" fill="#16a34a"/>
+<text x="488.0" y="243.68" class="val">5.25 MB</text>
+<text x="290" y="279.68" text-anchor="end" class="lbl">1.8</text>
+<rect x="300" y="262" width="216.7" height="26" rx="4" fill="#16a34a"/>
+<text x="522.7" y="279.68" class="val">6.25 MB</text>
+<text x="756" y="279.68" text-anchor="end" class="note">LM 1.6 MB</text>
+<text x="290" y="315.68" text-anchor="end" class="lbl">2.0 (with 2.5 MB LM)</text>
+<rect x="300" y="298" width="70.7" height="26" rx="4" fill="#d97706"/>
+<text x="376.7" y="315.68" class="val">2.04 MB</text>
+<text x="756" y="315.68" text-anchor="end" class="note">speaker model 3.4 MB</text>
+<text x="290" y="351.68" text-anchor="end" class="lbl">2.0 (with 1.6 MB LM)</text>
+<rect x="300" y="334" width="104.7" height="26" rx="4" fill="#16a34a"/>
+<text x="410.7" y="351.68" class="val">3.02 MB</text>
+<text x="756" y="351.68" text-anchor="end" class="note">shipped combination</text>
+</svg>
+<h3>Lowest free PSRAM on long unbroken speech</h3>
+<svg viewBox="0 0 760 82" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.6, long speech</text>
+<rect x="300" y="10" width="56.5" height="26" rx="4" fill="#2563eb"/>
+<text x="362.5" y="27.68" class="val">1.63 MB</text>
+<text x="756" y="27.68" text-anchor="end" class="note">20 s phrase buffers</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.7, long speech</text>
+<rect x="300" y="46" width="188.9" height="26" rx="4" fill="#16a34a"/>
+<text x="494.9" y="63.68" class="val">5.45 MB</text>
+<text x="756" y="63.68" text-anchor="end" class="note">10 s phrase buffers</text>
+</svg>
+<p class="foot">Out of 32 MB. 1.1 rebuilt the model for every phrase, so it held less between phrases. From 1.2 the model and its working area stay for the session (about 2.6 MB more). 1.7 halves the five session audio buffers and the feature caches: 2.7 MB more free after warm-up, and 3.8 MB more at the lowest point on long speech, where phrases used to reach 20 s. 1.8's smaller LM gives back 0.9 MB. 2.0's speaker model takes 3.4 MB: with the 1.6 MB LM about 3 MB stays free at the lowest point.</p>
+<h3>Lowest free internal RAM during a session</h3>
+<svg viewBox="0 0 760 334" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.1</text>
+<rect x="300" y="10" width="51.6" height="26" rx="4" fill="#9ca3af"/>
+<text x="357.6" y="27.68" class="val">44 KB</text>
+<text x="756" y="27.68" text-anchor="end" class="note">dip in each phrase rebuild</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.2</text>
+<rect x="300" y="46" width="135.9" height="26" rx="4" fill="#2563eb"/>
+<text x="441.9" y="63.68" class="val">116 KB</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.3</text>
+<rect x="300" y="82" width="136.0" height="26" rx="4" fill="#2563eb"/>
+<text x="442.0" y="99.68" class="val">117 KB</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">1.4</text>
+<rect x="300" y="118" width="131.1" height="26" rx="4" fill="#16a34a"/>
+<text x="437.1" y="135.68" class="val">112 KB</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">1.5</text>
+<rect x="300" y="154" width="135.8" height="26" rx="4" fill="#16a34a"/>
+<text x="441.8" y="171.68" class="val">116 KB</text>
+<text x="290" y="207.68" text-anchor="end" class="lbl">1.6</text>
+<rect x="300" y="190" width="135.7" height="26" rx="4" fill="#16a34a"/>
+<text x="441.7" y="207.68" class="val">116 KB</text>
+<text x="290" y="243.68" text-anchor="end" class="lbl">1.7</text>
+<rect x="300" y="226" width="166.7" height="26" rx="4" fill="#16a34a"/>
+<text x="472.7" y="243.68" class="val">143 KB</text>
+<text x="756" y="243.68" text-anchor="end" class="note">test setup: +17 KB at boot from batch 17</text>
+<text x="290" y="279.68" text-anchor="end" class="lbl">1.8</text>
+<rect x="300" y="262" width="166.9" height="26" rx="4" fill="#16a34a"/>
+<text x="472.9" y="279.68" class="val">143 KB</text>
+<text x="290" y="315.68" text-anchor="end" class="lbl">2.0</text>
+<rect x="300" y="298" width="155.9" height="26" rx="4" fill="#d97706"/>
+<text x="461.9" y="315.68" class="val">134 KB</text>
+<text x="756" y="315.68" text-anchor="end" class="note">speaker model load</text>
+</svg>
+<p class="foot">Internal RAM is the scarce kind (about 260-280 KB free at boot). 1.1 dipped to about 44 KB while it rebuilt the model for each phrase; from 1.2 the model is built once and its bookkeeping is requested from PSRAM. From test batch 17 on (during 1.6's tests) the same firmware booted with about 17 KB more free internal RAM, so the step to ~140 KB is a test-setup change, not the 10 s cap; compare versions within a batch. In the same batch, 2.0's speaker labels lower the low point by 6-11 KB (about 144 &rarr; 134 KB), set while ESP-DL builds the speaker model at session start.</p>
+<h3>Word errors, scored clip by clip (standard playlist, lower is better)</h3>
+<svg viewBox="0 0 760 298" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.1</text>
+<rect x="300" y="10" width="204.4" height="26" rx="4" fill="#9ca3af"/>
+<text x="510.4" y="27.68" class="val">19.7 %</text>
+<text x="756" y="27.68" text-anchor="end" class="note">3 sessions, 26 of 27 clips</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.2</text>
+<rect x="300" y="46" width="197.0" height="26" rx="4" fill="#2563eb"/>
+<text x="503.0" y="63.68" class="val">19.0 %</text>
+<text x="756" y="63.68" text-anchor="end" class="note">2 sessions, 26 of 27 clips</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.3</text>
+<rect x="300" y="82" width="196.6" height="26" rx="4" fill="#2563eb"/>
+<text x="502.6" y="99.68" class="val">18.9 %</text>
+<text x="756" y="99.68" text-anchor="end" class="note">3 sessions, 23 of 27 clips</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">1.4</text>
+<rect x="300" y="118" width="208.2" height="26" rx="4" fill="#16a34a"/>
+<text x="514.2" y="135.68" class="val">20.1 %</text>
+<text x="756" y="135.68" text-anchor="end" class="note">1 session, 25 of 27 clips</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">1.5</text>
+<rect x="300" y="154" width="190.3" height="26" rx="4" fill="#16a34a"/>
+<text x="496.3" y="171.68" class="val">18.3 %</text>
+<text x="756" y="171.68" text-anchor="end" class="note">11 sessions, 21 of 27 clips</text>
+<text x="290" y="207.68" text-anchor="end" class="lbl">1.6</text>
+<rect x="300" y="190" width="198.4" height="26" rx="4" fill="#16a34a"/>
+<text x="504.4" y="207.68" class="val">19.1 %</text>
+<text x="756" y="207.68" text-anchor="end" class="note">6 sessions, 22 of 27 clips</text>
+<text x="290" y="243.68" text-anchor="end" class="lbl">1.7</text>
+<rect x="300" y="226" width="189.0" height="26" rx="4" fill="#16a34a"/>
+<text x="495.0" y="243.68" class="val">18.2 %</text>
+<text x="756" y="243.68" text-anchor="end" class="note">3 sessions, 22 of 27 clips</text>
+<text x="290" y="279.68" text-anchor="end" class="lbl">1.8</text>
+<rect x="300" y="262" width="189.8" height="26" rx="4" fill="#16a34a"/>
+<text x="495.8" y="279.68" class="val">18.3 %</text>
+<text x="756" y="279.68" text-anchor="end" class="note">1 session, 25 of 27 clips</text>
+</svg>
+<p class="foot">Clips whose console text line was lost in any of that version's sessions are left out (a test-harness fault, not the firmware), so each version is scored on 21-26 of the 27 clips. Every version lands between 18.2% and 20.1%; sessions of the same build vary by about &plusmn;2 points. The speed changes are bit-identical on fixed test audio, so their text cannot change; the changes that alter what the model hears (1.2's early final and short-reply rule, 1.7's cut at 10 s) show no clear accuracy cost here. The one change that did cost accuracy, the 100 ms tail, was rejected.</p>
+
+<h2>5. The language model (1.8)</h2>
+<h3>Everyday speech: word errors by LM size (P4 recordings re-decoded on the Mac)</h3>
+<svg viewBox="0 0 760 226" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">No language model</text>
+<rect x="300" y="10" width="335.3" height="26" rx="4" fill="#dc2626"/>
+<text x="641.3" y="27.68" class="val">21.75 %</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.0 MB</text>
+<rect x="300" y="46" width="289.7" height="26" rx="4" fill="#2563eb"/>
+<text x="595.7" y="63.68" class="val">18.79 %</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.6 MB</text>
+<rect x="300" y="82" width="288.3" height="26" rx="4" fill="#2563eb"/>
+<text x="594.3" y="99.68" class="val">18.70 %</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">2.5 MB (1.1-1.7)</text>
+<rect x="300" y="118" width="288.3" height="26" rx="4" fill="#9ca3af"/>
+<text x="594.3" y="135.68" class="val">18.70 %</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">4.0 MB</text>
+<rect x="300" y="154" width="285.4" height="26" rx="4" fill="#2563eb"/>
+<text x="591.4" y="171.68" class="val">18.51 %</text>
+<text x="290" y="207.68" text-anchor="end" class="lbl">1.6 MB + 9.2k tech terms (1.8)</text>
+<rect x="300" y="190" width="286.1" height="26" rx="4" fill="#16a34a"/>
+<text x="592.1" y="207.68" class="val">18.56 %</text>
+<text x="756" y="207.68" text-anchor="end" class="note">chosen</text>
+</svg>
+<h3>Tech speech: 180 synthesized sentences (word errors; right column: unknown words recognised)</h3>
+<svg viewBox="0 0 760 190" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">No language model</text>
+<rect x="300" y="10" width="317.7" height="26" rx="4" fill="#dc2626"/>
+<text x="623.7" y="27.68" class="val">52.6 %</text>
+<text x="756" y="27.68" text-anchor="end" class="note">11 of 126</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">2.5 MB (1.1-1.7)</text>
+<rect x="300" y="46" width="302.6" height="26" rx="4" fill="#9ca3af"/>
+<text x="608.6" y="63.68" class="val">50.1 %</text>
+<text x="756" y="63.68" text-anchor="end" class="note">8 of 126</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">1.6 MB + tech terms (1.8)</text>
+<rect x="300" y="82" width="301.2" height="26" rx="4" fill="#16a34a"/>
+<text x="607.2" y="99.68" class="val">49.9 %</text>
+<text x="756" y="99.68" text-anchor="end" class="note">16 of 126</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">2.5 MB + terms + Wikipedia</text>
+<rect x="300" y="118" width="298.1" height="26" rx="4" fill="#2563eb"/>
+<text x="604.1" y="135.68" class="val">49.4 %</text>
+<text x="756" y="135.68" text-anchor="end" class="note">18 of 126</text>
+<text x="290" y="171.68" text-anchor="end" class="lbl">4.0 MB + terms + Wikipedia</text>
+<rect x="300" y="154" width="298.3" height="26" rx="4" fill="#2563eb"/>
+<text x="604.3" y="171.68" class="val">49.4 %</text>
+<text x="756" y="171.68" text-anchor="end" class="note">18 of 126</text>
+</svg>
+<p class="foot">The P4 logged each caption's raw speech-model output, and the Mac re-ran the device's exact decoder on it (it reproduces every device caption), so every LM was compared on identical audio. The LM is worth about 3 points; its size barely matters, because the speech model gets most words right on its own and the LM mainly breaks ties that depend on common word pairs, which every size keeps. Decode time is set by the speech, not by memory or the session's load, and is the same for every size. The tech term list doubles the unknown words recognised (8 &rarr; 16 of 126), but most tech words still fail: the speech model has never heard them and spells them by sound. The next training run adds synthesized tech speech to fix that at the source.</p>
+
+<h2>6. Speaker labels (1.9, 2.0)</h2>
+<p>Each finished phrase gets a session label, and saved transcript lines read "[Person N] text". The model (clova Fast ResNet-34, 1.4 M weights, 8-bit weights with 16-bit activations) turns a phrase into a voiceprint; phrases join the closest voice heard so far, or start a new one. A different speaker model can be dropped onto the card without new firmware.</p>
+<h3>Phrases labelled with the right person</h3>
+<svg viewBox="0 0 760 154" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">Mac: audiobooks</text>
+<rect x="300" y="10" width="281.7" height="26" rx="4" fill="#2563eb"/>
+<text x="587.7" y="27.68" class="val">95 %</text>
+<text x="756" y="27.68" text-anchor="end" class="note">21 conversations</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">Mac: parliament</text>
+<rect x="300" y="46" width="276.0" height="26" rx="4" fill="#2563eb"/>
+<text x="582.0" y="63.68" class="val">94 %</text>
+<text x="756" y="63.68" text-anchor="end" class="note">21 conversations</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">Mac: meetings</text>
+<rect x="300" y="82" width="235.0" height="26" rx="4" fill="#2563eb"/>
+<text x="541.0" y="99.68" class="val">80 %</text>
+<text x="756" y="99.68" text-anchor="end" class="note">short turns</text>
+<text x="290" y="135.68" text-anchor="end" class="lbl">P4: 4 conversations (1.9)</text>
+<rect x="300" y="118" width="268.7" height="26" rx="4" fill="#16a34a"/>
+<text x="574.7" y="135.68" class="val">91 %</text>
+<text x="756" y="135.68" text-anchor="end" class="note">2-4 people each</text>
+</svg>
+<h3>Labelling time per phrase</h3>
+<svg viewBox="0 0 760 118" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
+<text x="290" y="27.68" text-anchor="end" class="lbl">1.9, first build</text>
+<rect x="300" y="10" width="175.4" height="26" rx="4" fill="#9ca3af"/>
+<text x="481.4" y="27.68" class="val">1.42 s per phrase</text>
+<text x="756" y="27.68" text-anchor="end" class="note">in the speech worker</text>
+<text x="290" y="63.68" text-anchor="end" class="lbl">1.9, kernels + 3x3 blocking</text>
+<rect x="300" y="46" width="84.0" height="26" rx="4" fill="#2563eb"/>
+<text x="390.0" y="63.68" class="val">0.68 s per phrase</text>
+<text x="756" y="63.68" text-anchor="end" class="note">in the speech worker</text>
+<text x="290" y="99.68" text-anchor="end" class="lbl">2.0</text>
+<rect x="300" y="82" width="84.0" height="26" rx="4" fill="#16a34a"/>
+<text x="390.0" y="99.68" class="val">0.68 s per phrase</text>
+<text x="756" y="99.68" text-anchor="end" class="note">background task, captions never wait</text>
+</svg>
+<p class="foot">Device accuracy is from the four known-speaker conversations (2, 4, 3 and 3 people); repeat runs in the background build landed at 76-85% per conversation, within the run-to-run spread, and the device's voiceprints match the Mac's (cosine 0.997). Two similar audiobook readers merged into one person: their voiceprints are too close for any threshold, a limit of this small model. Turns under 2 s never start a new person. In 2.0, captions did not wait at all: matched clip by clip against the same build without labels, speech end to caption changed by -2 ms (95% range -11 to +4 ms). Labels reach the transcript 0.8-1.9 s after the caption (median); every saved line got its label, in order. Costs: 3.4 MB of PSRAM, about 110 KB of flash, about 0.5 s at session start, and 6-11 KB of internal RAM at the low point. The 3x3 layers of the speaker model got their own cache-sized blocking in ESP-DL (195 &rarr; 39 ms each, bit-identical).</p>
+
+<h2>7. Trade-offs still open</h2>
+<p class="warn"><b>Accuracy:</b> the 1.3 report flagged about 2.5 points more word errors for 1.2 (18.2% &rarr; 20.5% in raw session averages). Scored clip by clip with lost console lines left out, 1.1 to 1.8 all land between 18.2% and 20.1%, so that loss does not reproduce. Tech words are the clear weak spot (about 50% errors on tech sentences); the next training run targets them.</p>
+<p class="warn"><b>Memory:</b> correction to the 1.3 report: 1.1's internal RAM fell to about 44 KB during each phrase's model rebuild, not 117 KB; from 1.2 the low point is about 112-117 KB (about 143 KB in later test batches). The speaker model's load at session start lowers it by 6-11 KB; moving ESP-DL's short-lived build buffers to PSRAM explicitly would win that back. A 256 KB cache was measured 11-22% faster but costs 131 KB of internal RAM, so it was rejected for excessive RAM consumption; the cache stays at 128 KB.</p>
+<p class="warn"><b>Speaker labels:</b> similar voices can merge (a whole-conversation relabelling pass or a larger model would help, if memory allows); overlapping speech gets one label.</p>
+<p class="warn"><b>Not used yet:</b> the faster memory clock (-68 ms) needs a long stability test first. Not yet timed on the glasses themselves. 1.4-2.0 ran in test builds; the stt-speedups branch carries all of it but has not run on the P4 as a whole yet (planned for 0.99.98, after the 15x5 switch).</p>
+
+<h2>8. How it went</h2>
+<table><tr><td>Oct 3</td><td>General model on the P4 (Broad 23.11). Data moved to one external SSD.</td></tr><tr><td>Oct 5</td><td>Noise-only clip bug found and fixed (they were ~90% of the training signal). User: train from the ground up.</td></tr><tr><td>Oct 6-7</td><td>LR test: 2e-5 hurt early and never fully recovered; 1e-5 matched then beat the old model.</td></tr><tr><td>Oct 8</td><td>general2 1e-5: best model yet (Broad 22.80, invented words 30 -&gt; 9.5 per minute).</td></tr><tr><td>Oct 9</td><td>Deployed to the P4. Speed audit: 9 measurements, 54 ideas, 126 agents. Trainer 3x faster.</td></tr><tr><td>Oct 10</td><td>Six rounds of on-chip tests through the speaker and the P4 mic: caption delay 3.6 s -&gt; ~1.7 s.</td></tr><tr><td>Oct 10 (eve)</td><td>Per-layer timing on the chip: depthwise layers were 9% of the math but 34% of the time. Reordered (bit-identical) and head start for short replies: ~1.7 s -&gt; ~1.1 s. Bigger cache measured, rejected (RAM).</td></tr><tr><td>Oct 10 (18:30)</td><td>1.4: the language-model decoder rewritten, 63% faster on the P4 with identical text. All of 1.3 ported to the local stt-speedups branch.</td></tr><tr><td>Oct 11 (00:00-03:30)</td><td>1.5: every layer&#x27;s setup prepared once per session (no internal RAM). Its first build pushed free PSRAM under the LM&#x27;s 6 MB load rule, so the LM did not load; fixed. Tail tests: 100 ms cost 1.1 points of accuracy, 150 ms gained nothing clear; 200 ms kept.</td></tr><tr><td>Oct 11 (03:00-05:10)</td><td>1.6: the head start takes the audio straight away even while a preview runs (wait 77 -&gt; 45 ms). 16 ms mic chunks measured and rejected: the model ran 3% slower.</td></tr><tr><td>Oct 11 (05:30)</td><td>1.7: continuous phrases capped at 10 s. On long unbroken speech the lowest free PSRAM went from 1.6 to 5.4 MB.</td></tr><tr><td>Oct 11 (06:00-08:20)</td><td>LM probe: decode time is set by the speech, not by memory or load, and LM size changes memory, not speed. Tech vocabulary (9.2k terms) built; 1.8 = a 1.6 MB LM with the terms: same accuracy, 0.9 MB less PSRAM.</td></tr><tr><td>Oct 11 (08:30-09:35)</td><td>1.9: speaker labels on the P4 (91% of phrases right). 2.0: labelling moved to a background task; that exposed an ESP-IDF bug (a vector register not saved on task switches), fixed with the upstream patch.</td></tr><tr><td>Oct 11 (10:15-11:00)</td><td>1.6 MB LM installed on the card, speaker kernels trimmed, labelled transcript lines, diagnostics compiled out. Everything ported to the stt-speedups branch (builds, host tests pass).</td></tr></table>
+</main></body></html>

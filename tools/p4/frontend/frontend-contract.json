@@ -1,0 +1,65 @@
+{
+  "cmvn": {
+    "accumulator": "float64",
+    "mean_cast": "float32",
+    "scope": "whole valid utterance",
+    "std_epsilon": 1e-05,
+    "variance_cast_before_sqrt": "float32",
+    "variance_correction": 1
+  },
+  "ctc": {
+    "argmax_tie": "first",
+    "blank": 28,
+    "maximum_frames": 3000,
+    "trim": "leading and trailing spaces",
+    "vocabulary": " abcdefghijklmnopqrstuvwxyz'"
+  },
+  "dither": {
+    "algorithm": "xorshift32-box-muller-float32",
+    "amplitude": 1e-05,
+    "reset": "utterance",
+    "seed": "0x12345678",
+    "uniform": "float32(((uint32 >> 8) + 1) / 16777217.0)"
+  },
+  "input": {
+    "channels": 1,
+    "dtype": "int16",
+    "maximum_samples": 480000,
+    "minimum_samples": 320,
+    "preprocessed": false,
+    "sample_rate_hz": 16000,
+    "scale": 32768
+  },
+  "mel": {
+    "bins": 64,
+    "log_guard": 5.960464477539063e-08,
+    "power": 2,
+    "source": "checkpoint",
+    "sparse_nonzero": 498
+  },
+  "name": "hw1-quartznet5x5ls-en-frontend-v1",
+  "output": {
+    "dtype": "float32",
+    "frames": "ceil(samples/160)",
+    "layout": "T,64",
+    "maximum_frames": 3000,
+    "padding": false
+  },
+  "preemphasis": 0.97,
+  "schema": 1,
+  "source_sha256": {
+    "constants-manifest.json": "926d1b0057ee0694f4e895f2894a001d80eb49dd9dd4920d542d9c7ddff97653",
+    "quartznet_constants.h": "a77794cca23f329cccc5e8bc7176a20aed6e1412190586bf218f1ab46d602239",
+    "quartznet_frontend.cpp": "2fc57170be79a7ea0986df74469f73a226133bbcbcc5051243c9c2c7a9be4f84",
+    "quartznet_frontend.h": "262ab1adc28346294d77bfafa11c28ce2fcd78a45c240cbaebed21b072109acb",
+    "reference_frontend.py": "1858f72b50380e622d0956e5789ca648e02b4cdff5a89477cd4f81a1f4c1316d"
+  },
+  "stft": {
+    "center": true,
+    "fft": 512,
+    "hop": 160,
+    "padding": "reflect",
+    "window": 320,
+    "window_source": "checkpoint"
+  }
+}

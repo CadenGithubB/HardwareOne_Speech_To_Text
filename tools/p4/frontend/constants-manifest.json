@@ -1,0 +1,12 @@
+{
+  "window_sha256_f32le": "04cd824c6345899c4f55867458fffd1e20ea86bf61d83b9589d36624d35d7ccc",
+  "mel_sha256_f32le": "a66c43f83cc8e38d37988b7f0ad3211f61cd33262568a62c407c84ecaf4a5392",
+  "mel_nonzero": 498,
+  "schema": 1,
+  "checkpoint_weights_sha256": "51a92f946c8cccacb723f4291be1f3285d589e5ac84fa0f6714221dbbbf333cb",
+  "checkpoint_config_sha256": "1e829dd42c31d4c55d2bcf844c8abbf664ba6f1b767a9e6c8e8d26672ae5ab58",
+  "archive_sha256": "d12bae27c1aa66cf69111ce3f8e56ac7aa25dac27734ea4c3315a259966a02f5",
+  "model_url": "https://api.ngc.nvidia.com/v2/models/nvidia/nemospeechmodels/versions/1.0.0a5/files/QuartzNet5x5LS-En.nemo",
+  "header_sha256": "a77794cca23f329cccc5e8bc7176a20aed6e1412190586bf218f1ab46d602239",
+  "attribution": "NVIDIA QuartzNet5x5LS-En; NGC NeMo checkpoint CC-BY-4.0 per NVIDIA maintainer clarification; see README.md"
+}

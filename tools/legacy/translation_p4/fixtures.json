@@ -1,0 +1,22 @@
+[
+  {"id":"greeting","category":"everyday","text":"Good morning. How are you today?","review_focus":"Natural greeting and question."},
+  {"id":"directions","category":"everyday","text":"Where is the nearest train station?","review_focus":"Preserve nearest and train station."},
+  {"id":"request","category":"everyday","text":"Could you speak more slowly, please?","review_focus":"Polite request for slower speech."},
+  {"id":"water","category":"everyday","text":"I would like a glass of water without ice.","review_focus":"Preserve without ice."},
+  {"id":"negation","category":"meaning","text":"I do not want sugar in my coffee.","review_focus":"Do not reverse negation."},
+  {"id":"contrast","category":"meaning","text":"I ordered tea, not coffee.","review_focus":"Tea ordered; coffee rejected."},
+  {"id":"numbers","category":"meaning","text":"The ticket costs twenty-five dollars and fifty cents.","review_focus":"Preserve 25 dollars and 50 cents."},
+  {"id":"time","category":"meaning","text":"Our train leaves at 6:45 tomorrow morning.","review_focus":"Preserve time and tomorrow morning."},
+  {"id":"names","category":"meaning","text":"My name is Alex, and I am meeting Maria at the Central Hotel.","review_focus":"Preserve names and meeting location."},
+  {"id":"past","category":"grammar","text":"I lost my keys yesterday, but I found them this morning.","review_focus":"Preserve past events and their order."},
+  {"id":"conditional","category":"grammar","text":"If it rains tomorrow, we will stay inside.","review_focus":"Conditional cause and future action."},
+  {"id":"pronouns","category":"grammar","text":"She gave him the book because he had asked for it.","review_focus":"Preserve giver, recipient and causal relationship."},
+  {"id":"colloquial","category":"robustness","text":"I'm running late. Can we meet in ten minutes?","review_focus":"Late rather than physically running; preserve ten minutes."},
+  {"id":"idiom","category":"robustness","text":"That sounds good to me. Let's give it a try.","review_focus":"Natural idiomatic meaning."},
+  {"id":"punctuated","category":"asr_pair","text":"I need two tickets to Madrid. How much do they cost?","review_focus":"Reference with punctuation and casing."},
+  {"id":"asr_lowercase","category":"asr_pair","text":"i need two tickets to madrid how much do they cost","review_focus":"Same meaning without ASR punctuation or casing."},
+  {"id":"asr_contraction","category":"asr_pair","text":"i don't understand can you say that again","review_focus":"Preserve negation and request despite missing punctuation."},
+  {"id":"asr_error","category":"asr_error","text":"i need two tickets to mad red how much do they cost","review_focus":"Deliberate ASR corruption; translation cannot be assumed to repair it."},
+  {"id":"longer","category":"length","text":"We arrived this morning, and we would like to leave our bags here while we walk around the city. Is that possible?","review_focus":"Two related sentences, bags left while visiting the city."},
+  {"id":"hardware","category":"domain","text":"The microphone is working, but the battery is almost empty.","review_focus":"Preserve microphone success and low battery contrast."}
+]

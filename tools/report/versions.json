@@ -1,0 +1,400 @@
+{
+ "1.1": {
+  "labels": [
+   "e0n"
+  ],
+  "sessions": 3,
+  "phrases": 43,
+  "all": 4.0,
+  "short": 4.065,
+  "longer": 3.392,
+  "wer": 20.56,
+  "words": 1503,
+  "session_wer": [
+   24.6,
+   17.2,
+   20.0
+  ],
+  "session_wer_median": 20.0,
+  "lm_ms": 157.0,
+  "model_ms_per_audio_s": 411.5,
+  "psram_low_mb": 4.15,
+  "psram_warm_mb": 7.06,
+  "internal_low_kb": 44.2,
+  "clip_wer": 19.68,
+  "clip_wer_sessions": [
+   20.0,
+   17.9,
+   21.1
+  ],
+  "clip_wer_clips": 26
+ },
+ "1.2": {
+  "labels": [
+   "b6-c3xn"
+  ],
+  "sessions": 2,
+  "phrases": 40,
+  "all": 1.713,
+  "short": 1.445,
+  "longer": 1.98,
+  "wer": 19.96,
+  "words": 1002,
+  "session_wer": [
+   21.4,
+   18.6
+  ],
+  "session_wer_median": 20.0,
+  "lm_ms": 102.0,
+  "model_ms_per_audio_s": 303.8,
+  "psram_low_mb": 2.49,
+  "psram_warm_mb": 4.44,
+  "internal_low_kb": 116.5,
+  "clip_wer": 18.97,
+  "clip_wer_sessions": [
+   18.8,
+   19.2
+  ],
+  "clip_wer_clips": 26
+ },
+ "1.3": {
+  "labels": [
+   "b9-c4an",
+   "b10-c4an-prof"
+  ],
+  "sessions": 3,
+  "phrases": 55,
+  "all": 1.083,
+  "short": 0.892,
+  "longer": 1.758,
+  "wer": 21.69,
+  "words": 1503,
+  "session_wer": [
+   28.3,
+   17.8,
+   19.0
+  ],
+  "session_wer_median": 19.0,
+  "lm_ms": 104,
+  "model_ms_per_audio_s": 265.5,
+  "psram_low_mb": 2.45,
+  "psram_warm_mb": 4.43,
+  "internal_low_kb": 116.6,
+  "clip_wer": 18.93,
+  "clip_wer_sessions": [
+   22.0,
+   17.6,
+   17.1
+  ],
+  "clip_wer_clips": 23
+ },
+ "1.4": {
+  "labels": [
+   "b11-c5n"
+  ],
+  "sessions": 1,
+  "phrases": 18,
+  "all": 1.213,
+  "short": 0.554,
+  "longer": 1.698,
+  "wer": 24.15,
+  "words": 501,
+  "session_wer": [
+   24.1
+  ],
+  "session_wer_median": 24.1,
+  "lm_ms": 48,
+  "model_ms_per_audio_s": 261.8,
+  "psram_low_mb": 2.43,
+  "psram_warm_mb": 4.43,
+  "internal_low_kb": 112.4,
+  "clip_wer": 20.05,
+  "clip_wer_sessions": [
+   20.0
+  ],
+  "clip_wer_clips": 25
+ },
+ "1.5": {
+  "labels": [
+   "b14-t200",
+   "b15-t200",
+   "b16-c7t200n"
+  ],
+  "sessions": 11,
+  "phrases": 203,
+  "all": 1.071,
+  "short": 0.884,
+  "longer": 1.63,
+  "wer": 19.72,
+  "words": 5511,
+  "session_wer": [
+   18.6,
+   21.4,
+   21.0,
+   18.0,
+   17.8,
+   23.1,
+   17.8,
+   22.2,
+   18.8,
+   18.4,
+   20.2
+  ],
+  "session_wer_median": 18.8,
+  "lm_ms": 43.0,
+  "model_ms_per_audio_s": 251.1,
+  "psram_low_mb": 2.27,
+  "psram_warm_mb": 4.43,
+  "internal_low_kb": 116.4,
+  "clip_wer": 18.33,
+  "clip_wer_sessions": [
+   17.5,
+   18.3,
+   20.4,
+   17.5,
+   18.0,
+   17.5,
+   17.2,
+   19.9,
+   17.8,
+   18.6,
+   18.8
+  ],
+  "clip_wer_clips": 21
+ },
+ "1.6": {
+  "labels": [
+   "b16-c9n",
+   "b17-c9n"
+  ],
+  "sessions": 6,
+  "phrases": 112,
+  "all": 1.084,
+  "short": 0.878,
+  "longer": 1.673,
+  "wer": 23.29,
+  "words": 3006,
+  "session_wer": [
+   19.0,
+   19.2,
+   17.4,
+   29.9,
+   18.2,
+   36.1
+  ],
+  "session_wer_median": 19.1,
+  "lm_ms": 45.5,
+  "model_ms_per_audio_s": 252.9,
+  "psram_low_mb": 2.25,
+  "psram_warm_mb": 4.43,
+  "internal_low_kb": 116.3,
+  "clip_wer": 19.11,
+  "clip_wer_sessions": [
+   19.1,
+   18.5,
+   16.7,
+   21.4,
+   18.2,
+   20.8
+  ],
+  "clip_wer_clips": 22
+ },
+ "1.7": {
+  "labels": [
+   "b18-c11n",
+   "b19-c12n"
+  ],
+  "sessions": 3,
+  "phrases": 50,
+  "all": 1.069,
+  "short": 0.72,
+  "longer": 1.603,
+  "wer": 23.75,
+  "words": 1503,
+  "session_wer": [
+   25.1,
+   26.1,
+   20.0
+  ],
+  "session_wer_median": 25.1,
+  "lm_ms": 48.5,
+  "model_ms_per_audio_s": 258.1,
+  "psram_low_mb": 5.25,
+  "psram_warm_mb": 7.1,
+  "internal_low_kb": 142.9,
+  "clip_wer": 18.2,
+  "clip_wer_sessions": [
+   16.9,
+   20.1,
+   17.6
+  ],
+  "clip_wer_clips": 22
+ },
+ "1.8": {
+  "labels": [
+   "b26-c12n-lm16"
+  ],
+  "sessions": 1,
+  "phrases": 14,
+  "all": 1.004,
+  "short": 0.862,
+  "longer": 1.725,
+  "wer": 22.36,
+  "words": 501,
+  "session_wer": [
+   22.4
+  ],
+  "session_wer_median": 22.4,
+  "lm_ms": 47,
+  "model_ms_per_audio_s": 261.4,
+  "psram_low_mb": 6.25,
+  "psram_warm_mb": 8.0,
+  "internal_low_kb": 143.1,
+  "clip_wer": 18.28,
+  "clip_wer_sessions": [
+   18.3
+  ],
+  "clip_wer_clips": 25
+ },
+ "clips_total": 27,
+ "long": {
+  "1.6": {
+   "labels": [
+    "b18L-c9n"
+   ],
+   "sessions": 3,
+   "phrases": 18,
+   "all": 2.662,
+   "short": null,
+   "longer": 2.662,
+   "wer": 20.79,
+   "words": 1746,
+   "session_wer": [
+    19.2,
+    21.8,
+    21.3
+   ],
+   "session_wer_median": 21.3,
+   "lm_ms": 67,
+   "model_ms_per_audio_s": 265.4,
+   "psram_low_mb": 1.63,
+   "psram_warm_mb": 4.45,
+   "internal_low_kb": 142.7
+  },
+  "1.7": {
+   "labels": [
+    "b18L-c11n"
+   ],
+   "sessions": 3,
+   "phrases": 10,
+   "all": 2.613,
+   "short": null,
+   "longer": 2.613,
+   "wer": 19.82,
+   "words": 1746,
+   "session_wer": [
+    19.9,
+    18.0,
+    21.5
+   ],
+   "session_wer_median": 19.9,
+   "lm_ms": 64,
+   "model_ms_per_audio_s": 264.9,
+   "psram_low_mb": 5.45,
+   "psram_warm_mb": 7.12,
+   "internal_low_kb": 144.0
+  }
+ },
+ "conv4": {
+  "1.7": {
+   "labels": [
+    "b25C-c11n-nospk"
+   ],
+   "sessions": 1,
+   "phrases": 24,
+   "all": 1.756,
+   "short": null,
+   "longer": 1.756,
+   "wer": 20.21,
+   "words": 470,
+   "session_wer": [
+    20.2
+   ],
+   "session_wer_median": 20.2,
+   "lm_ms": 63,
+   "model_ms_per_audio_s": 269.1,
+   "psram_low_mb": 5.48,
+   "psram_warm_mb": 7.12,
+   "internal_low_kb": 144.2
+  },
+  "2.0": {
+   "labels": [
+    "b25C-c13n-async"
+   ],
+   "sessions": 2,
+   "phrases": 48,
+   "all": 1.619,
+   "short": null,
+   "longer": 1.619,
+   "wer": 18.99,
+   "words": 969,
+   "session_wer": [
+    20.6,
+    17.4
+   ],
+   "session_wer_median": 19.0,
+   "lm_ms": 49.2,
+   "model_ms_per_audio_s": 261.9,
+   "psram_low_mb": 2.04,
+   "psram_warm_mb": 7.1,
+   "internal_low_kb": 133.6
+  }
+ },
+ "speaker_sessions": {
+  "2.5M LM": {
+   "labels": [
+    "b24C-c13n-async-idfpatch",
+    "b25C-c13n-async"
+   ],
+   "sessions": 3,
+   "phrases": 71,
+   "all": 1.394,
+   "short": null,
+   "longer": 1.394,
+   "wer": 20.37,
+   "words": 1468,
+   "session_wer": [
+    23.1,
+    20.6,
+    17.4
+   ],
+   "session_wer_median": 20.6,
+   "lm_ms": 38.0,
+   "model_ms_per_audio_s": 258.0,
+   "psram_low_mb": 2.04,
+   "psram_warm_mb": 7.12,
+   "internal_low_kb": 133.6
+  },
+  "1.6M LM": {
+   "labels": [
+    "b26-c13n-transcript"
+   ],
+   "sessions": 1,
+   "phrases": 27,
+   "all": 1.587,
+   "short": null,
+   "longer": 1.587,
+   "wer": 17.03,
+   "words": 499,
+   "session_wer": [
+    17.0
+   ],
+   "session_wer_median": 17.0,
+   "lm_ms": 42.5,
+   "model_ms_per_audio_s": 261.9,
+   "psram_low_mb": 3.02,
+   "psram_warm_mb": 8.02,
+   "internal_low_kb": 137.0
+  }
+ }
+}

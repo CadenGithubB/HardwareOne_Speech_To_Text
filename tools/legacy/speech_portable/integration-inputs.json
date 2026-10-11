@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "base_commit": "611dd06f36e105171dca286a01bf5395b805cb56",
+  "production_sources": {
+    "CMakeLists.txt": "af304afe6a4d447bdc013d6d3496cc835b5df1fa22a7b17d8452c5d4af4c6213",
+    "components/hardwareone/CMakeLists.txt": "7fcbd7e637c89f0e8059058b5471f39811e28548afe770c0b5e7e2f6e26a8e17",
+    "components/hardwareone/System_ESPSR.cpp": "4240c1ef6dc413e5891366ac17d6a625281933285fcb52e3875e9e0dc25950b0",
+    "components/hardwareone/System_ESPSR.h": "dee74f676779165d2cc17ff3a50dbbddef5f4e663106792b3ac7d88a32947109",
+    "components/hardwareone/System_ESPSRModelPack.h": "3a0f34c42a6e508eacd81f49af9148bc91aeb929c1d583d1e12dfe0e5201a163",
+    "config/sdkconfig.defaults": "adf64a0fa19ec650eec4b3086bc57856da51eee09837a81b236410478b18e7f2"
+  },
+  "dependency_source_sha256": "d6af311b2a4300da8e5d53449245cdf76e37ec5530986373f1bf906621995a5f",
+  "patch_sha256": "07aae23e09072855dc1fcea922f5e99b5c2bd3f2e4106f2dd6b13c09bdfe0938"
+}

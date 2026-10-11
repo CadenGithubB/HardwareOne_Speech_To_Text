@@ -1,0 +1,156 @@
+--- a/components/hardwareone/test/host/stt_continuous_harness.cpp
++++ b/components/hardwareone/test/host/stt_continuous_harness.cpp
+@@ -128,6 +128,16 @@
+   if (audioSource == AUDIO_SRC_NONE || fallbackOnStart) audioSource = AUDIO_SRC_LOCAL_PDM;
+   return true;
+ }
++// Conversate's native glasses stream: claims the left-temple source for one
++// connection generation (the HAL never selects it any other way).
++static std::atomic<uint32_t> nativeStarts{0};
++bool audioCaptureStartG2Native(const char* owner, uint32_t generation) {
++  std::lock_guard<std::mutex> lock(halMutex);
++  if (startFails || !halOwner.empty() || !generation) return false;
++  halOwner = owner; halActive = true; ++starts; ++nativeStarts;
++  audioSource = AUDIO_SRC_G2_LEFT;
++  return true;
++}
+ void audioCaptureStop(const char* owner) {
+   std::lock_guard<std::mutex> lock(halMutex);
+   if (halOwner == owner) {
+@@ -434,6 +444,12 @@
+ }
+ static STTTextChunk peek(STTToken token) {
+   STTTextChunk out; assert(sttReadChunk(owner, token, &out)); return out;
++}
++static STTToken beginNative() {
++  allowedSamples = deliveredSamples = 0; readCounter = 0;
++  STTToken token = 0; char error[96] = {};
++  assert(sttBeginContinuousG2Native(owner, 7, &token, error, sizeof(error), nullptr) && token && !error[0]);
++  return token;
+ }
+ static void rejectBegin() {
+   STTToken token = 0; char error[96] = {};
+@@ -511,9 +527,15 @@
+   auto s = snapshot(token); assert(s.state == STTState::Done && s.recordedSamples == kCalibrationSamples + 1040000 && s.sessionMs >= 65500);
+   std::vector<STTTextChunk> chunks; acknowledgeAll(token, &chunks);
+   assert(chunks.size() == 4 && chunks.back().endSample == kCalibrationSamples + 1040000);
++  // Continuous local STT cuts a phrase that reaches 20 s at the quietest
++  // 10 ms frame of its last 2 s (hard_cut_search_samples): phrases stay
++  // contiguous and complete, never exceed 20 s, and forced ones end within
++  // the search window.
+   for (size_t i = 0; i < chunks.size(); ++i) {
+-    assert(chunks[i].startSample == kCalibrationSamples + i * 320000 && chunks[i].endSample - chunks[i].startSample <= 320000);
++    const uint64_t span = chunks[i].endSample - chunks[i].startSample;
++    assert(chunks[i].startSample == (i ? chunks[i - 1].endSample : kCalibrationSamples) && span <= 320000);
+     assert(chunks[i].forcedBoundary == (i < 3));
++    if (i < 3) assert(span >= 320000 - 32000 && span % 160 == 0);
+   }
+ 
+   reset(); allVoice = false; dc = 11000; irregularReads = true;
+@@ -525,7 +547,7 @@
+     await([&] { return snapshot(paused).segmentsCompleted == i + 1; }, "minimum-span pause segment");
+     const auto chunk = peek(paused);
+     assert(chunk.sequence == i + 1 && !chunk.forcedBoundary);
+-    assert(chunk.endSample - chunk.startSample == 128000); // Default 8 s throughput floor.
++    assert(chunk.endSample - chunk.startSample == 64000); // Continuous local STT: 4 s minimum span.
+     assert(chunk.startSample >= previousEnd);
+     previousEnd = chunk.endSample;
+     assert(sttAcknowledgeChunk(owner, paused, chunk.sequence));
+@@ -540,13 +562,22 @@
+   assert(snapshot(silent).state == STTState::Done && !snapshot(silent).textReady);
+ }
+ static void testShortFinalTail() {
+-  reset(); const auto token = begin(); started(token);
++  // Voice up to the last 10 ms frame before 20 s, that frame silent, then a
++  // 37-sample voiced tail: the quiet-point cut must take the silent frame.
++  reset(); allVoice = false; voiceIntervals = {{0, 319840}, {320000, 400000}};
++  const auto token = begin(); started(token);
+   feed(token, 320000); await([&] { return snapshot(token).segmentsCompleted == 1; }, "first hard cut");
+   feed(token, 320037); assert(sttRequestFinish(owner, token)); complete(token);
+   assert(snapshot(token).state == STTState::Done && snapshot(token).recordedSamples == kCalibrationSamples + 320037);
+-  assert(engineHistory.size() == 2 && engineHistory[1].rawSamples == 37 && engineHistory[1].inferenceSamples == 320);
++  // The cut lands on the silent frame, so the tail is that frame plus the 37
++  // extra samples: still short enough to need inference-only padding.
++  const auto first = peek(token);
++  assert(first.forcedBoundary && first.endSample == kCalibrationSamples + 319840);
++  const uint64_t raw = kCalibrationSamples + 320037 - first.endSample;
++  assert(raw == 197);
++  assert(engineHistory.size() == 2 && engineHistory[1].rawSamples == raw && engineHistory[1].inferenceSamples == 320);
+   assert(sttAcknowledgeChunk(owner, token, 1));
+-  const auto tail = peek(token); assert(tail.startSample == kCalibrationSamples + 320000 && tail.endSample == kCalibrationSamples + 320037 && !tail.forcedBoundary);
++  const auto tail = peek(token); assert(tail.startSample == first.endSample && tail.endSample == kCalibrationSamples + 320037 && !tail.forcedBoundary);
+ }
+ static void testCancelAndJoin() {
+   reset(); enginePermits = 0; ignoreEngineCancel = true; stopHeld = true;
+@@ -637,8 +668,10 @@
+   releaseIntegrityGate = true;
+   complete(token);
+   const auto s = snapshot(token);
+-  assert(s.state == STTState::Failed && s.audioOverruns == 3 && strstr(s.error, "at stop"));
+-  assert(s.recordedSamples == kCalibrationSamples + 16000 && engineCalls == 0 && !s.pendingTexts);
++  // Loss first seen at stop (e.g. a concealed G2 frame from the stop tap) is
++  // recorded but no longer fails the session or discards the voiced tail.
++  assert(s.state == STTState::Done && s.audioOverruns == 3 && !s.error[0]);
++  assert(s.recordedSamples == kCalibrationSamples + 16000 && engineCalls == 1 && s.pendingTexts == 1);
+   assert(s.captureStackFreeBytes == 2048);
+ }
+ static void testFaults() {
+@@ -677,8 +710,50 @@
+   allowedSamples = kCalibrationSamples + 320000; complete(token);
+   assert(snapshot(token).state == STTState::Failed && strstr(snapshot(token).error, "sequence exhausted"));
+ }
++// Conversate sessions outlive glasses-mic faults: lost frames, a stalled
++// stream and a full audio queue are counted, and the session (one transcript)
++// continues until the wearer closes Conversate. The onboard mic stays strict
++// (testFaults: audio loss and timeouts still fail a normal session).
++static void testNativeFaultTolerance() {
++  reset(); nativeStarts = 0;
++  auto token = beginNative(); started(token);
++  assert(nativeStarts == 1 && audioGetSource() == AUDIO_SRC_G2_LEFT);
++  feed(token, 16000); halOverruns = 5; feed(token, 32000); halOverruns = 9; feed(token, 48000);
++  auto s = snapshot(token);
++  assert(s.workerActive && s.state == STTState::Recording && s.audioOverruns == 9 && !s.error[0]);
++  readTimeout = true;
++  const uint64_t stallStart = clockMs;  // each empty read advances the fake clock by its timeout
++  await([&] { return clockMs > stallStart + 9000; }, "two native PCM timeouts elapse");
++  assert(snapshot(token).workerActive && !snapshot(token).error[0]);
++  readTimeout = false; feed(token, 64000);
++  assert(snapshot(token).workerActive && !snapshot(token).error[0]);
++  assert(sttRequestFinish(owner, token)); complete(token);
++  s = snapshot(token);
++  assert(s.state == STTState::Done && !s.error[0] && s.audioOverruns == 9);
++
++  reset(); enginePermits = 0;
++  token = beginNative(); started(token); feed(token, 320000);
++  await([] { return engineCalls == 1; }, "first blocked native model");
++  feed(token, 1280000);  // a fourth 20 s phrase finds three slots occupied: dropped, not fatal
++  s = snapshot(token);
++  assert(s.workerActive && !s.error[0] && s.segmentsCaptured == 3);
++  enginePermits = UINT32_MAX;
++  await([&] { return snapshot(token).segmentsCompleted == 3; }, "backlog drained");
++  feed(token, 1600000);  // and later phrases continue in order
++  await([&] { return snapshot(token).segmentsCompleted == 4; }, "later phrase after a drop");
++  acknowledgeAll(token);
++  assert(sttRequestFinish(owner, token)); complete(token);
++  s = snapshot(token);
++  // Finishing seals the voiced tail as one more phrase; nothing was lost after the drop.
++  assert(s.state == STTState::Done && !s.error[0] && s.segmentsCaptured >= 4 &&
++         s.segmentsCompleted == s.segmentsCaptured);
++}
+ static void testTranscriptSaving() {
+   reset(); savePreference = true; saveHeld = true;
++  // A silent 10 ms frame before each phrase's 20 s limit (the second phrase
++  // starts at the first cut, 319840): both quiet-point cuts land there and
++  // the carries are silence, so finishing emits no third phrase.
++  allVoice = false; voiceIntervals = {{0, 319840}, {320000, 639680}};
+   auto token = begin(); savePreference = false; started(token); feed(token, 320000);
+   await([] { return saveEntered.load(); }, "accepted chunk reaches saving worker");
+   // Publication/ACK can run while slow storage holds its own complete copy.
+@@ -783,6 +858,7 @@
+   testDeliveryAndRevocation(); puts("PASS retry/ack ordering, transport/epoch/token fencing, revocation");
+   testStopIntegrityRace(); puts("PASS initial audio loss and simultaneous finish/overrun between reads");
+   testFaults(); puts("PASS allocation/task/HAL/model faults and sequence exhaustion");
++  testNativeFaultTolerance(); puts("PASS Conversate sessions survive glasses audio loss, stalls and a full queue");
+   testWideCountersAndRetention(); puts("PASS 64-bit time/positions and result expiry");
+   testTranscriptSaving(); puts("PASS transcript admission latch, ACK-independent saving, save failure, cancel and finalization");
+   reset(); puts("Continuous production STT broker multithread tests passed, including explicit backend-session cleanup");

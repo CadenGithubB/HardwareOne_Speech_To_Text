@@ -1,0 +1,4 @@
+# P4-only: preserve internal memory during MultiNet replacement with BLE active.
+# IDF 5.5.5 aligns/rounds SPIRAM|DMA allocations and strips the generic DMA cap;
+# the SDMMC driver performs cache synchronization and short-transfer bouncing.
+CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM=y

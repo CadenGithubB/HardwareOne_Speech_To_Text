@@ -1,0 +1,2 @@
+# Keep the current app partition; compact non-assembly code for local inference.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y

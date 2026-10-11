@@ -1,0 +1,1536 @@
+--- a/components/hardwareone/stt/stt_model_container.h
++++ b/components/hardwareone/stt/stt_model_container.h
+@@ -12,11 +12,12 @@
+ }
+ inline bool valid_size(size_t bytes) { return bytes==kHeaderBytes+identity::kCompressedBytes; }
+ // Only a complete, exactly identified envelope may reach decompression. The
++// codec is pinned too: 1 = zlib payload, 0 = stored (payload is the raw graph). The
+ // runtime separately verifies the decompressed SHA before invoking ESP-DL.
+ inline bool valid_header(const uint8_t* header,size_t available,size_t bytes) {
+     return header && available==kHeaderBytes && valid_size(bytes)
+         && std::memcmp(header,"HW1STT1\0",8)==0
+-        && word(header+8)==1 && word(header+12)==1
++        && word(header+8)==1 && word(header+12)==identity::kCodec
+         && word(header+16)==identity::kRawBytes && word(header+20)==identity::kCompressedBytes
+         && word(header+24)==identity::kSampleRate && word(header+28)==identity::kMaxSamples
+         && std::memcmp(header+32,identity::kRawSha,32)==0
+--- a/components/hardwareone/stt/quartznet_runtime.cpp
++++ b/components/hardwareone/stt/quartznet_runtime.cpp
+@@ -4,6 +4,9 @@
+ #include "stt_model_container.h"
+ #include "dl_model_base.hpp"
+ #include "esp_heap_caps.h"
++#include "esp_log.h"
++#include "esp_task_wdt.h"
++#include "sdkconfig.h"
+ #include "esp_timer.h"
+ #include "freertos/FreeRTOS.h"
+ #include "freertos/task.h"
+@@ -36,6 +39,48 @@
+ namespace {
+ static_assert(kSampleRate==identity::kSampleRate && kMaxSamples==identity::kMaxSamples);
+ uint32_t millis() { return uint32_t(esp_timer_get_time()/1000); }
++// Inference is deliberately CPU-bound on both cores: ESP-DL runs each layer
++// on two workers at this task's priority, so core 0's idle task can go
++// unscheduled for several seconds on a long 15x5 segment and the task
++// watchdog reports it (a false alarm; nothing is stuck). For the duration
++// of one inference only, stop watching IDLE0; everything else keeps the
++// sdkconfig watchdog settings, which are restored exactly afterwards.
++// Lowering the workers' priority instead halved inference speed while BLE
++// was busy on core 0 (measured 2026-09-30), so priority is left unchanged.
++class InferenceWatchdogScope {
++ public:
++    InferenceWatchdogScope() {
++#if CONFIG_ESP_TASK_WDT_INIT && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
++        active_ = esp_task_wdt_reconfigure(&config(false)) == ESP_OK;
++#endif
++    }
++    ~InferenceWatchdogScope() {
++#if CONFIG_ESP_TASK_WDT_INIT && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
++        if(active_) esp_task_wdt_reconfigure(&config(true));
++#endif
++    }
++    InferenceWatchdogScope(const InferenceWatchdogScope&)=delete;
++    InferenceWatchdogScope& operator=(const InferenceWatchdogScope&)=delete;
++ private:
++#if CONFIG_ESP_TASK_WDT_INIT && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
++    static const esp_task_wdt_config_t& config(bool watchCore0) {
++        static esp_task_wdt_config_t c;
++        c.timeout_ms = CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000;
++        c.idle_core_mask = (watchCore0 ? 1u : 0u)
++#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
++                         | 2u
++#endif
++                         ;
++#if CONFIG_ESP_TASK_WDT_PANIC
++        c.trigger_panic = true;
++#else
++        c.trigger_panic = false;
++#endif
++        return c;
++    }
++#endif
++    bool active_ = false;
++};
+ bool cancelled(const STTLocalControl& c) { return c.cancelled && c.cancelled(c.context); }
+ void progress(const STTLocalControl& c, STTLocalPhase phase) { if(c.progress)c.progress(c.context,phase); }
+ struct Buffer {
+@@ -60,6 +105,28 @@
+ }
+ // ROM streaming inflate uses a non-wrapping output buffer of exactly the pinned
+ // size. No untrusted length reaches ESP-DL's unchecked flatbuffer parser.
++// Time spent inside reader calls during the current load (card/file I/O only).
++int64_t gLoadReadUs = 0;
++bool timedRead(ModelReader& r, void* dest, size_t size) {
++    const int64_t start=esp_timer_get_time();
++    const bool ok=readExact(r,dest,size);
++    gLoadReadUs+=esp_timer_get_time()-start;
++    return ok;
++}
++// Stored (codec 0) graph: read straight into the final buffer in large blocks.
++// A 20 MB graph in 4 KB reads spends most of its time in per-call file-system
++// and SDMMC overhead; 256 KB transfers let the driver stream multi-block DMA.
++bool readStoredModel(ModelReader& r, uint8_t* raw, const STTLocalControl& control) {
++    constexpr size_t kBlock=256*1024;
++    for(size_t done=0;done<identity::kRawBytes;) {
++        if(cancelled(control))return false;
++        const size_t n=std::min(kBlock,identity::kRawBytes-done);
++        if(!timedRead(r,raw+done,n))return false;
++        done+=n;
++        vTaskDelay(1);
++    }
++    return true;
++}
+ bool inflateModel(ModelReader& r, uint8_t* raw, const STTLocalControl& control) {
+     Buffer workspace(sizeof(tinfl_decompressor)+4096);
+     if(!workspace.p)return false;
+@@ -71,7 +138,7 @@
+         if(cancelled(control))return false;
+         if(available==offset && left) {
+             available=std::min(left,size_t(4096));offset=0;
+-            if(!readExact(r,in,available))return false;
++            if(!timedRead(r,in,available))return false;
+             left-=available;
+         }
+         size_t n=available-offset, out=identity::kRawBytes-output;
+@@ -144,9 +211,23 @@
+     if(!reused) {
+         Buffer candidate(identity::kRawBytes);
+         if(!candidate.p)return fail("Cannot allocate STT model");
+-        if(!inflateModel(reader,static_cast<uint8_t*>(candidate.p),control))return fail(cancelled(control)?"Cancelled":"STT model decompression failed");
++        gLoadReadUs=0;
++        const int64_t loadStart=esp_timer_get_time();
++        const bool loaded=identity::kCodec==0
++            ? readStoredModel(reader,static_cast<uint8_t*>(candidate.p),control)
++            : inflateModel(reader,static_cast<uint8_t*>(candidate.p),control);
++        if(!loaded)return fail(cancelled(control)?"Cancelled":"STT model read failed");
++        const int64_t hashStart=esp_timer_get_time();
+         uint8_t hash[32];
+         if(!digest(candidate.p,identity::kRawBytes,hash) || memcmp(hash,identity::kRawSha,32))return fail("STT model checksum mismatch");
++        const int64_t hashEnd=esp_timer_get_time();
++        // Once per session (weights are cached after this), so always logged.
++        ESP_LOGI("STT","model %u bytes %s: read %lu ms, inflate %lu ms, sha256 %lu ms, total %lu ms",
++                 unsigned(identity::kRawBytes),identity::kCodec==0?"stored":"zlib",
++                 (unsigned long)(gLoadReadUs/1000),
++                 (unsigned long)((hashStart-loadStart-gLoadReadUs)/1000),
++                 (unsigned long)((hashEnd-hashStart)/1000),
++                 (unsigned long)((hashEnd-loadStart)/1000));
+         if(cancelled(control))return fail("Cancelled");
+         weights.raw_=candidate.release(); // publish only fully verified weights
+     }
+@@ -231,6 +312,7 @@
+ #endif
+     if(cancelled(control))return fail("Cancelled");
+     progress(control,STTLocalPhase::Inference);start=millis();
++    InferenceWatchdogScope watchdogScope;
+     for(int stage=0;stage<identity::kNodeCount;++stage) {
+         if(cancelled(control))return fail("Cancelled");
+         const int64_t stageStart=esp_timer_get_time();
+--- a/components/hardwareone/stt/quartznet_runtime.h
++++ b/components/hardwareone/stt/quartznet_runtime.h
+@@ -43,6 +43,7 @@
+     ModelCache() = default;
+     ~ModelCache();
+     void reset();
++    bool loaded() const { return raw_ != nullptr; }
+ #if HW1_STT_RUNTIME_DIAGNOSTICS
+     // Probe integrity after the vendor model and arena have been destroyed.
+     bool verify() const;
+--- a/components/hardwareone/stt/stt_segmenter.h
++++ b/components/hardwareone/stt/stt_segmenter.h
+@@ -28,6 +28,21 @@
+     // Callers may tune these for other microphones or acoustic conditions.
+     uint16_t adaptive_speech_floor=45;
+     uint16_t adaptive_silence_floor=16;
++    // Opt-in for microphones with a jittery noise floor (e.g. the G2 glasses
++    // mic, whose quiet frames swing ~21..60+ RMS). 0 keeps the minimum of the
++    // window; 25 uses its lower quartile, which tracks the real background
++    // instead of its quietest 10 ms frame.
++    uint8_t noise_percentile=0;
++    // Opt-in: louder runs up to this long do not restart the end-silence
++    // count (a click or codec blip is not speech). 0 keeps the strict rule.
++    size_t silence_blip_samples=0;
++    // Opt-in: when a segment reaches max_segment_samples without a pause, cut
++    // in the middle of the quietest 10 ms frame within its last N samples
++    // (usually a gap between words) instead of at the exact limit. Samples
++    // after the cut start the continuation as fresh audio (not overlap), so
++    // every sample is still delivered exactly once. 0 cuts at the limit.
++    // Requires forced_overlap_samples == 0.
++    size_t hard_cut_search_samples=0;
+ };
+ enum class SegmentEnd : uint8_t { Pause, HardLimit, SessionEnd };
+ enum class SegmentStatus : uint8_t { Ok, Ready, Finished, InvalidArgument, NotInitialized, CounterOverflow };
+@@ -57,7 +72,8 @@
+         buffer_=buffer;config_=config;initialized_=true;reset_session();return true;
+     }
+     void reset_session() {
+-        seen_=start_=fresh_start_=0;used_=head_=history_=voice_=silence_=0;
++        seen_=start_=fresh_start_=0;used_=head_=history_=voice_=silence_=0;loud_run_=0;
++        cut_=carry_voice_=0;
+         frame_count_=0;frame_sum_=0;frame_square_=0;
+         active_=continuation_=ready_=finishing_=finished_=false;segment_={};
+         calibrated_=!config_.adaptive;heard_speech_=false;calibration_seen_=0;
+@@ -109,7 +125,12 @@
+     SegmentStatus finish() {
+         if(!initialized_)return SegmentStatus::NotInitialized;
+         finishing_=true;
+-        if(ready_)return SegmentStatus::Ready;
++        if(ready_) {
++            // A pending quiet-point cut would leave its carry behind when the
++            // session seals on release: deliver the whole buffer instead.
++            if(cut_) { segment_.samples=used_;segment_.end_sample=seen_;cut_=carry_voice_=0; }
++            return SegmentStatus::Ready;
++        }
+         if(finished_)return SegmentStatus::Finished;
+         if(frame_count_) { evaluate_frame(true);clear_frame(); }
+         if(active_ && eligible()) { publish(SegmentEnd::SessionEnd);return SegmentStatus::Ready; }
+@@ -119,7 +140,15 @@
+         if(!ready_)return false;
+         ready_=false;
+         if(finishing_) { active_=false;finished_=true;return true; }
+-        if(segment_.end==SegmentEnd::HardLimit) {
++        if(segment_.end==SegmentEnd::HardLimit && cut_) {
++            // Quiet-point cut: the samples after the cut were never delivered,
++            // so they open the continuation as fresh audio.
++            const size_t keep=used_-cut_;
++            if(keep)std::memmove(buffer_,buffer_+cut_,keep*sizeof(int16_t));
++            used_=keep;start_=seen_-keep;fresh_start_=start_;
++            voice_=carry_voice_;silence_=0;active_=true;continuation_=true;
++            cut_=carry_voice_=0;
++        } else if(segment_.end==SegmentEnd::HardLimit) {
+             const size_t keep=config_.forced_overlap_samples;
+             if(keep)std::memmove(buffer_,buffer_+used_-keep,keep*sizeof(int16_t));
+             used_=keep;start_=seen_-keep;fresh_start_=seen_;
+@@ -127,7 +156,7 @@
+         } else {
+             // Already-delivered trailing silence must not become a new segment's
+             // pre-roll: the default zero-overlap mode is exactly nonoverlapping.
+-            used_=head_=history_=voice_=silence_=0;active_=continuation_=false;
++            used_=head_=history_=voice_=silence_=0;loud_run_=0;active_=continuation_=false;
+             reset_utterance_levels();
+         }
+         segment_={};return true;
+@@ -147,7 +176,11 @@
+                 && c.calibration_samples>=kSegmentAnalysisSamples
+                 && c.calibration_samples<=kSegmentNoiseWindowFrames*kSegmentAnalysisSamples && aligned(c.calibration_samples)
+                 && c.adaptive_speech_floor>0 && c.adaptive_speech_floor<=32767
+-                && c.adaptive_silence_floor>0 && c.adaptive_silence_floor<=c.adaptive_speech_floor));
++                && c.adaptive_silence_floor>0 && c.adaptive_silence_floor<=c.adaptive_speech_floor))
++            && c.noise_percentile<=50 && aligned(c.silence_blip_samples)
++            && c.silence_blip_samples<c.end_silence_samples
++            && aligned(c.hard_cut_search_samples) && c.hard_cut_search_samples<=c.max_segment_samples/2
++            && (!c.hard_cut_search_samples || !c.forced_overlap_samples);
+     }
+     size_t history_capacity() const { return config_.pre_roll_samples+kSegmentAnalysisSamples; }
+     void append_history(int16_t sample) {
+@@ -162,7 +195,7 @@
+         // A full ring contains pre-roll plus the triggering analysis frame.
+         if(head_) { reverse(0,head_);reverse(head_,history_);reverse(0,history_); }
+         used_=history_;start_=seen_-used_;fresh_start_=start_;
+-        head_=history_=voice_=silence_=0;active_=true;continuation_=false;
++        head_=history_=voice_=silence_=0;loud_run_=0;active_=true;continuation_=false;
+     }
+     bool eligible() const { return voice_>0 && (continuation_ || voice_>=config_.min_voice_samples); }
+     void clear_frame() { frame_count_=0;frame_sum_=0;frame_square_=0; }
+@@ -209,12 +242,17 @@
+         if(!active_ && voiced)begin_segment();
+         if(!active_)return;
+         if(voiced)voice_+=frame_count_;
+-        if(silent)silence_+=frame_count_;else silence_=0;
++        if(silent) { silence_+=frame_count_; loud_run_=0; }
++        else {
++            loud_run_+=frame_count_;
++            if(loud_run_>config_.silence_blip_samples)silence_=0;
++        }
+         if(finalizing)return;
+         const bool pause=used_>=config_.min_segment_samples && silence_>=config_.end_silence_samples;
+         if(pause || used_>=config_.max_segment_samples) {
+-            if(eligible())publish(pause?SegmentEnd::Pause:SegmentEnd::HardLimit);
+-            else discard_candidate();
++            if(!eligible())discard_candidate();
++            else if(pause || !config_.hard_cut_search_samples)publish(pause?SegmentEnd::Pause:SegmentEnd::HardLimit);
++            else publish_quiet_cut();
+         }
+     }
+     static uint16_t integer_sqrt(uint32_t value) {
+@@ -231,10 +269,32 @@
+         noise_window_[noise_head_]=level;
+         noise_head_=(noise_head_+1)%config_.noise_window_frames;
+         if(noise_count_<config_.noise_window_frames)++noise_count_;
+-        uint16_t minimum=noise_window_[0];
+-        for(size_t i=1;i<noise_count_;++i)if(noise_window_[i]<minimum)minimum=noise_window_[i];
+-        return minimum;
++        return window_floor();
+     }
++    // Minimum (default) or a low percentile of the ambient window. Percentiles
++    // use a 2-RMS-wide histogram (0..190, larger levels in the last bin): no
++    // copy of the window and 192 bytes of stack on the real-time capture task.
++    uint16_t window_floor() const {
++        if(!noise_count_)return 0;
++        if(!config_.noise_percentile) {
++            uint16_t minimum=noise_window_[0];
++            for(size_t i=1;i<noise_count_;++i)if(noise_window_[i]<minimum)minimum=noise_window_[i];
++            return minimum;
++        }
++        constexpr size_t kBins=96, kWidth=2;
++        uint16_t bins[kBins]{};
++        for(size_t i=0;i<noise_count_;++i) {
++            const size_t bin=noise_window_[i]/kWidth;
++            ++bins[bin<kBins?bin:kBins-1];
++        }
++        const size_t rank=noise_count_*config_.noise_percentile/100;
++        size_t seen=0;
++        for(size_t b=0;b<kBins;++b) {
++            seen+=bins[b];
++            if(seen>rank)return static_cast<uint16_t>(b*kWidth);
++        }
++        return static_cast<uint16_t>((kBins-1)*kWidth);
++    }
+     uint16_t onset_threshold() const {
+         uint16_t threshold=static_cast<uint16_t>(2*noise_rms_);
+         if(threshold<config_.adaptive_speech_floor)threshold=config_.adaptive_speech_floor;
+@@ -244,8 +304,7 @@
+         heard_speech_=false;peak_rms_=0;
+         if(config_.adaptive) {
+             if(noise_count_) {
+-                noise_rms_=noise_window_[0];
+-                for(size_t i=1;i<noise_count_;++i)if(noise_window_[i]<noise_rms_)noise_rms_=noise_window_[i];
++                noise_rms_=window_floor();
+             }
+             threshold_rms_=onset_threshold();
+         }
+@@ -255,6 +314,49 @@
+                   end==SegmentEnd::HardLimit?config_.forced_overlap_samples:0,voice_,end,continuation_};
+         ready_=true;
+     }
++    // Hard limit with hard_cut_search_samples: find the analysis frame with the
++    // least DC-removed energy in the last N samples (latest wins ties: the
++    // shorter carry) and cut at its START, so the phrase ends in the quiet and
++    // the carry stays a whole number of frames. Cuts must stay on the stream's
++    // frame grid: limits are only checked at frame ends, and a carry of a
++    // fractional frame would let the next phrase overrun the buffer (found by
++    // ASan, 2026-10-02). Frames after the cut above the current threshold count
++    // as the carry's voice, so a word right after the cut is not dropped as
++    // silence if speech stops. Once per hard limit: N/160 frames of integer math.
++    void publish_quiet_cut() {
++        constexpr size_t F=kSegmentAnalysisSamples;
++        // Buffer index i is a frame start when (start_+i) is on the grid.
++        const size_t phase=static_cast<size_t>((F-start_%F)%F);
++        const size_t search=config_.hard_cut_search_samples;
++        size_t first=used_>search ? used_-search : 0;
++        if(first<phase)first=phase;
++        first+=(F-(first-phase)%F)%F;
++        size_t best=0;   // 0: no candidate, cut at the limit
++        uint64_t best_energy=std::numeric_limits<uint64_t>::max();
++        for(size_t at=first; at+F<=used_; at+=F) {
++            if(!at)continue;  // never an empty phrase
++            const uint64_t e=frame_energy(at);
++            if(e<=best_energy) { best_energy=e; best=at; }
++        }
++        if(!best) { publish(SegmentEnd::HardLimit); return; }
++        cut_=best;
++        carry_voice_=0;
++        const uint64_t limit=uint64_t(threshold_rms_)*threshold_rms_*F*F;
++        for(size_t at=best; at+F<=used_; at+=F)
++            if(frame_energy(at)>=limit)carry_voice_+=F;
++        segment_={buffer_,cut_,start_,start_+cut_,fresh_start_,static_cast<size_t>(fresh_start_-start_),
++                  0,voice_,SegmentEnd::HardLimit,continuation_};
++        ready_=true;
++    }
++    // n^2 * variance of one analysis frame (same scale as evaluate_frame).
++    uint64_t frame_energy(size_t at) const {
++        int64_t sum=0; uint64_t square=0;
++        for(size_t i=0;i<kSegmentAnalysisSamples;++i) {
++            const int32_t v=buffer_[at+i];
++            sum+=v; square+=static_cast<uint64_t>(static_cast<int64_t>(v)*v);
++        }
++        return square*kSegmentAnalysisSamples-static_cast<uint64_t>(sum*sum);
++    }
+     void discard_candidate() {
+         const size_t fresh=static_cast<size_t>(seen_-fresh_start_);
+         size_t keep=used_<history_capacity()?used_:history_capacity();
+@@ -262,14 +364,15 @@
+         // context. Only fresh samples may seed a subsequent ordinary pre-roll.
+         if(keep>fresh)keep=fresh;
+         if(keep)std::memmove(buffer_,buffer_+used_-keep,keep*sizeof(int16_t));
+-        history_=keep;head_=used_=voice_=silence_=0;active_=continuation_=false;
++        history_=keep;head_=used_=voice_=silence_=0;loud_run_=0;active_=continuation_=false;
+         reset_utterance_levels();
+     }
+     int16_t* buffer_=nullptr;
+     SegmenterConfig config_{};
+     SpeechSegment segment_{};
+     uint64_t seen_=0,start_=0,fresh_start_=0;
+-    size_t used_=0,head_=0,history_=0,voice_=0,silence_=0;
++    size_t used_=0,head_=0,history_=0,voice_=0,silence_=0,loud_run_=0;
++    size_t cut_=0,carry_voice_=0;  // pending quiet-point cut (publish_quiet_cut -> release)
+     int64_t frame_sum_=0;
+     uint64_t frame_square_=0;
+     uint16_t frame_count_=0;
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -19,6 +19,9 @@
+ #include <ArduinoJson.h>
+ #include <esp_random.h>
+ #include <algorithm>
++#ifdef ESP_PLATFORM
++#include "esp_log.h"
++#endif
+ #include <cmath>
+ #include <cstring>
+ 
+@@ -41,6 +44,17 @@
+   STTSnapshot snapshot;
+   uint32_t startedMs = 0;
+   uint32_t completedMs = 0;
++  // When continuous capture stopped (0 while recording). The session clock
++  // the UIs show is recording time, so it freezes here even though the worker
++  // keeps transcribing the tail afterwards.
++  uint32_t captureEndedMs = 0;
++  uint32_t captureStartedMs = 0;  // audio sample 0 of this session (timeline log)
++  uint8_t captureSource = 0;
++  // Native G2 (Conversate) capture: the exact left-temple connection that the
++  // native session's audio belongs to (0 = ordinary STT-owned capture), and
++  // whether that session is paused by the wearer.
++  uint32_t nativeG2Generation = 0;
++  bool paused = false;
+   bool cancelRequested = false;
+   bool finishRequested = false;
+   AudioSource requestedSource = AUDIO_SRC_NONE;
+@@ -387,10 +401,55 @@
+   uint32_t draftSequence = 0;
+   size_t draftTakenSamples = 0;  // capture-side: length at the last snapshot
+   bool draftReady = false, draftBusy = false;
++  // Compute time of the last completed draft. The next snapshot waits for at
++  // least this much new audio, so drafts can never occupy more than about
++  // half the worker's time, whatever the model's cost (15x5 ~ 3x the 5x5).
++  uint32_t lastDraftMs = 0;
+   bool captureDone = false;
+   bool failed = false;
+   uint32_t clockMs = 0;
++  uint32_t nativeGeneration = 0;  // see STTRun::nativeG2Generation
++  // Glasses-mic faults survived instead of ending the session (capture task
++  // counts under gSTTMux; the worker logs changes). Conversate owns the
++  // session's lifetime, and a few lost 10 ms frames or one dropped phrase
++  // must not end the captions or split the saved transcript.
++  uint32_t lossEvents = 0, droppedSegments = 0, stalls = 0;
++  uint32_t loggedFaults = 0;  // worker-side: sum already logged
+ };
++// Timeline level samples: written by the capture task under gSTTMux, printed
++// by the STT worker (never by the real-time capture task).
++#ifdef ESP_PLATFORM
++struct TLLevel { uint32_t t; uint16_t rms, noise, thr; bool open; };
++static constexpr uint32_t kTLLevels = 64;
++static TLLevel gTLLevels[kTLLevels];
++static uint32_t gTLLevelHead = 0, gTLLevelTail = 0;
++#endif
++static void sttDrainLevelLog(StreamRun& run) {
++#ifdef ESP_PLATFORM
++  portENTER_CRITICAL(&gSTTMux);
++  const uint32_t loss = run.lossEvents, dropped = run.droppedSegments, stalls = run.stalls;
++  const uint32_t overruns = gSTT.snapshot.audioOverruns;
++  portEXIT_CRITICAL(&gSTTMux);
++  if (loss + dropped + stalls != run.loggedFaults) {
++    run.loggedFaults = loss + dropped + stalls;
++    ESP_LOGW("STT", "TL fault audio_loss=%lu (frames %lu) dropped_phrases=%lu mic_stalls=%lu; session continues",
++             (unsigned long)loss, (unsigned long)overruns, (unsigned long)dropped, (unsigned long)stalls);
++  }
++  for (;;) {
++    TLLevel e{};
++    bool have = false;
++    portENTER_CRITICAL(&gSTTMux);
++    if (gTLLevelHead - gTLLevelTail > kTLLevels) gTLLevelTail = gTLLevelHead - kTLLevels;
++    if (gTLLevelTail != gTLLevelHead) { e = gTLLevels[gTLLevelTail++ % kTLLevels]; have = true; }
++    portEXIT_CRITICAL(&gSTTMux);
++    if (!have) break;
++    ESP_LOGI("STT", "TL level t=%lu rms=%u noise=%u thr=%u open=%d", (unsigned long)e.t,
++             unsigned(e.rms), unsigned(e.noise), unsigned(e.thr), e.open ? 1 : 0);
++  }
++#else
++  (void)run;
++#endif
++}
+ static void sttStreamTick(StreamRun& run) {
+   portENTER_CRITICAL(&gSTTMux);
+   const uint32_t now = millis();
+@@ -411,6 +470,19 @@
+   portEXIT_CRITICAL(&gSTTMux);
+   return failed || sttCancelled(&run.token);
+ }
++// A draft is only provisional text. Abandon it (the runtime checks between
++// model stages) as soon as a finished segment is queued, so a final result
++// never waits behind a whole draft of a long utterance.
++static bool sttDraftPreempted(void* context) {
++  auto& run = *static_cast<StreamRun*>(context);
++  bool finalWaiting = false;
++  portENTER_CRITICAL(&gSTTMux);
++  for (const auto& candidate : run.slots) {
++    if (candidate.state == StreamSlotState::Ready) { finalWaiting = true; break; }
++  }
++  portEXIT_CRITICAL(&gSTTMux);
++  return finalWaiting || sttStreamCancelled(context);
++}
+ static void sttStreamProgress(void* context, STTLocalPhase phase) {
+   auto& run = *static_cast<StreamRun*>(context);
+   sttProgress(&run.token, phase);
+@@ -527,6 +599,16 @@
+   }
+   const bool exhausted = gSTT.snapshot.segmentsCaptured == UINT32_MAX;
+   portEXIT_CRITICAL(&gSTTMux);
++  if (!slot && !exhausted && run.nativeGeneration) {
++    // Conversate: drop this phrase (it is never shown or saved) and keep the
++    // session; the backlog drains and later phrases continue in order.
++    portENTER_CRITICAL(&gSTTMux);
++    ++run.droppedSegments;
++    portEXIT_CRITICAL(&gSTTMux);
++    // Release it, or the segmenter stays Ready and capture stalls until a slot
++    // frees (then queues the "dropped" phrase late after all).
++    return run.segmenter.release();
++  }
+   if (!slot || exhausted) {
+     sttStreamFail(run, exhausted ? "STT sequence exhausted; start a new session"
+                                 : "STT audio queue full; backend cannot keep up");
+@@ -558,19 +640,28 @@
+     if (audioCaptureBusy() || micRecordingBusy() || gMicRunning) {
+       sttStreamFail(run, "Audio became busy; close SR/mic and retry"); break;
+     }
+-    if (run.requested != AUDIO_SRC_NONE && !audioSourceAvailable(run.requested)) {
+-      sttStreamFail(run, "Selected microphone is unavailable"); break;
++    if (run.nativeGeneration) {
++      // Conversate owns the glasses mic lifecycle (START/pause/close); claim
++      // its native stream for this exact connection. The HAL selects the left
++      // G2 source itself and restores the previous source on release.
++      if (!audioCaptureStartG2Native("stt", run.nativeGeneration)) {
++        sttStreamFail(run, "Could not claim the Conversate microphone"); break;
++      }
++    } else {
++      if (run.requested != AUDIO_SRC_NONE && !audioSourceAvailable(run.requested)) {
++        sttStreamFail(run, "Selected microphone is unavailable"); break;
++      }
++      selected = audioSetSource(run.requested);
++      if (!selected || !audioCaptureStart("stt", STT_SAMPLE_RATE)) {
++        sttStreamFail(run, "Could not claim microphone; close SR/mic first"); break;
++      }
+     }
+-    selected = audioSetSource(run.requested);
+-    if (!selected || !audioCaptureStart("stt", STT_SAMPLE_RATE)) {
+-      sttStreamFail(run, "Could not claim microphone; close SR/mic first"); break;
+-    }
+     claimed = true;
+     source = audioGetSource();
+     if (run.requested != AUDIO_SRC_NONE && source != run.requested) {
+       sttStreamFail(run, "Selected microphone changed during startup"); break;
+     }
+-    if (source == AUDIO_SRC_G2_LEFT) g2Held = sttG2CaptureBegin();
++    if (source == AUDIO_SRC_G2_LEFT && !run.nativeGeneration) g2Held = sttG2CaptureBegin();
+     audioTrimBufferedPcm("stt", 0);
+     uint32_t initialOverruns = 0;
+     if (!audioCaptureOverruns("stt", &initialOverruns)) {
+@@ -588,28 +679,51 @@
+     gSTT.snapshot.state = STTState::Preparing;
+     gSTT.snapshot.captureActive = true;
+     gSTT.snapshot.audioSource = static_cast<uint8_t>(source);
++    gSTT.captureStartedMs = millis();
++    gSTT.captureSource = static_cast<uint8_t>(source);
+     portEXIT_CRITICAL(&gSTTMux);
+     uint32_t lastAudioMs = millis();
++    bool wasPaused = false;
++    size_t pauseSilence = 0;  // zero samples still to feed after a pause edge
+     while (!sttStreamCancelled(&run)) {
+-      bool finish;
++      bool finish, paused;
+       portENTER_CRITICAL(&gSTTMux);
+       finish = gSTT.finishRequested;
++      paused = gSTT.paused;
+       portEXIT_CRITICAL(&gSTTMux);
+       if (finish) break;
++      // A native pause stops PCM delivery. Feed one second of silence so the
++      // phrase in progress can end on its normal pause rule, then wait without
++      // treating the missing audio as a failed microphone.
++      if (paused && !wasPaused) pauseSilence = STT_SAMPLE_RATE;
++      wasPaused = paused;
++      if (paused) lastAudioMs = millis();
+       if (!audioCaptureOwnedBy("stt") || !audioCaptureActive() || !audioSourceAvailable(source)) {
+         sttStreamFail(run, "Microphone source lost"); break;
+       }
+-      const size_t count = audioReadPcm(block, kStreamReadSamples, 80);
++      size_t count = audioReadPcm(block, kStreamReadSamples, 80);
+       if (count > kStreamReadSamples) { sttStreamFail(run, "Invalid microphone sample count"); break; }
++      if (!count && paused && pauseSilence) {
++        count = std::min<size_t>(kStreamReadSamples, pauseSilence);
++        memset(block, 0, count * sizeof(block[0]));
++        pauseSilence -= count;
++      }
+       uint32_t overruns = 0;
+       if (!audioCaptureOverruns("stt", &overruns)) {
+         sttStreamFail(run, "Microphone integrity monitor lost"); break;
+       }
+       if (overruns != initialOverruns) {
+         portENTER_CRITICAL(&gSTTMux);
+-        gSTT.snapshot.audioOverruns = overruns - initialOverruns;
++        gSTT.snapshot.audioOverruns = overruns;  // startup required a zero baseline
++        if (source == AUDIO_SRC_G2_LEFT) ++run.lossEvents;
+         portEXIT_CRITICAL(&gSTTMux);
+-        sttStreamFail(run, "Microphone audio loss detected; session stopped"); break;
++        // Glasses mic: lost LC3 frames are already concealed (PLC) and a short
++        // gap only nudges a caption; count it and continue. The onboard mic
++        // keeps the strict rule (a gap there means the device is overloaded).
++        if (source != AUDIO_SRC_G2_LEFT) {
++          sttStreamFail(run, "Microphone audio loss detected; session stopped"); break;
++        }
++        initialOverruns = overruns;
+       }
+       if (count) {
+         lastAudioMs = millis();
+@@ -641,8 +755,10 @@
+           const uint32_t nextSequence = gSTT.snapshot.segmentsCaptured + 1;
+           const bool idle = !run.draftReady && !run.draftBusy;
+           if (run.draftSequence != nextSequence) run.draftTakenSamples = 0;
++          const size_t paceSamples = std::max<size_t>(STT_SAMPLE_RATE * 6 / 10,
++                                                      size_t(run.lastDraftMs) * (STT_SAMPLE_RATE / 1000));
+           const bool grown = liveSamples >= STT_SAMPLE_RATE &&
+-                             liveSamples >= run.draftTakenSamples + STT_SAMPLE_RATE * 6 / 10;
++                             liveSamples >= run.draftTakenSamples + paceSamples;
+           portEXIT_CRITICAL(&gSTTMux);
+           if (idle && grown) {
+             memcpy(run.draftPcm, live, liveSamples * sizeof(int16_t));
+@@ -660,6 +776,23 @@
+         gSTT.snapshot.rms = run.segmenter.current_rms();
+         gSTT.snapshot.noiseRms = run.segmenter.noise_rms();
+         gSTT.snapshot.thresholdRms = run.segmenter.threshold_rms();
++#ifdef ESP_PLATFORM
++        {
++          // Timeline: once a second, the endpointing inputs (is a phrase open?).
++          static uint32_t lastLevelLogMs = 0;
++          const uint32_t nowMs = millis();
++          if (nowMs - lastLevelLogMs >= 1000) {
++            // Never log from this real-time task (console writes can block and
++            // drop audio); queue the sample for the worker to print.
++            lastLevelLogMs = nowMs;
++            const int16_t* openPcm = nullptr; size_t openSamples = 0;
++            TLLevel& e = gTLLevels[gTLLevelHead++ % kTLLevels];
++            e.t = nowMs; e.rms = gSTT.snapshot.rms; e.noise = gSTT.snapshot.noiseRms;
++            e.thr = gSTT.snapshot.thresholdRms;
++            e.open = run.segmenter.in_progress(&openPcm, &openSamples);
++          }
++        }
++#endif
+         gSTT.snapshot.peakRms = run.segmenter.peak_rms();
+         gSTT.snapshot.level = level;
+         gSTT.snapshot.captureStackFreeBytes = uxTaskGetStackHighWaterMark(nullptr);
+@@ -667,7 +800,13 @@
+       } else vTaskDelay(pdMS_TO_TICKS(1));
+       sttStreamTick(run);
+       if (millis() - lastAudioMs >= sttSourceTimeoutMs(source)) {
+-        sttStreamFail(run, "Microphone PCM delivery timed out"); break;
++        if (!run.nativeGeneration) { sttStreamFail(run, "Microphone PCM delivery timed out"); break; }
++        // Conversate decides when the session ends (CLOSE, or the temple's
++        // disconnect, which "source lost" above catches); keep waiting.
++        portENTER_CRITICAL(&gSTTMux);
++        ++run.stalls;
++        portEXIT_CRITICAL(&gSTTMux);
++        lastAudioMs = millis();
+       }
+     }
+     // A normal stop seals and drains the final voiced tail. Cancel/error never
+@@ -677,10 +816,17 @@
+       if (!audioCaptureOverruns("stt", &finalOverruns)) {
+         sttStreamFail(run, "Microphone integrity monitor lost at stop");
+       } else if (finalOverruns) {
++        // Loss first seen here happened after the last in-session check, i.e.
++        // around the stop gesture itself: tapping the G2 touchpad to stop can
++        // drop a concealed (PLC) mic frame. Record it, but still seal and
++        // transcribe the tail instead of failing the whole session and
++        // discarding it. Loss during recording is still a hard failure above.
+         portENTER_CRITICAL(&gSTTMux);
+         gSTT.snapshot.audioOverruns = finalOverruns;
+         portEXIT_CRITICAL(&gSTTMux);
+-        sttStreamFail(run, "Microphone audio loss detected at stop");
++#ifdef ESP_PLATFORM
++        ESP_LOGW("STT", "audio integrity count %lu at stop; tail kept", (unsigned long)finalOverruns);
++#endif
+       }
+     }
+     if (!sttStreamCancelled(&run)) {
+@@ -692,6 +838,7 @@
+   } while (false);
+   portENTER_CRITICAL(&gSTTMux);
+   gSTT.snapshot.captureActive = false;
++  if (!gSTT.captureEndedMs) gSTT.captureEndedMs = millis();
+   gSTT.snapshot.state = STTState::Stopping;
+   gSTT.snapshot.level = 0;
+   portEXIT_CRITICAL(&gSTTMux);
+@@ -717,6 +864,7 @@
+   portENTER_CRITICAL(&gSTTMux);
+   run.token = gSTT.snapshot.token;
+   run.requested = gSTT.requestedSource;
++  run.nativeGeneration = gSTT.nativeG2Generation;
+   run.clockMs = millis();
+   transcriptOptions = gSTT.transcriptOptions;
+   portEXIT_CRITICAL(&gSTTMux);
+@@ -737,6 +885,21 @@
+     if (sttStreamCancelled(&run)) break;
+     hw1::stt::SegmenterConfig segmentConfig;
+     segmentConfig.adaptive = true;
++    // Close a phrase after >=4 s (was the 8 s default) plus the usual 600 ms
++    // pause, so text is finalised while the speaker is still talking and a
++    // Stop leaves only a short tail. The 15x5 transcribes at ~0.45x real time,
++    // so 4 s phrases keep up; less context at each cut is the trade-off.
++    segmentConfig.min_segment_samples = 4 * STT_SAMPLE_RATE;
++    // The G2 glasses mic's quiet level jitters (~21..60+ RMS per 10 ms frame,
++    // measured 2026-09-30), so the window minimum underestimated the room and
++    // stray blips kept restarting the 600 ms pause: phrases ran to the 20 s
++    // limit and noise opened new ones. Track the lower quartile instead, and
++    // let up to 30 ms of louder frames pass without restarting the pause.
++    segmentConfig.noise_percentile = 25;
++    segmentConfig.silence_blip_samples = 3 * hw1::stt::kSegmentAnalysisSamples;
++    // A phrase that reaches the length limit is cut at the quietest point of
++    // its last 2 s (usually between words), not mid-word at the exact limit.
++    segmentConfig.hard_cut_search_samples = 2 * STT_SAMPLE_RATE;
+     if (!run.segmenter.reset(run.working, kStreamSamples, segmentConfig)) {
+       sttStreamFail(run, "Invalid continuous segmentation settings"); break;
+     }
+@@ -762,6 +925,14 @@
+         const bool warmed = sttLocalTranscribe(silence, kWarmSamples, warmText, sizeof(warmText), warmControl,
+                                                warmStats, warmError, sizeof(warmError), &backendSession);
+         heap_caps_free(silence);
++        ESP_LOGI("STT", "TL capture_start t=%lu source=%u", (unsigned long)gSTT.captureStartedMs,
++                 unsigned(gSTT.captureSource));
++        // PSRAM after the model and LM are resident: the room a larger LM has.
++        ESP_LOGI("STT", "TL warm s=%lu e=%lu load=%lu ok=%d lm=%d cpu=%luMHz psram_free=%u psram_largest=%u",
++                 (unsigned long)warmStart, (unsigned long)millis(), (unsigned long)warmStats.loadMs,
++                 warmed ? 1 : 0, warmStats.lmUsed ? 1 : 0, (unsigned long)getCpuFrequencyMhz(),
++                 unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
++                 unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
+         if (gSTTPerfLog)
+           INFO_SYSTEMF("[STTPERF] warm-up %s in %lu ms (load %lu, lm %s)", warmed ? "ok" : warmError,
+                        (unsigned long)(millis() - warmStart), (unsigned long)warmStats.loadMs,
+@@ -804,7 +975,8 @@
+           char draftText[STT_MAX_TEXT + 1] = {};
+           char draftError[96] = {};
+           STTLocalStats draftStats;
+-          const STTLocalControl draftControl{&run, sttStreamCancelled, sttStreamProgress};
++          const STTLocalControl draftControl{&run, sttDraftPreempted, sttStreamProgress};
++          const uint32_t draftStart = millis();
+           const bool ok = sttLocalTranscribe(run.draftPcm, draftSamples, draftText, sizeof(draftText), draftControl,
+                                              draftStats, draftError, sizeof(draftError), &backendSession);
+           portENTER_CRITICAL(&gSTTMux);
+@@ -816,7 +988,13 @@
+             ++gSTT.draft.version;
+           }
+           run.draftBusy = false;
++          if (ok) run.lastDraftMs = millis() - draftStart;
+           portEXIT_CRITICAL(&gSTTMux);
++#ifdef ESP_PLATFORM
++          ESP_LOGI("STT", "TL draft seq=%lu audio_ms=%lu s=%lu e=%lu ok=%d",
++                   (unsigned long)draftSequence, (unsigned long)(draftSamples / (STT_SAMPLE_RATE / 1000)),
++                   (unsigned long)draftStart, (unsigned long)millis(), ok ? 1 : 0);
++#endif
+           sttWipe(draftText, sizeof(draftText));
+           if (gSTTPerfLog)
+             INFO_SYSTEMF("[STTPERF] draft seq %lu audio %.1fs in %lu ms (%s)", (unsigned long)draftSequence,
+@@ -824,10 +1002,12 @@
+                          (unsigned long)(draftStats.loadMs + draftStats.frontendMs + draftStats.inferenceMs + draftStats.decodeMs),
+                          ok ? "ok" : draftError);
+           sttStreamTick(run);
++          sttDrainLevelLog(run);
+           continue;
+         }
+         vTaskDelay(pdMS_TO_TICKS(10));
+         sttStreamTick(run);
++        sttDrainLevelLog(run);
+         continue;
+       }
+       char text[STT_MAX_TEXT + 1] = {};
+@@ -886,15 +1066,40 @@
+       }
+       // Save the whole accepted chunk once, before UI splitting/ACK can erase
+       // its mailbox copy. Only this inference worker performs transcript I/O.
++      uint32_t saveStartMs = 0, saveEndMs = 0;
+       if (acceptedText) {
++        saveStartMs = millis();
+         (void)transcript.append(slot->sequence, text, strlen(text));
+         sttPublishTranscript(run.token, transcript.snapshot());
++        saveEndMs = millis();
+       }
+       sttWipe(text, sizeof(text));
+       sttWipe(slot->pcm, inferenceSamples * sizeof(int16_t));
+       perf.doneMs = millis();
+       perf.stats = stats;
+ #ifdef ESP_PLATFORM
++      {
++        // One timeline record per finished phrase, all times ms since boot:
++        // audio a0..a1, closed q, inference start s (after model build m,
++        // frontend f, network n, decode d), saved sv0..sv1, done e.
++        const uint32_t base = gSTT.captureStartedMs;
++        // lm: this phrase was LM-decoded; psram_min: PSRAM low-water mark since
++        // boot (includes this phrase's inference arena and LM workspace).
++        ESP_LOGI("STT", "TL seg=%lu a0=%lu a1=%lu q=%lu s=%lu m=%lu f=%lu n=%lu d=%lu sv0=%lu sv1=%lu e=%lu ok=%d lm=%d psram_min=%u",
++                 (unsigned long)slot->sequence,
++                 (unsigned long)(base + slot->start / (STT_SAMPLE_RATE / 1000)),
++                 (unsigned long)(base + slot->end / (STT_SAMPLE_RATE / 1000)),
++                 (unsigned long)slot->queuedMs, (unsigned long)perf.startMs,
++                 (unsigned long)stats.loadMs, (unsigned long)stats.frontendMs,
++                 (unsigned long)stats.inferenceMs, (unsigned long)stats.decodeMs,
++                 (unsigned long)saveStartMs, (unsigned long)saveEndMs,
++                 (unsigned long)perf.doneMs, ok ? 1 : 0, stats.lmUsed ? 1 : 0,
++                 unsigned(heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM)));
++      }
++#else
++      (void)saveStartMs; (void)saveEndMs;
++#endif
++#ifdef ESP_PLATFORM
+       if (sttTaskSample(gPerfAfter)) sttTaskShares(perf);
+ #endif
+       if (gSTTPerfLog) {
+@@ -909,6 +1114,7 @@
+       slot->state = StreamSlotState::Free;
+       portEXIT_CRITICAL(&gSTTMux);
+       sttStreamTick(run);
++      sttDrainLevelLog(run);
+     }
+   } while (false);
+   // On normal stop the producer has already joined; on failure/cancel its
+@@ -954,7 +1160,8 @@
+ 
+ static bool sttBeginMode(STTOwner owner, uint32_t captureMs, bool continuous,
+                          STTToken* token, char* error, size_t errorCap,
+-                         const TranscriptOptions* suppliedOptions = nullptr) {
++                         const TranscriptOptions* suppliedOptions = nullptr,
++                         uint32_t nativeG2Generation = 0) {
+   sttReapTerminal();
+   if (token) *token = 0;
+   if (!token || !sttOwnerLive(owner)) return sttError(error, errorCap, "A live authenticated session is required");
+@@ -1001,13 +1208,15 @@
+     gSTT.owner = owner;
+     gSTT.transcriptOptions = transcriptOptions;
+     gSTT.snapshot.transcript.enabled = transcriptOptions.enabled;
+-    gSTT.requestedSource = requestedSource;
++    gSTT.requestedSource = nativeG2Generation ? AUDIO_SRC_G2_LEFT : requestedSource;
++    gSTT.nativeG2Generation = nativeG2Generation;
+     gSTT.snapshot.token = (static_cast<uint64_t>(gSTTNonce) << 32) | gSTTCounter;
+     gSTT.snapshot.state = STTState::Preparing;
+     gSTT.snapshot.captureLimitMs = continuous ? 0 : captureMs;
+     gSTT.snapshot.continuous = continuous;
+     gSTT.snapshot.workerActive = true;
+     gSTT.startedMs = millis();
++    gSTT.captureEndedMs = 0;
+     *token = gSTT.snapshot.token;
+     admitted = true;
+   }
+@@ -1042,7 +1251,36 @@
+   return sttBeginMode(owner, 0, true, token, error, errorCap, transcriptOptions);
+ }
+ 
++bool sttBeginContinuousG2Native(STTOwner owner, uint32_t leftGeneration, STTToken* token,
++                                char* error, size_t errorCap,
++                                const TranscriptOptions* transcriptOptions) {
++  if (!leftGeneration) {
++    if (token) *token = 0;
++    return sttError(error, errorCap, "No glasses microphone connection");
++  }
++  return sttBeginMode(owner, 0, true, token, error, errorCap, transcriptOptions, leftGeneration);
++}
++
++bool sttSetPaused(STTOwner owner, STTToken token, bool paused) {
++  bool ok = false;
++  portENTER_CRITICAL(&gSTTMux);
++  if (sttMatchesLocked(owner, token) && gSTT.snapshot.continuous && gSTT.snapshot.workerActive) {
++    gSTT.paused = paused;
++    ok = true;
++  }
++  portEXIT_CRITICAL(&gSTTMux);
++  return ok;
++}
++
++bool sttAnySessionActive() {
++  portENTER_CRITICAL(&gSTTMux);
++  const bool active = gSTT.snapshot.workerActive;
++  portEXIT_CRITICAL(&gSTTMux);
++  return active;
++}
++
+ bool sttReadChunk(STTOwner owner, STTToken token, STTTextChunk* out) {
++  uint32_t tlReadSeq = 0, tlReadMs = 0;  // logged after the critical section
+   if (out) *out = {};
+   sttReapTerminal();
+   if (!out || !sttOwnerLive(owner)) return false;
+@@ -1054,8 +1292,20 @@
+     // First read of a chunk by its consumer (lens, UI, CLI) closes its pacing record.
+     for (auto& r : gSTTPerf)
+       if (r.sequence == out->sequence && r.doneMs && !r.deliveredMs) { r.deliveredMs = millis(); break; }
++    // The perf record is stored after the text is published, so log the first
++    // read of each sequence here regardless of it.
++    static uint32_t lastReadLogged = 0;
++    if (out->sequence != lastReadLogged) {
++      lastReadLogged = out->sequence;
++      tlReadSeq = out->sequence; tlReadMs = millis();
++    }
+   }
+   portEXIT_CRITICAL(&gSTTMux);
++#ifdef ESP_PLATFORM
++  if (tlReadSeq) ESP_LOGI("STT", "TL read seg=%lu t=%lu", (unsigned long)tlReadSeq, (unsigned long)tlReadMs);
++#else
++  (void)tlReadSeq; (void)tlReadMs;
++#endif
+   if (!sttOwnerLive(owner)) { sttWipe(out, sizeof(*out)); return false; }
+   return ready;
+ }
+@@ -1130,7 +1380,9 @@
+                        (!token || token == gSTT.snapshot.token);
+   if (matched) {
+     *out = gSTT.snapshot;
+-    out->elapsedMs = (gSTT.snapshot.workerActive ? millis() : gSTT.completedMs) - gSTT.startedMs;
++    const uint32_t clockEnd = gSTT.captureEndedMs ? gSTT.captureEndedMs
++                              : gSTT.snapshot.workerActive ? millis() : gSTT.completedMs;
++    out->elapsedMs = clockEnd - gSTT.startedMs;
+   }
+   portEXIT_CRITICAL(&gSTTMux);
+   return matched && sttOwnerLive(owner);
+--- a/components/hardwareone/System_STT.h
++++ b/components/hardwareone/System_STT.h
+@@ -94,6 +94,17 @@
+ // Internal join predicate: contains no transcript/session data and remains
+ // usable after revocation. Unknown or terminal tokens are inactive.
+ bool sttRunActive(STTToken token);
++// Continuous transcription on the native Conversate microphone stream of the
++// exact left-temple connection `leftGeneration` (see audioCaptureStartG2Native).
++bool sttBeginContinuousG2Native(STTOwner owner, uint32_t leftGeneration, STTToken* token,
++                                char* error, size_t errorCap,
++                                const TranscriptOptions* transcriptOptions = nullptr);
++// Wearer pause/resume of a native session: no PCM arrives while paused, which
++// must not be mistaken for a failed microphone; the open phrase is closed.
++bool sttSetPaused(STTOwner owner, STTToken token, bool paused);
++// True while any STT worker (capture or transcription tail) is running.
++// Owner-free and read-only: lets UI keep-alives follow device activity.
++bool sttAnySessionActive();
+ bool sttRequestFinish(STTOwner owner, STTToken token);
+ bool sttCancel(STTOwner owner, STTToken token);
+ // token=0 means this owner's current run. No other session's data is exposed.
+--- a/components/hardwareone/G2_Page_Transcription.cpp
++++ b/components/hardwareone/G2_Page_Transcription.cpp
+@@ -1,4 +1,11 @@
+ #include "G2_Page_Transcription.h"
++#ifdef ESP_PLATFORM
++#include "esp_log.h"
++#define TL_LENS_LOG(start, ok) ESP_LOGI("STT", "TL lens s=%lu e=%lu tail=%u draft=%u ok=%d", \
++    (unsigned long)(start), (unsigned long)millis(), unsigned(strlen(s.tail)), unsigned(strlen(s.draft)), (ok) ? 1 : 0)
++#else
++#define TL_LENS_LOG(start, ok) ((void)(start))
++#endif
+ #if ENABLE_BLUETOOTH && ENABLE_G2_GLASSES && ENABLE_DICTATION
+ #include "G2_Glasses.h"
+ #include "G2_HijackCmd.h"
+@@ -188,7 +195,11 @@
+                textBody[0] ? textBody : chrome.emptyMsg);
+     }
+     if (sameView && strcmp(renderedText, textPage) == 0) shown = true;
+-    else if (identity.stillCurrent()) shown = g2ShowTextPage(textPage, G2_GEOM_LARGE, exitText, navigateText);
++    else if (identity.stillCurrent()) {
++      const uint32_t sendStart = millis();
++      shown = g2ShowTextPage(textPage, G2_GEOM_LARGE, exitText, navigateText);
++      TL_LENS_LOG(sendStart, shown);  // timeline: lens page sent
++    }
+     if (shown) {
+       snprintf(renderedText, sizeof(renderedText), "%s", textPage);
+       renderedView = s.view; renderedEpoch = s.epoch; renderedCount = 0;
+@@ -238,8 +249,12 @@
+       if (sameRows) {
+         const bool headOk = strcmp(renderedSidebar, sidebar) == 0 ||
+             g2UpdateMixedTextChild("trhead", kHeaderId, sidebar);
+-        const bool bodyOk = strcmp(renderedBody, body) == 0 ||
+-            g2UpdateMixedTextChild("transcription", kBodyId, body);
++        bool bodyOk = strcmp(renderedBody, body) == 0;
++        if (!bodyOk) {
++          const uint32_t sendStart = millis();
++          bodyOk = g2UpdateMixedTextChild("transcription", kBodyId, body);
++          TL_LENS_LOG(sendStart, bodyOk);  // timeline: lens text sent
++        }
+         shown = headOk && bodyOk;
+       }
+       if (!shown) shown = g2ShowMixedListText2(rowPtrs, n, G2_GEOM_SPLIT_LIST, header, text);
+--- a/components/hardwareone/G2_Glasses.cpp
++++ b/components/hardwareone/G2_Glasses.cpp
+@@ -28,12 +28,16 @@
+                               // IRAM-only heap nothing can malloc from (not PSRAM).
+ #include <esp_system.h>       // esp_random — boot-unique EvenAI exchange IDs
+ #include <esp_timer.h>        // esp_timer_create/start_once — replaces notifyClearTaskBody
++#include "esp_log.h"
+ 
+ #include "System_G2_Protocol.h"
+ #include "G2_ConversateSession.h"
+ #include "System_Lz4.h"     // lz4Compress* — CompressMode=2 image push (Q32/Q32f)
+ #include "Bluetooth.h"
+ #include "HAL_Bluetooth.h"
++#if ENABLE_LOCAL_STT
++#include "System_STT.h"  // transcription page keep-alive
++#endif
+ #include "System_Debug.h"
+ #include "System_Filesystem.h"  // requireQuotedToken (uniform quoted-path rule)
+ #include "System_Command.h"
+@@ -3012,6 +3016,23 @@
+ static void g2ConversateStop(G2ConversateSession::Stop reason,
+                              uint32_t replyMagic = 0);
+ static void g2ConversateTick(bool requestsOnly = false);
++#ifndef HW1_CONVERSATE_CAPTION_TEST
++#define HW1_CONVERSATE_CAPTION_TEST 0
++#endif
++#if HW1_CONVERSATE_CAPTION_TEST
++static bool g2CaptionTestNoteAck(uint32_t magic, uint32_t error);
++static void g2CaptionTestTick();
++#endif
++#define HW1_CONVERSATE_LOCAL_STT (ENABLE_LOCAL_STT && !ENABLE_UART_HOST_LINK)
++#if HW1_CONVERSATE_LOCAL_STT
++// Local transcription as the Conversate audio consumer (no UART/Pi host):
++// captions go back to the native UI as TRANSCRIBE_DATA.
++static bool g2ConversateLocalBegin(uint32_t leftGeneration);
++static void g2ConversateLocalPause(bool paused);
++static void g2ConversateLocalFinish();
++static bool g2ConversateLocalOwnsCapture();
++static void g2ConversateLocalTick();
++#endif
+ static void g2ConversateOnRx(G2Temple& temple, uint32_t generation,
+                             const uint8_t* pb, size_t len);
+ static bool g2ConversateDeclineEvenAi(G2Temple& temple, uint32_t generation);
+@@ -14239,7 +14260,11 @@
+   // Only our current native lease may share its own HAL claim. A prior
+   // stream still draining after CLOSE prevents a replacement PREP until done.
+   const bool ownCapture = g2ConversateSnapshot().active() &&
+-      audioCaptureOwnedBy("g2-conversate");
++      (audioCaptureOwnedBy("g2-conversate")
++#if HW1_CONVERSATE_LOCAL_STT
++       || g2ConversateLocalOwnsCapture()
++#endif
++      );
+   return (audioCaptureBusy() && !ownCapture) || gMicStreamOn || gMicProbeActive ||
+       gMicRecFile || gMicWavFile || g2EvenAiSessionIsActive() ||
+       g2LensGetState().containerReady || g2FsmHijackActive();
+@@ -14284,6 +14309,9 @@
+       reason == G2ConversateSession::Stop::NativeExit ||
+       reason == G2ConversateSession::Stop::User ||
+       reason == G2ConversateSession::Stop::Deadline));
++#if HW1_CONVERSATE_LOCAL_STT
++  g2ConversateLocalFinish();  // transcribe the tail; captions end with the session
++#endif
+   bool closed = false;
+   if (s.prepared && g2TempleReadyAtGeneration(gR, s.rightGeneration)) {
+     uint8_t frame[40];
+@@ -14401,6 +14429,9 @@
+     if (matched && event.value)
+       DEBUG_G2F("[G2-CONVERSATE] heartbeat rejected error=%lu consecutive=%lu/12",
+                 (unsigned long)event.value, (unsigned long)failures);
++#if HW1_CONVERSATE_CAPTION_TEST
++    if (!matched) (void)g2CaptionTestNoteAck(event.magic, event.value);
++#endif
+     return;
+   }
+   if (event.command == 161 || event.command == 164 || event.command == 166) {
+@@ -14417,6 +14448,9 @@
+                              (event.value == 4 && s.phase == G2ConversateSession::Phase::Running);
+       if (!changed && !duplicate) return;
+       liveAudioConversatePause(s.audioExchange, event.value == 3);
++#if HW1_CONVERSATE_LOCAL_STT
++      g2ConversateLocalPause(event.value == 3);
++#endif
+       n = g2BuildConversatePauseResume(allocSeq(), event.magic, event.value == 4, frame, sizeof(frame));
+     } else if (event.command == 164) {
+       const bool valid = event.transcribe <= 1 && event.aiCue <= 1;
+@@ -14486,6 +14520,13 @@
+       g2ConversateStop(G2ConversateSession::Stop::HostAudio);
+       return;
+     }
++#if HW1_CONVERSATE_LOCAL_STT
++    // No Pi consumer on this board: transcribe locally. A local failure (not
++    // logged in on the glasses, model missing, ...) leaves the native session
++    // running without captions rather than refusing the wearer's START.
++    if (admission == LiveAudioConversateAdmission::Disabled)
++      (void)g2ConversateLocalBegin(s.leftGeneration);
++#endif
+     n = g2BuildConversateControl(allocSeq(), event.magic, true, frame, sizeof(frame),
+                                  s.transcribeVisible, s.aiCueVisible);
+   } else {
+@@ -14496,6 +14537,324 @@
+     g2ConversateStop(G2ConversateSession::Stop::TxFailed);
+ }
+ 
++#if HW1_CONVERSATE_CAPTION_TEST || HW1_CONVERSATE_LOCAL_STT
++// Native caption: Conversate cmd 6 TRANSCRIBE_DATA, field 8 {1: text, 2: final}.
++// The glasses show the newest ~4-5 lines (~140-150 chars) and scroll older text
++// away; a final commits the caption and the next one starts on a new line.
++// Format and behaviour from the 2026-09-20 phone captures and 2026-09-30 tests.
++// Returns the magic (the glasses' COMM_RSP echoes it), or 0 on failure.
++static uint32_t g2ConversateSendCaption(const char* text, size_t length, bool final,
++                                        const G2ConversateSession& s) {
++  EXT_RAM_BSS_ATTR static uint8_t pb[700];
++  size_t n = 0, body = 0;
++  const uint32_t magic = g2ConversateNextMagic();
++  if (!g2PbWriteUint32(pb, sizeof(pb), &n, 1, 6) ||
++      !g2PbWriteUint32(pb, sizeof(pb), &n, 2, magic) ||
++      !g2PbBeginNested(pb, sizeof(pb), &n, 8, &body) ||
++      !g2PbWriteBytes(pb, sizeof(pb), &n, 1, reinterpret_cast<const uint8_t*>(text), length) ||
++      !g2PbWriteUint32(pb, sizeof(pb), &n, 2, final ? 1 : 0) ||
++      !g2PbEndNested(pb, sizeof(pb), &n, body)) return 0;
++  portENTER_CRITICAL(&gConversateMux);
++  gConversate.reserveReply(magic);  // never let this ACK pass for a heartbeat's
++  portEXIT_CRITICAL(&gConversateMux);
++  return sendPbFragmented(gR, allocSeq(), G2_SID_CONVERSATE, G2_FLAG_REQUEST,
++                          pb, n, s.rightGeneration) ? magic : 0;
++}
++#endif
++
++#if HW1_CONVERSATE_LOCAL_STT
++namespace {
++// Owned by the G2 control worker. The STT broker owns audio, drafts, finals
++// and transcript saving; this only drives it and forwards its text.
++struct ConversateLocal {
++  bool attached = false;
++  STTOwner owner;
++  STTToken token = 0;
++  uint32_t draftVersion = 0, lastFinalSequence = 0;
++  bool finishing = false;  // the wearer closed Conversate; an end is expected
++};
++ConversateLocal gConvLocal;
++// Unexpected ends (mic dropout, PCM timeout, ...) restart transcription while
++// Conversate stays open; more than kConvRestarts within a minute gives up and
++// tells the wearer, so a persistent fault cannot loop.
++constexpr uint8_t kConvRestarts = 3;
++uint32_t gConvRestartMs[kConvRestarts] = {};
++uint8_t gConvRestartNext = 0;
++esp_timer_handle_t gConvLocalWake = nullptr;
++// Drafts: only the visible tail is useful on the glasses (~140-150 chars).
++constexpr size_t kCaptionDraftTail = 150;
++
++void convLocalWakeTimer(bool on) {
++  if (on && !gConvLocalWake) {
++    const esp_timer_create_args_t args = {
++        .callback = [](void*) { g2ControlWake(); }, .arg = nullptr,
++        .dispatch_method = ESP_TIMER_TASK, .name = "conv-stt", .skip_unhandled_events = true};
++    if (esp_timer_create(&args, &gConvLocalWake) != ESP_OK) gConvLocalWake = nullptr;
++  }
++  if (!gConvLocalWake) return;
++  esp_timer_stop(gConvLocalWake);
++  if (on) esp_timer_start_periodic(gConvLocalWake, 200 * 1000);
++}
++}  // namespace
++
++static bool g2ConversateLocalOwnsCapture() {
++  return gConvLocal.attached && audioCaptureOwnedBy("stt");
++}
++
++static bool g2ConversateLocalBegin(uint32_t leftGeneration) {
++  if (gConvLocal.attached) return false;  // a previous session is still draining
++  BlePeerOwnerSession peer;
++  const bool live = blePeerOwnerSessionSnapshot(BLE_PEER_G2_GLASSES, peer) && peer.live();
++  const TransportSessionEpoch epoch = live ? peer.transportEpoch : 0;
++  secureClearString(peer.user);
++  if (!live) {
++    WARN_SYSTEMF("[G2-CONVERSATE] local transcription needs a login on the glasses");
++    return false;
++  }
++  const STTOwner owner{SOURCE_G2_GLASSES, epoch};
++  const TranscriptOptions options = transcriptCaptureOptions(SOURCE_G2_GLASSES, epoch);
++  char error[96] = {};
++  STTToken token = 0;
++  if (!sttBeginContinuousG2Native(owner, leftGeneration, &token, error, sizeof(error), &options)) {
++    WARN_SYSTEMF("[G2-CONVERSATE] local transcription unavailable: %s", error);
++    return false;
++  }
++  gConvLocal = ConversateLocal{};
++  gConvLocal.attached = true;
++  gConvLocal.owner = owner;
++  gConvLocal.token = token;
++  convLocalWakeTimer(true);
++  ESP_LOGI("G2CONV", "local transcription started; control stack min free %u B",
++           unsigned(uxTaskGetStackHighWaterMark(nullptr)));
++  INFO_SYSTEMF("[G2-CONVERSATE] local transcription started (saving %s)",
++               options.enabled ? "on" : "off");
++  return true;
++}
++
++static void g2ConversateLocalPause(bool paused) {
++  if (!gConvLocal.attached) return;
++  audioCapturePauseG2Native("stt", paused);
++  (void)sttSetPaused(gConvLocal.owner, gConvLocal.token, paused);
++}
++
++static void g2ConversateLocalFinish() {
++  // Seal and transcribe the tail. The pump keeps draining and acknowledging
++  // text until the broker's worker exits, so saving completes after CLOSE.
++  if (!gConvLocal.attached) return;
++  gConvLocal.finishing = true;
++  (void)sttRequestFinish(gConvLocal.owner, gConvLocal.token);
++}
++
++// Phone-free boards answer the glasses' Conversate launch themselves: arm the
++// native handler (as `g2conversate on`) whenever both temples are ready and no
++// HardwareOne page or capture is in the way. Checked at most every 5 s.
++static void g2ConversateLocalArm() {
++  static uint32_t lastTry = 0;
++  const uint32_t now = millis();
++  if (now - lastTry < 5000) return;
++  lastTry = now;
++  const auto s = g2ConversateSnapshot();
++  if (s.enabled || s.active()) return;
++  if (!g2TempleReadyAtGeneration(gL) || !g2TempleReadyAtGeneration(gR) || !gL.audioNotifyChar ||
++      g2ConversateBusy()) return;
++  portENTER_CRITICAL(&gConversateMux);
++  const bool idle = !gConversate.active() && gConversateRequest == 0;
++  if (idle) gConversateRequest = -3;  // user-ended mode, no duration cutoff
++  portEXIT_CRITICAL(&gConversateMux);
++  if (idle) {
++    INFO_SYSTEMF("[G2-CONVERSATE] ready: open Conversate on the glasses for local captions");
++    g2ControlWake();
++  }
++}
++
++// The local session ended: log why and, if Conversate is still open and the
++// wearer did not close it, start again. Kept out of g2ConversateLocalTick and
++// off the stack: g2_ctrl_owner has ~6 KB and the tick already holds a chunk
++// and a draft (a stack frame here overflowed it, 2026-10-01).
++static __attribute__((noinline)) void g2ConversateLocalEnded() {
++  static STTSnapshot end;
++  static char note[160];
++  end = STTSnapshot{};
++  const bool haveEnd = sttSnapshot(gConvLocal.owner, gConvLocal.token, &end);
++  const bool expected = gConvLocal.finishing;
++  ESP_LOGW("G2CONV", "local transcription ended (%s): %s; control stack min free %u B", expected ? "closed" : "unexpected",
++           haveEnd && end.error[0] ? end.error : "no error", unsigned(uxTaskGetStackHighWaterMark(nullptr)));
++  convLocalWakeTimer(false);
++  gConvLocal = ConversateLocal{};
++  const auto now = g2ConversateSnapshot();
++  if (expected || now.phase != G2ConversateSession::Phase::Running) return;
++  const uint32_t nowMs = millis();
++  uint32_t& oldest = gConvRestartMs[gConvRestartNext];
++  bool restarted = false;
++  if (oldest && nowMs - oldest < 60000) {
++    ESP_LOGW("G2CONV", "local transcription gave up after %u restarts in a minute", unsigned(kConvRestarts));
++  } else {
++    oldest = nowMs;
++    gConvRestartNext = (gConvRestartNext + 1) % kConvRestarts;
++    restarted = g2ConversateLocalBegin(now.leftGeneration);
++    ESP_LOGW("G2CONV", "local transcription restart %s", restarted ? "ok" : "failed");
++  }
++  if (!restarted && now.transcribeVisible && g2ConversateConnections(now)) {
++    const int n = snprintf(note, sizeof(note), "[Captions stopped: %s. Close and reopen Conversate.]",
++                           haveEnd && end.error[0] ? end.error : "transcription ended");
++    if (n > 0) (void)g2ConversateSendCaption(note, std::min(size_t(n), sizeof(note) - 1), true, now);
++  }
++}
++
++// Forwards finished phrases and the current draft; false once the STT run has
++// ended (after draining what it published last). Its chunk/draft buffers are
++// gone again before g2ConversateLocalEnded runs.
++static __attribute__((noinline)) bool g2ConversateLocalPump() {
++  // Sample liveness BEFORE draining: text published just before the worker
++  // exits is then still drained on this tick rather than stranded.
++  const bool running = sttRunActive(gConvLocal.token);
++  const auto s = g2ConversateSnapshot();
++  const bool show = s.phase == G2ConversateSession::Phase::Running && s.transcribeVisible &&
++                    g2ConversateConnections(s);
++  // Finished phrases first: full text as a final caption, then acknowledge.
++  STTTextChunk chunk;
++  while (sttReadChunk(gConvLocal.owner, gConvLocal.token, &chunk)) {
++    const size_t length = strnlen(chunk.text, sizeof(chunk.text));
++    if (show && length) (void)g2ConversateSendCaption(chunk.text, length, true, s);
++    gConvLocal.lastFinalSequence = chunk.sequence;
++    (void)sttAcknowledgeChunk(gConvLocal.owner, gConvLocal.token, chunk.sequence);
++    memset(chunk.text, 0, sizeof(chunk.text));
++  }
++  // The phrase in progress: send only its visible tail, cut at a word.
++  STTDraft draft;
++  if (sttReadDraft(gConvLocal.owner, gConvLocal.token, &draft) &&
++      draft.version != gConvLocal.draftVersion) {
++    gConvLocal.draftVersion = draft.version;
++    const size_t length = strnlen(draft.text, sizeof(draft.text));
++    if (show && length && draft.sequence > gConvLocal.lastFinalSequence) {
++      const char* tail = draft.text;
++      if (length > kCaptionDraftTail) {
++        tail = draft.text + (length - kCaptionDraftTail);
++        while (*tail && *tail != ' ') ++tail;
++        while (*tail == ' ') ++tail;
++      }
++      if (*tail) (void)g2ConversateSendCaption(tail, strlen(tail), false, s);
++    }
++    memset(draft.text, 0, sizeof(draft.text));
++  }
++  return running;
++}
++
++static void g2ConversateLocalTick() {
++#if !HW1_CONVERSATE_CAPTION_TEST
++  g2ConversateLocalArm();
++#endif
++  if (gConvLocal.attached && !g2ConversateLocalPump()) g2ConversateLocalEnded();
++}
++#endif  // HW1_CONVERSATE_LOCAL_STT
++
++#if HW1_CONVERSATE_CAPTION_TEST
++// ---------------------------------------------------------------------------
++// Conversate caption test (test builds only). Arms the native handler once both
++// temples are ready (the equivalent of `g2conversate on`); when the wearer opens
++// Conversate and the session reaches Running, sends scripted TRANSCRIBE_DATA
++// captions (cmd 6: field 8 {1: text, 2: final}) of 100/200/300/500 characters,
++// each as growing drafts then a final, and logs every COMM_RSP by its magic.
++// Wire format decoded from the 2026-09-20 phone captures (.scratch/btsnoop).
++// ---------------------------------------------------------------------------
++namespace {
++// v2: find the glasses' display cut-off. Each caption is position markers
++// "#005 #010 ... #NNN" (5 chars each; the number is the character count at
++// the end of that marker), so the last marker visible IS the limit.
++// Block 1: one 500-char DRAFT held 10 s. Block 2: the same as FINAL, held
++// 10 s. Block 3: a 250-char FINAL. Then a normal 60-char final as a control.
++constexpr uint16_t kCapLengths[] = {500, 500, 250, 60};
++constexpr uint8_t kCapDraftsPerBlock = 0;
++constexpr uint32_t kCapStepMs = 800, kCapBlockGapMs = 10000;
++struct CapSent { uint32_t magic, sentMs; uint16_t length; bool final; };
++CapSent gCapSent[16];
++uint8_t gCapSentHead = 0;
++uint16_t gCapStep = 0;          // blocks x (drafts + 1 final)
++uint32_t gCapNextMs = 0, gCapLastArmTry = 0;
++bool gCapDone = false;
++esp_timer_handle_t gCapWakeTimer = nullptr;
++
++size_t capFill(char* out, size_t cap, uint16_t block, size_t length) {
++  (void)block;
++  size_t n = 0;
++  while (n + 5 <= length && n + 6 < cap) n += snprintf(out + n, cap - n, "#%03u ", unsigned(n + 5));
++  out[n] = '\0';
++  return n;
++}
++}  // namespace
++
++static bool g2CaptionTestNoteAck(uint32_t magic, uint32_t error) {
++  for (auto& e : gCapSent) {
++    if (e.magic && e.magic == magic) {
++      ESP_LOGI("CAPTEST", "ack magic=%lu len=%u %s error=%lu after %lu ms", (unsigned long)magic,
++               unsigned(e.length), e.final ? "final" : "draft", (unsigned long)error,
++               (unsigned long)(millis() - e.sentMs));
++      e.magic = 0;
++      return true;
++    }
++  }
++  return false;
++}
++
++static bool g2CaptionSend(const char* text, size_t length, bool final,
++                          const G2ConversateSession& s) {
++  const uint32_t magic = g2ConversateSendCaption(text, length, final, s);
++  if (magic) gCapSent[gCapSentHead++ % 16] = {magic, millis(), uint16_t(length), final};
++  ESP_LOGI("CAPTEST", "sent magic=%lu len=%u %s %s", (unsigned long)magic,
++           unsigned(length), final ? "final" : "draft", magic ? "ok" : "TX FAILED");
++  return magic != 0;
++}
++
++static void g2CaptionTestTick() {
++  const uint32_t now = millis();
++  const auto s = g2ConversateSnapshot();
++  if (!s.enabled && !s.active() && now - gCapLastArmTry >= 5000) {
++    gCapLastArmTry = now;
++    if (g2TempleReadyAtGeneration(gL) && g2TempleReadyAtGeneration(gR) && gL.audioNotifyChar &&
++        !g2ConversateBusy()) {
++      portENTER_CRITICAL(&gConversateMux);
++      const bool idle = !gConversate.active() && gConversateRequest == 0;
++      if (idle) gConversateRequest = -3;  // same as `g2conversate on` (user-ended)
++      portEXIT_CRITICAL(&gConversateMux);
++      if (idle) {
++        ESP_LOGI("CAPTEST", "armed native Conversate handler; open Conversate on the glasses");
++        g2ControlWake();
++      }
++    }
++    return;
++  }
++  if (s.phase != G2ConversateSession::Phase::Running) {
++    if (!s.active()) { gCapStep = 0; gCapDone = false; gCapNextMs = 0; }  // rerun on next session
++    return;
++  }
++  if (!gCapWakeTimer) {
++    const esp_timer_create_args_t args = {
++        .callback = [](void*) { g2ControlWake(); }, .arg = nullptr,
++        .dispatch_method = ESP_TIMER_TASK, .name = "captest", .skip_unhandled_events = true};
++    if (esp_timer_create(&args, &gCapWakeTimer) == ESP_OK)
++      esp_timer_start_periodic(gCapWakeTimer, 250 * 1000);
++  }
++  if (gCapDone) return;
++  if (!gCapNextMs) { gCapNextMs = now + 3000; ESP_LOGI("CAPTEST", "session running; captions start in 3 s"); return; }
++  if (int32_t(now - gCapNextMs) < 0) return;
++  const uint16_t perBlock = kCapDraftsPerBlock + 1;
++  const uint16_t block = gCapStep / perBlock, step = gCapStep % perBlock;
++  if (block >= sizeof(kCapLengths) / sizeof(kCapLengths[0])) {
++    gCapDone = true;
++    ESP_LOGI("CAPTEST", "all caption blocks sent; exit Conversate on the glasses when done");
++    return;
++  }
++  (void)step;
++  const bool final = block != 0;  // v2: block 0 is a held draft, the rest finals
++  const size_t target = kCapLengths[block];
++  char text[520];
++  const size_t length = capFill(text, sizeof(text), block, target);
++  (void)g2CaptionSend(text, length, final, s);
++  ++gCapStep;
++  gCapNextMs = now + kCapBlockGapMs;
++}
++#endif  // HW1_CONVERSATE_CAPTION_TEST
++
+ static void g2ConversateTick(bool requestsOnly) {
+   int32_t request;
+   portENTER_CRITICAL(&gConversateMux);
+@@ -14744,6 +15103,12 @@
+ 
+     // Process native EXIT/ACK first, then renew only a still-live lease.
+     g2ConversateTick();
++#if HW1_CONVERSATE_CAPTION_TEST
++    g2CaptionTestTick();
++#endif
++#if HW1_CONVERSATE_LOCAL_STT
++    g2ConversateLocalTick();
++#endif
+ 
+     if (g2ControlTakeDirty()) g2ControlReconcileTick();
+ 
+@@ -14775,6 +15140,14 @@
+       // broadened g2FsmHijackActive() to include ImageProbing — without
+       // this gate, every g2bmp / QGlizzy from cold would trip the watchdog
+       // on the first heartbeat tick after device-uptime > 60 s.
++#if ENABLE_LOCAL_STT
++      // A running transcription session is authoritative device-side activity
++      // (like chat generation below): keep its page alive while it runs. Once
++      // it stops, the normal tap-only 60 s watchdog governs passive reading.
++      if (g2FsmHijackActive() && gHijackStartedMs > 0 &&
++          g2GetHijackPage() == G2_HIJACK_PAGE_TRANSCRIPTION && sttAnySessionActive())
++        gHijackStartedMs = millis();
++#endif
+       if (g2FsmHijackActive() && gHijackStartedMs > 0 &&
+           (millis() - gHijackStartedMs) > HIJACK_SAFETY_MS) {
+         sendHijackShutdown("safety-timeout");
+--- a/components/hardwareone/System_Board_P4X_EYE.h
++++ b/components/hardwareone/System_Board_P4X_EYE.h
+@@ -55,6 +55,9 @@
+ #define SD_MMC_POWER_PIN 46
+ #define SD_MMC_POWER_ACTIVE_LEVEL 0
+ #define SD_MMC_LDO_CHANNEL 4
++// 40 MHz SD High Speed, as Espressif's own P4-EYE BSP uses on this slot
++// (SDMMC_FREQ_HIGHSPEED, 4-bit, LDO channel 4). Cards that do not support High
++// Speed are negotiated down to 20 MHz by the driver at mount.
+ #ifndef SD_MMC_MAX_FREQ_KHZ
+-#define SD_MMC_MAX_FREQ_KHZ 20000
++#define SD_MMC_MAX_FREQ_KHZ 40000
+ #endif
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -34,8 +34,13 @@
+ // logs once per boot and the runtime decodes greedily. The runtime may also
+ // release it to admit a later call under memory pressure.
+ namespace lm=hw1::stt::lm;
+-constexpr const char* kLmPath="/STT Models/meeting.lm";
+-constexpr const char* kWordsPath="/STT Models/custom_words.txt";
++// The microSD copy wins when present, so the LM can be swapped with the card
++// (like the 15x5 model) and the onboard copy removed to free LittleFS.
++struct LmFiles { const char* lm; const char* words; };
++constexpr LmFiles kLmFiles[]={
++    {"/sd/STT Models/meeting.lm","/sd/STT Models/custom_words.txt"},
++    {"/STT Models/meeting.lm","/STT Models/custom_words.txt"},
++};
+ // Free PSRAM kept beside a resident LM: a warm worst-case (30 s) runtime call
+ // needs ~5 MiB; the beam workspace is separately checked per decode.
+ constexpr size_t kLmMaxBytes=32u<<20, kWordsMaxBytes=64u<<10, kLmReserveBytes=6u<<20;
+@@ -47,6 +52,7 @@
+     uint8_t* blob=nullptr;
+     lm::CustomWords* words=nullptr;   // PSRAM, trivially destructible
+     lm::Lm view;
++    const LmFiles* files=nullptr;      // where the loaded copy came from
+     LmState state=LmState::Unloaded;
+     ~LanguageModel() { reset(); }
+     void reset() { view=lm::Lm{}; heap_caps_free(words); words=nullptr; heap_caps_free(blob); blob=nullptr; }
+@@ -64,6 +70,7 @@
+ void loadCustomWords(LanguageModel& model) {
+     // trusted: fixed optional hotword list beside the model.
+     const auto auth=VFS::systemAuth("stt.lm_words_read");
++    const char* kWordsPath=model.files->words;   // beside the LM that was loaded
+     if(!VFS::existsGuarded(kWordsPath,auth))return;
+     File file=VFS::openGuarded(kWordsPath,"r",auth);
+     const size_t bytes=file && !file.isDirectory() ? file.size() : 0;
+@@ -82,12 +89,16 @@
+ // only cancellation returns false and leaves it Unloaded for a later retry.
+ bool loadLanguageModel(LanguageModel& model,const STTLocalControl& control) {
+     model.state=LmState::Unavailable;
++    model.files=nullptr;
+     // trusted: fixed LM path beside the pinned model; content is SHA-checked.
+     const auto auth=VFS::systemAuth("stt.lm_read");
+-    if(!VFS::existsGuarded(kLmPath,auth)) {
+-        if(firstNote(kLmMissing))INFO_SYSTEMF("[STT] No %s; using greedy decoding",kLmPath);
++    for(const LmFiles& f:kLmFiles)
++        if(VFS::existsGuarded(f.lm,auth)) { model.files=&f; break; }
++    if(!model.files) {
++        if(firstNote(kLmMissing))INFO_SYSTEMF("[STT] No %s or %s; using greedy decoding",kLmFiles[0].lm,kLmFiles[1].lm);
+         return true;
+     }
++    const char* kLmPath=model.files->lm;
+     File file=VFS::openGuarded(kLmPath,"r",auth);
+     const size_t bytes=file && !file.isDirectory() ? file.size() : 0;
+     if(bytes<96 || bytes>kLmMaxBytes) {
+@@ -115,8 +126,8 @@
+     loadCustomWords(model);
+     model.state=LmState::Ready;
+     if(firstNote(kLmLoaded))
+-        INFO_SYSTEMF("[STT] Language model: %u words, %u bigrams, %u trigrams, beam %u, %u custom words, %u bytes",
+-                     unsigned(model.view.vocab()),unsigned(model.view.bigrams()),unsigned(model.view.trigrams()),
++        INFO_SYSTEMF("[STT] Language model %s: %u words, %u bigrams, %u trigrams, beam %u, %u custom words, %u bytes",
++                     kLmPath,unsigned(model.view.vocab()),unsigned(model.view.bigrams()),unsigned(model.view.trigrams()),
+                      unsigned(model.view.beamWidth()),unsigned(model.words ? model.words->size() : 0),unsigned(bytes));
+     return true;
+ }
+@@ -140,6 +151,10 @@
+     if(model.state!=LmState::Ready)return false;
+     model.reset(); model.state=LmState::Unavailable; // no reload thrash in this session
+     if(firstNote(kLmShed))WARN_SYSTEMF("[STT] Released language model to admit transcription; greedy until the session restarts");
++#ifdef ESP_PLATFORM
++    // Always on the console: an LM too large for PSRAM silently costs accuracy otherwise.
++    ESP_LOGW("STT","TL lm_released: PSRAM short for inference; greedy decoding for the rest of this session");
++#endif
+     return true;
+ }
+ #endif
+--- a/components/hardwareone/HardwareOne.cpp
++++ b/components/hardwareone/HardwareOne.cpp
+@@ -2469,6 +2469,21 @@
+     return;
+   }
+ 
++#if ENABLE_LOCAL_STT
++  // Local transcription is real-time inference on this CPU: at the idle clock
++  // (100 MHz on the P4) it runs ~3x slower than speech and falls behind
++  // (measured 2026-10-01). Hold the interactive clock for the whole session,
++  // and wake if it started while asleep (e.g. Conversate opened on the glasses,
++  // which is not local activity).
++  extern bool sttAnySessionActive();
++  if (sttAnySessionActive()) {
++    if (asleep) wake();
++    powerSaveNoteActivity();
++    lastSeenActivityMs = powerSaveLastActivityMs();
++    return;
++  }
++#endif
++
+   if (asleep) return;  // already dark, waiting for activity
+ 
+   // Defer the countdown while genuinely busy (camera/mic, or a bonded peer).

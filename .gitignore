@@ -1,0 +1,11 @@
+# Working notes, extra reports, logs and machine-specific files: any folder named private
+private/
+# Recorded device sessions, playlists (audio) and test fixtures
+tools/device_tests/speaker/sessions/
+tools/device_tests/speaker/playlist*/
+tools/device_tests/speaker/selftest/
+# Python and macOS
+__pycache__/
+*.pyc
+.DS_Store
+._*

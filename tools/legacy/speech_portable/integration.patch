@@ -1,0 +1,3321 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 955abe9..4b99e0d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -370,8 +370,19 @@ if(EXISTS "${_buildconfig}")
+             "${HW1_DEPLOYMENT_CONTRACT_FILE}"
+             "${HW1_DEPLOYMENT_PARTITION_FILE}")
++    elseif(DEFINED HW1_DEPLOYMENT_FEATURE_FILE AND
++           NOT "${HW1_DEPLOYMENT_FEATURE_FILE}" STREQUAL "")
++        file(READ "${HW1_DEPLOYMENT_FEATURE_FILE}" _deployment_bc_contents)
++        set(_bc_contents "${_deployment_bc_contents}\n${_bc_contents}")
++        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
++            "${HW1_DEPLOYMENT_FEATURE_FILE}")
+     endif()
++    string(REGEX MATCH "#define[ \t]+HW1_SR_MODELS_IN_FILESYSTEM[ \t]+([0-9]+)"
++           _model_location_match "${_bc_contents}")
++    set(_sr_models_in_filesystem "${CMAKE_MATCH_1}")
+     string(REGEX MATCH "#define ENABLE_ESP_SR[ \t]+([0-9]+)" _match "${_bc_contents}")
+     set(_espsr_val "${CMAKE_MATCH_1}")
+-    if(_espsr_val STREQUAL "1")
++    # File-backed models share LittleFS/SD and need no dedicated model region.
++    # Keeping the no_sr layout preserves existing user data during SR upgrades.
++    if(_espsr_val STREQUAL "1" AND NOT _sr_models_in_filesystem STREQUAL "1")
+         set(_sr_flag "sr")
+     else()
+diff --git a/components/hardwareone/CMakeLists.txt b/components/hardwareone/CMakeLists.txt
+index 1bc368a..ba5c29e 100644
+--- a/components/hardwareone/CMakeLists.txt
++++ b/components/hardwareone/CMakeLists.txt
+@@ -21,4 +21,5 @@ set(HW_CFG_ENABLE_MAPS 0)
+ set(HW_CFG_ENABLE_AUTOMATION 0)
+ set(HW_CFG_ENABLE_CAMERA_SENSOR 0)
++set(HW_CFG_ENABLE_ESP_SR 0)
+ set(HW_CFG_ENABLE_EDGE_IMPULSE 0)
+ set(HW_CFG_ENABLE_GAMES 0)
+@@ -121,4 +122,9 @@ if(EXISTS "${hw_cfg_file}")
+     endif()
+ 
++    string(REGEX MATCH "#define[ \t]+ENABLE_ESP_SR[ \t]+([0-9]+)" _ "${HW_CFG_CONTENT}")
++    if(CMAKE_MATCH_1)
++        set(HW_CFG_ENABLE_ESP_SR "${CMAKE_MATCH_1}")
++    endif()
++
+     string(REGEX MATCH "#define[ \t]+ENABLE_AUTOMATION[ \t]+([0-9]+)" _ "${HW_CFG_CONTENT}")
+     if(CMAKE_MATCH_1)
+@@ -628,4 +634,10 @@ if(HW_CFG_ENABLE_CAMERA_SENSOR GREATER 0)
+ endif()
+ 
++# The shared speech consumer selects target-specific ESP-SR libraries through
++# the component; no chip-specific audio path is required here.
++if(HW_CFG_ENABLE_ESP_SR GREATER 0)
++    list(APPEND hardwareone_requires espressif__esp-sr)
++endif()
++
+ # CSI/ISP stays behind the shared camera API; native S3 uses esp32-camera.
+ if(IDF_TARGET STREQUAL "esp32p4" AND HW_CFG_ENABLE_CAMERA_SENSOR GREATER 0)
+diff --git a/components/hardwareone/System_ESPSR.cpp b/components/hardwareone/System_ESPSR.cpp
+index f909703..cb6aafd 100644
+--- a/components/hardwareone/System_ESPSR.cpp
++++ b/components/hardwareone/System_ESPSR.cpp
+@@ -24,4 +24,7 @@
+ #include "System_CLI.h"
+ #include "System_User.h"
++#include "System_ESPSRModelPack.h"
++#include <atomic>
++#include <new>
+ #include "System_AuthIdentity.h"  // currentAuthContext (voice arm captures caller identity)
+ #include <ctype.h>
+@@ -55,18 +58,9 @@
+ #define ERROR_SRF(fmt, ...) DEBUGF_QUEUE(DEBUG_ALWAYS | DEBUG_SR, "[ERROR][SR] " fmt, ##__VA_ARGS__)
+ 
+-// I2S PDM Configuration for microphone (XIAO ESP32S3 Sense uses PDM mic)
+-#define I2S_SR_NUM          I2S_NUM_0
++// Every microphone enters speech recognition through the shared mono PCM HAL.
+ #define I2S_SR_SAMPLE_RATE  16000
+ #define I2S_SR_BITS         16
+ #define I2S_SR_CHANNELS     1
+ 
+-// Use PDM microphone pins from BuildConfig
+-#ifndef MIC_CLK_PIN
+-  #define MIC_CLK_PIN       42  // Default for XIAO ESP32S3 Sense
+-#endif
+-#ifndef MIC_DATA_PIN
+-  #define MIC_DATA_PIN      41  // Default for XIAO ESP32S3 Sense
+-#endif
+-
+ // Task configuration (SR_STACK_WORDS and SR_TASK_PRIORITY_LEVEL defined in System_TaskUtils.h)
+ #define SR_AUDIO_CHUNK_MS   32
+@@ -75,11 +69,57 @@
+ // State
+ static bool gESPSRInitialized = false;
+-static bool gESPSRRunning = false;
++static std::atomic<bool> gESPSRRunning{false};
+ static bool gESPSRWakeDetected = false;
+ static TaskHandle_t gSRTaskHandle = nullptr;
+-static volatile bool gSRTaskShouldRun = false;
++static std::atomic<bool> gSRTaskShouldRun{false};
++static std::atomic<bool> gSRFeedShouldRun{false};
++static std::atomic<bool> gSRTaskExited{true};
++static std::atomic<bool> gSRFeedExited{true};
++static std::atomic<UBaseType_t> gSRStackHwm{0};
++static TaskHandle_t gSRFeedTaskHandle = nullptr;
++static SemaphoreHandle_t gSRLifecycleMutex = nullptr;
++static SemaphoreHandle_t gSRSnipMutex = nullptr;
++static int16_t* gSRFeedBuffer = nullptr;
++static int16_t* gSRMNBuffer = nullptr;
++static size_t gSRFeedSamples = 0;
++static size_t gSRFetchSamples = 0;
++static std::atomic<const char*> gSRError{nullptr};
++static srmodel_list_t* gSRModels = nullptr;
++static void* gSRModelBlob = nullptr;
++static size_t gSRModelBytes = 0;
++static const char* gSRModelSource = "none";
++
++// Task creation and teardown are serialized even when initiated from the OLED.
++// A timed-out stop retains all handles and buffers for a subsequent join.
++class SRLifecycleGuard {
++ public:
++  SRLifecycleGuard() : locked_(gSRLifecycleMutex &&
++      xSemaphoreTake(gSRLifecycleMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {}
++  ~SRLifecycleGuard() { if (locked_) xSemaphoreGive(gSRLifecycleMutex); }
++  explicit operator bool() const { return locked_; }
++ private:
++  bool locked_;
++};
++
++// Capture and detection now run independently. Preserve raw snippet capture
++// while serializing its session buffer against detection and CLI operations.
++class SRSnipGuard {
++ public:
++  SRSnipGuard() : locked_(gSRSnipMutex &&
++      xSemaphoreTakeRecursive(gSRSnipMutex, portMAX_DELAY) == pdTRUE) {}
++  ~SRSnipGuard() { if (locked_) xSemaphoreGiveRecursive(gSRSnipMutex); }
++  explicit operator bool() const { return locked_; }
++ private:
++  bool locked_;
++};
++
++static void srSetError(const char* message) {
++  gSRError.store(message, std::memory_order_release);
++  ERROR_SRF("%s", message);
++}
++
+ 
+ // AFE and model handles
+-static esp_afe_sr_iface_t* gAFE = nullptr;
++static const esp_afe_sr_iface_t* gAFE = nullptr;
+ 
+ // Resolved model names (e.g. "wn9_hilexin", "mn7_en"). Populated when
+@@ -102,5 +142,12 @@ static model_iface_data_t* gMNData = nullptr;
+ static const esp_mn_iface_t* gMNModel = nullptr;
+ static SemaphoreHandle_t gMNCommandMutex = nullptr;
++// FST lookup arrays scale with the highest ID, not phrase count. Bound custom
++// IDs before the vendor's unsafe allocation path; reserved globals use990-992.
++static constexpr int kSRMaxCommandId = 1023;
+ static bool gMNCommandsAllocated = false;
++static bool gMNGrammarPublished = false;
++// A failed/partial command-file reload or publication must never be saved over
++// the user's commands file. A successful file reload reestablishes trust.
++static bool gMnTableTrusted = true;
+ 
+ static bool gRestoreMicAfterSR = false;
+@@ -108,5 +155,5 @@ static bool gRestoreMicAfterSR = false;
+ // Statistics
+ static uint32_t gWakeWordCount = 0;
+-static uint32_t gCommandCount = 0;
++static std::atomic<uint32_t> gCommandCount{0};
+ 
+ static SemaphoreHandle_t gVoiceArmMutex = nullptr;
+@@ -116,11 +163,28 @@ static CommandSource gVoiceArmedByTransport = SOURCE_INTERNAL;
+ static String gVoiceArmedByIp = "";
+ static uint32_t gVoiceArmedAtMs = 0;
++static uint32_t gVoiceArmGeneration = 0;
++static TransportSessionEpoch gVoiceArmEpoch = 0;
++static bool gVoiceArmRequiresEpoch = false;
+ 
+ extern bool executeCommand(AuthContext& ctx, const char* cmd, char* out, size_t outSize);
+ 
++static portMUX_TYPE gSRMutexInitMux = portMUX_INITIALIZER_UNLOCKED;
++
++static bool ensureSRMutex(SemaphoreHandle_t& slot, bool recursive = false) {
++  portENTER_CRITICAL(&gSRMutexInitMux);
++  bool ready = slot != nullptr;
++  portEXIT_CRITICAL(&gSRMutexInitMux);
++  if (ready) return true;
++  SemaphoreHandle_t candidate = recursive ? xSemaphoreCreateRecursiveMutex() : xSemaphoreCreateMutex();
++  if (!candidate) return false;
++  portENTER_CRITICAL(&gSRMutexInitMux);
++  if (!slot) { slot = candidate; candidate = nullptr; }
++  portEXIT_CRITICAL(&gSRMutexInitMux);
++  if (candidate) vSemaphoreDelete(candidate);
++  return true;
++}
++
+ static void ensureVoiceArmMutex() {
+-  if (!gVoiceArmMutex) {
+-    gVoiceArmMutex = xSemaphoreCreateMutex();
+-  }
++  ensureSRMutex(gVoiceArmMutex);
+ }
+ 
+@@ -144,4 +208,7 @@ static void voiceDisarmInternal() {
+   bool wasArmed = gVoiceArmed;
+   String prevUser = gVoiceArmedUser;
++  ++gVoiceArmGeneration;
++  gVoiceArmEpoch = 0;
++  gVoiceArmRequiresEpoch = false;
+   gVoiceArmed = false;
+   gVoiceArmedUser = "";
+@@ -156,4 +223,13 @@ static bool voiceArmFromContextInternal(const AuthContext& ctx) {
+   if (ctx.user.length() == 0) return false;
+ 
++  const bool requiresEpoch = ctx.transport == SOURCE_SERIAL ||
++      ctx.transport == SOURCE_LOCAL_DISPLAY || ctx.transport == SOURCE_BLUETOOTH ||
++      ctx.transport == SOURCE_UART || ctx.transport == SOURCE_G2_GLASSES ||
++      (ctx.transport == SOURCE_WEB && ctx.sid.length() != 0);
++  const TransportSessionEpoch epoch = captureTransportSessionEpoch(ctx);
++  if (requiresEpoch && epoch == 0) return false;
++  ++gVoiceArmGeneration;
++  gVoiceArmEpoch = epoch;
++  gVoiceArmRequiresEpoch = requiresEpoch;
+   gVoiceArmed = true;
+   gVoiceArmedUser = ctx.user;
+@@ -167,7 +243,5 @@ static bool voiceArmFromContextInternal(const AuthContext& ctx) {
+ static bool isVoiceArmed(String& outUser) {
+   ensureVoiceArmMutex();
+-  if (gVoiceArmMutex) {
+-    if (xSemaphoreTake(gVoiceArmMutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
+-  }
++  if (!gVoiceArmMutex || xSemaphoreTake(gVoiceArmMutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
+   bool armed = gVoiceArmed;
+   outUser = gVoiceArmedUser;
+@@ -176,38 +250,96 @@ static bool isVoiceArmed(String& outUser) {
+ }
+ 
++struct VoiceCommandJob {
++  Command command;
++  uint32_t armGeneration = 0;
++  CommandSource armTransport = SOURCE_INTERNAL;
++  TransportSessionEpoch armEpoch = 0;
++  bool requiresEpoch = false;
++};
++
++// Runs on cmd_exec, so checking the captured authority and executing the normal
++// authenticated pipeline cannot deadlock an SR stop queued ahead of this job.
++static void runVoiceCommandJob(void* opaque) {
++  VoiceCommandJob* job = static_cast<VoiceCommandJob*>(opaque);
++  bool authorized = false;
++  if (gVoiceArmMutex && xSemaphoreTake(gVoiceArmMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
++    authorized = gVoiceArmed && gVoiceArmGeneration == job->armGeneration &&
++        gVoiceArmedUser == job->command.ctx.auth.user &&
++        (!job->requiresEpoch || (job->armEpoch != 0 &&
++         transportSessionEpochIsLive(job->armTransport, job->armEpoch)));
++    // A bypass login must not survive enabling authentication on its source.
++    if (authorized && job->command.ctx.auth.user == "AuthBypass") {
++      authorized = !((job->armTransport == SOURCE_SERIAL && gSettings.serialRequireAuth) ||
++          (job->armTransport == SOURCE_UART && gSettings.uartRequireAuth) ||
++          (job->armTransport == SOURCE_LOCAL_DISPLAY && gSettings.localDisplayRequireAuth) ||
++          (job->armTransport == SOURCE_BLUETOOTH && gSettings.bleRequireAuth));
++    }
++    xSemaphoreGive(gVoiceArmMutex);
++  }
++  char* result = static_cast<char*>(ps_alloc(CMD_RESULT_MAX, AllocPref::PreferPSRAM, "sr.command.result"));
++  bool ok = false;
++  if (result) {
++    if (authorized) {
++      void* previous = currentCommandContext();
++      setCurrentCommandContext(&job->command.ctx);
++      ok = executeCommand(job->command.ctx.auth, job->command.line.c_str(), result, CMD_RESULT_MAX);
++      setCurrentCommandContext(previous);
++    } else {
++      snprintf(result, CMD_RESULT_MAX, "Voice authority changed before command execution");
++    }
++    broadcastOutput(String(ok ? "[Voice] Completed: " : "[Voice] Failed: ") + result);
++    free(result);
++  } else {
++    broadcastOutput("[Voice] Failed: insufficient memory for command execution");
++  }
++  if (ok) {
++    ++gCommandCount;
++    systemEventPost(SYSEVT_VOICE_COMMAND, job->command.line.c_str());
++  }
++  job->~VoiceCommandJob();
++  free(job);
++}
++
+ static bool executeVoiceCommandAsArmedUser(const char* cliCmd, char* out, size_t outSize) {
+-  String user;
+-  if (!isVoiceArmed(user) || user.length() == 0) {
+-    snprintf(out, outSize, "Voice not armed");
++  ensureVoiceArmMutex();
++  if (!gVoiceArmMutex || xSemaphoreTake(gVoiceArmMutex, pdMS_TO_TICKS(50)) != pdTRUE) {
++    snprintf(out, outSize, "Voice authority busy");
+     return false;
+   }
+-
+-  // Route through cmd_exec_task (submitAndExecuteSync) instead of calling
+-  // executeCommand() directly on the SR task. This serializes voice commands with
+-  // every other command source (no concurrent-handler races on shared state /
+-  // static response buffers) and runs them on cmd_exec's 8 KB stack, not ours.
+-  extern bool submitAndExecuteSync(const Command& cmd, String& out);
+-  Command uc;
+-  uc.line = cliCmd;
+-  uc.ctx.origin = ORIGIN_VOICE;
+-  uc.ctx.auth.transport = SOURCE_VOICE;
+-  uc.ctx.auth.user = user;
+-  uc.ctx.auth.ip = "voice";
+-  uc.ctx.auth.path = "/voice";
+-  uc.ctx.auth.sid = "";
+-  uc.ctx.auth.opaque = nullptr;
+-  uc.ctx.id = (uint32_t)millis();
+-  uc.ctx.timestampMs = (uint32_t)millis();
+-  uc.ctx.outputMask = MSG_ROUTE_FILE;  // audit to file log; response is the return value
+-  uc.ctx.validateOnly = false;
+-  uc.ctx.captureOutput = false;
+-  uc.ctx.replyHandle = nullptr;
+-  uc.ctx.httpReq = nullptr;
+-
+-  String result;
+-  bool ok = submitAndExecuteSync(uc, result);
+-  strncpy(out, result.c_str(), outSize - 1);
+-  out[outSize - 1] = '\0';
+-  return ok;
++  VoiceCommandJob* job = nullptr;
++  if (gVoiceArmed && gVoiceArmedUser.length() != 0) {
++    void* memory = ps_alloc(sizeof(VoiceCommandJob), AllocPref::PreferPSRAM, "sr.command.job");
++    if (memory) {
++      job = new (memory) VoiceCommandJob();
++      job->armGeneration = gVoiceArmGeneration;
++      job->armTransport = gVoiceArmedByTransport;
++      job->armEpoch = gVoiceArmEpoch;
++      job->requiresEpoch = gVoiceArmRequiresEpoch;
++      job->command.ctx.auth.user = gVoiceArmedUser;
++    }
++  }
++  xSemaphoreGive(gVoiceArmMutex);
++  if (!job) {
++    snprintf(out, outSize, "Voice not armed or insufficient memory");
++    return false;
++  }
++  job->command.line = cliCmd;
++  job->command.ctx.origin = ORIGIN_VOICE;
++  job->command.ctx.auth.transport = SOURCE_VOICE;
++  job->command.ctx.auth.ip = "voice";
++  job->command.ctx.auth.path = "/voice";
++  job->command.ctx.id = millis();
++  job->command.ctx.timestampMs = millis();
++  job->command.ctx.outputMask = MSG_ROUTE_FILE;
++  job->command.ctx.behaviorFlags = COMMAND_CONTEXT_MODE_INDEPENDENT;
++  extern bool submitDeferredToCmdExec(ExecReq::DeferredFn fn, void* arg);
++  if (!submitDeferredToCmdExec(runVoiceCommandJob, job)) {
++    job->~VoiceCommandJob();
++    free(job);
++    snprintf(out, outSize, "Command queue unavailable");
++    return false;
++  }
++  snprintf(out, outSize, "Queued for authenticated execution");
++  return true;
+ }
+ static uint32_t gLastWakeMs = 0;
+@@ -291,5 +423,7 @@ static bool gSrRawOutputEnabled = false;
+ // Audio filter toggle - when false, only DC offset + gain applied (no high-pass/pre-emphasis)
+ // This can help if the AFE's internal processing conflicts with our filters
+-static bool gSrFiltersEnabled = true;  // Default ON - apply high-pass and pre-emphasis
++// AFE supplies the recognizer's front end. Extra high-pass/pre-emphasis reduced
++// wake recognition in the P4 acoustic comparison; retain it only as an opt-in.
++static bool gSrFiltersEnabled = false;
+ 
+ // Auto-tuning state
+@@ -417,5 +551,5 @@ static bool mnCommandsReady();
+ static bool lockMN(uint32_t timeoutMs);
+ static void unlockMN();
+-static esp_mn_error_t* mnUpdateLocked();
++static bool mnUpdateLocked();
+ static String normalizePhrase(const char* phrase);
+ 
+@@ -513,8 +647,33 @@ static void srReportDeadVoiceRoutes() {
+ }
+ 
++static esp_mn_phrase_t* findLoadedVoicePhrase(const char* phrase) {
++  for (int index = 0; ; ++index) {
++    esp_mn_phrase_t* existing = esp_mn_commands_get_from_index(index);
++    if (!existing) return nullptr;
++    if (existing->string && normalizePhrase(existing->string) == normalizePhrase(phrase)) return existing;
++  }
++}
++
++// MN7 results.string is a phonetic sequence. Dispatch and UI need the original
++// registered phrase, copied while the command table lock is still held.
++static bool copyRecognizedVoicePhrase(int commandId, char* out, size_t capacity) {
++  const char* phrase = esp_mn_commands_get_string(commandId);
++  if (!phrase || !phrase[0] || strlen(phrase) >= capacity) return false;
++  memcpy(out, phrase, strlen(phrase) + 1);
++  return true;
++}
++
++// Duplicate targets may be aliases of the same command. A phrase bound to two
++// different commands is ambiguous and must not silently overwrite its old ID.
++static bool loadedTargetMatches(esp_mn_phrase_t* existing, const char* cli) {
++  const char* mapped = existing ? findCliCommandForId(existing->command_id) : nullptr;
++  return mapped && strcmp(mapped, cli) == 0;
++}
++
+ // Add global voice routes (cat "*") to current MultiNet command set
+ // These are available at all stages (category, subcategory, target)
+ // Call after clearing commands, before adding stage-specific phrases
+-static void addSpecialPhrases() {
++static bool addSpecialPhrases() {
++  bool valid = true;
+   int globalId = GLOBAL_VOICE_CMD_ID_START;  // Start from reserved ID range
+ 
+@@ -527,10 +686,15 @@ static void addSpecialPhrases() {
+     if (!routeAlive(r)) continue;
+ 
++    if (esp_mn_phrase_t* existing = findLoadedVoicePhrase(r.target)) {
++      valid = loadedTargetMatches(existing, r.cli) && valid;
++      continue;
++    }
+     esp_err_t err = esp_mn_commands_add(globalId, r.target);
+     if (err == ESP_OK) {
+       addVoiceCliMapping(globalId, r.cli);  // Map to CLI command name, not voice phrase
+-      INFO_SRF("[HIER-DEBUG] Added global phrase: id=%d phrase='%s' -> cli='%s'",
++      DEBUG_SRF("[HIER-DEBUG] Added global phrase: id=%d phrase='%s' -> cli='%s'",
+                globalId, r.target, r.cli);
+     } else {
++      valid = false;
+       WARN_SYSTEMF("[HIER-DEBUG] Failed to add global phrase '%s': err=0x%x",
+                    r.target, err);
+@@ -538,4 +702,5 @@ static void addSpecialPhrases() {
+     globalId++;
+   }
++  return valid;
+ }
+ 
+@@ -543,6 +708,6 @@ static void addSpecialPhrases() {
+ // Returns true if any targets were loaded, false if category has no targets (single-stage)
+ static bool loadTargetsForCategory(const char* category) {
+-  INFO_SRF("[HIER-DEBUG] loadTargetsForCategory('%s') called", category);
+-  INFO_SRF("[HIER-DEBUG]   Total voice routes: %u", (unsigned)kVoiceRouteCount);
++  DEBUG_SRF("[HIER-DEBUG] loadTargetsForCategory('%s') called", category);
++  DEBUG_SRF("[HIER-DEBUG]   Total voice routes: %u", (unsigned)kVoiceRouteCount);
+   
+   if (!mnCommandsReady()) {
+@@ -555,10 +720,10 @@ static bool loadTargetsForCategory(const char* category) {
+   }
+   
+-  INFO_SRF("[HIER-DEBUG] Clearing MultiNet commands...");
+-  esp_mn_commands_clear();
++  DEBUG_SRF("[HIER-DEBUG] Clearing MultiNet commands...");
++  if (esp_mn_commands_clear() != ESP_OK) { unlockMN(); return false; }
+   clearVoiceCliMappings();
+   
+   // Always add special phrases (cancel, help) for abort/help capability
+-  addSpecialPhrases();
++  bool valid = addSpecialPhrases();
+   
+   String normCategory = normalizePhrase(category);
+@@ -569,44 +734,49 @@ static bool loadTargetsForCategory(const char* category) {
+   
+   // Find all routes with this category and load their targets
+-  INFO_SRF("[HIER-DEBUG] Scanning routes for category '%s' (normalized='%s') targets...", category, normCategory.c_str());
++  DEBUG_SRF("[HIER-DEBUG] Scanning routes for category '%s' (normalized='%s') targets...", category, normCategory.c_str());
+   for (size_t i = 0; i < kVoiceRouteCount && nextId < MAX_VOICE_CLI_MAPPINGS; i++) {
+     const VoiceRoute& r = kVoiceRoutes[i];
+     scanned++;
+ 
+-    if (!r.cat) continue;
++    if (!r.cat || (r.sub && r.sub[0])) continue;
+     if (!routeAlive(r)) continue;
+ 
+     if (normalizePhrase(r.cat) == normCategory) {
+       categoryMatches++;
+-      INFO_SRF("[HIER-DEBUG]   Found category match: cmd='%s' target='%s'",
++      DEBUG_SRF("[HIER-DEBUG]   Found category match: cmd='%s' target='%s'",
+                r.cli, r.target ? r.target : "(null)");
+ 
+       if (r.target && r.target[0] != '\0') {
++        if (esp_mn_phrase_t* existing = findLoadedVoicePhrase(r.target)) {
++          valid = loadedTargetMatches(existing, r.cli) && valid;
++          continue;
++        }
+         esp_err_t err = esp_mn_commands_add(nextId, r.target);
+         if (err == ESP_OK) {
+           addVoiceCliMapping(nextId, r.cli);  // Map target ID to CLI command
+-          INFO_SRF("[HIER-DEBUG]   OK Added to MultiNet: id=%d phrase='%s' -> cli='%s'",
++          DEBUG_SRF("[HIER-DEBUG]   OK Added to MultiNet: id=%d phrase='%s' -> cli='%s'",
+                    nextId, r.target, r.cli);
+           nextId++;
+           loaded++;
+         } else {
++          valid = false;
+           WARN_SYSTEMF("[HIER-DEBUG]   FAIL Failed to add '%s': err=0x%x", r.target, err);
+         }
+       } else {
+-        INFO_SRF("[HIER-DEBUG]   (no target - single-stage command)");
++        DEBUG_SRF("[HIER-DEBUG]   (no target - single-stage command)");
+       }
+     }
+   }
+   
+-  INFO_SRF("[HIER-DEBUG] Scan complete: scanned=%d, categoryMatches=%d, loaded=%d", 
++  DEBUG_SRF("[HIER-DEBUG] Scan complete: scanned=%d, categoryMatches=%d, loaded=%d",
+            scanned, categoryMatches, loaded);
+   
+   if (loaded > 0) {
+-    INFO_SRF("[HIER-DEBUG] Updating MultiNet with %d targets...", loaded);
+-    esp_mn_error_t* errList = mnUpdateLocked();
+-    if (errList && errList->num > 0) {
+-      WARN_SYSTEMF("[HIER-DEBUG] MultiNet update had %d errors", errList->num);
++    DEBUG_SRF("[HIER-DEBUG] Updating MultiNet with %d targets...", loaded);
++    if (!mnUpdateLocked()) {
++      valid = false;
++      WARN_SYSTEMF("[HIER-DEBUG] MultiNet update failed");
+     } else {
+-      INFO_SRF("[HIER-DEBUG] MultiNet update successful");
++      DEBUG_SRF("[HIER-DEBUG] MultiNet update successful");
+     }
+   }
+@@ -614,28 +784,28 @@ static bool loadTargetsForCategory(const char* category) {
+   
+   INFO_SRF("[HIER] ===== Loaded %d targets for category '%s' =====", loaded, category);
+-  return loaded > 0;
++  return valid && loaded > 0;
+ }
+ 
+ // Load categories (first-stage commands) into MultiNet
+-static void loadCategories() {
+-  INFO_SRF("[HIER-DEBUG] ========== loadCategories() BEGIN ==========");
+-  INFO_SRF("[HIER-DEBUG] Total voice routes: %u", (unsigned)kVoiceRouteCount);
++static bool loadCategories() {
++  DEBUG_SRF("[HIER-DEBUG] ========== loadCategories() BEGIN ==========");
++  DEBUG_SRF("[HIER-DEBUG] Total voice routes: %u", (unsigned)kVoiceRouteCount);
+   srReportDeadVoiceRoutes();
+ 
+   if (!mnCommandsReady()) {
+     WARN_SYSTEMF("[HIER-DEBUG] loadCategories: MultiNet not ready!");
+-    return;
++    return false;
+   }
+   if (!lockMN(5000)) {
+     WARN_SYSTEMF("[HIER-DEBUG] loadCategories: Failed to lock MultiNet after 5s!");
+-    return;
++    return false;
+   }
+   
+-  INFO_SRF("[HIER-DEBUG] Clearing MultiNet commands...");
+-  esp_mn_commands_clear();
++  DEBUG_SRF("[HIER-DEBUG] Clearing MultiNet commands...");
++  if (esp_mn_commands_clear() != ESP_OK) { unlockMN(); return false; }
+   clearVoiceCliMappings();
+   
+   // Always add special phrases (cancel, help) for abort/help capability
+-  addSpecialPhrases();
++  bool valid = addSpecialPhrases();
+   
+   int nextId = 1;
+@@ -646,5 +816,5 @@ static void loadCategories() {
+   
+   // Add unique categories
+-  INFO_SRF("[HIER-DEBUG] Scanning routes for unique categories...");
++  DEBUG_SRF("[HIER-DEBUG] Scanning routes for unique categories...");
+   for (size_t i = 0; i < kVoiceRouteCount && nextId < MAX_VOICE_CLI_MAPPINGS; i++) {
+     const VoiceRoute& r = kVoiceRoutes[i];
+@@ -657,19 +827,11 @@ static void loadCategories() {
+ 
+     withVoice++;
+-    INFO_SRF("[HIER-DEBUG]   [%u] cmd='%s' category='%s' target='%s'",
++    DEBUG_SRF("[HIER-DEBUG]   [%u] cmd='%s' category='%s' target='%s'",
+              (unsigned)i, r.cli, r.cat,
+              r.target ? r.target : "(null)");
+ 
+-    // Check for duplicates
+-    bool exists = false;
+-    for (int j = 0; j < nextId - 1; j++) {
+-      esp_mn_phrase_t* existing = esp_mn_commands_get_from_index(j);
+-      if (existing && existing->string && strcmp(existing->string, r.cat) == 0) {
+-        exists = true;
+-        break;
+-      }
+-    }
+-    if (exists) {
+-      INFO_SRF("[HIER-DEBUG]     ^ Category '%s' already added (duplicate)", r.cat);
++    // Globals and stage phrases share one list, independent of command IDs.
++    if (findLoadedVoicePhrase(r.cat)) {
++      DEBUG_SRF("[HIER-DEBUG]     ^ Category '%s' already added (duplicate)", r.cat);
+       duplicates++;
+       continue;
+@@ -679,22 +841,24 @@ static void loadCategories() {
+     if (err == ESP_OK) {
+       addVoiceCliMapping(nextId, r.cat);  // Map to category name
+-      INFO_SRF("[HIER-DEBUG]     OK Added category to MultiNet: id=%d phrase='%s'", nextId, r.cat);
++      DEBUG_SRF("[HIER-DEBUG]     OK Added category to MultiNet: id=%d phrase='%s'", nextId, r.cat);
+       nextId++;
+       loaded++;
+     } else {
++      valid = false;
+       WARN_SYSTEMF("[HIER-DEBUG]     FAIL Failed to add category '%s': err=0x%x", r.cat, err);
+     }
+   }
+   
+-  INFO_SRF("[HIER-DEBUG] Scan complete: scanned=%d, withVoice=%d, duplicates=%d, unique=%d", 
++  DEBUG_SRF("[HIER-DEBUG] Scan complete: scanned=%d, withVoice=%d, duplicates=%d, unique=%d",
+            scanned, withVoice, duplicates, loaded);
+   
++  valid = valid && loaded > 0;
+   if (loaded > 0) {
+-    INFO_SRF("[HIER-DEBUG] Updating MultiNet with %d categories...", loaded);
+-    esp_mn_error_t* errList = mnUpdateLocked();
+-    if (errList && errList->num > 0) {
+-      WARN_SYSTEMF("[HIER-DEBUG] MultiNet update had %d errors", errList->num);
++    DEBUG_SRF("[HIER-DEBUG] Updating MultiNet with %d categories...", loaded);
++    if (!mnUpdateLocked()) {
++      valid = false;
++      WARN_SYSTEMF("[HIER-DEBUG] MultiNet update failed");
+     } else {
+-      INFO_SRF("[HIER-DEBUG] MultiNet update successful");
++      DEBUG_SRF("[HIER-DEBUG] MultiNet update successful");
+     }
+   }
+@@ -702,5 +866,6 @@ static void loadCategories() {
+   
+   INFO_SRF("[HIER] ===== Loaded %d unique categories =====", loaded);
+-  INFO_SRF("[HIER-DEBUG] ========== loadCategories() END ==========");
++  DEBUG_SRF("[HIER-DEBUG] ========== loadCategories() END ========== ");
++  return valid;
+ }
+ 
+@@ -740,5 +905,5 @@ static const char* findCommandForCategoryTarget(const char* category, const char
+ static bool categoryHasSubCategories(const char* category) {
+   String normCategory = normalizePhrase(category);
+-  INFO_SRF("[HIER-DEBUG] categoryHasSubCategories('%s')", category);
++  DEBUG_SRF("[HIER-DEBUG] categoryHasSubCategories('%s')", category);
+   for (size_t i = 0; i < kVoiceRouteCount; i++) {
+     const VoiceRoute& r = kVoiceRoutes[i];
+@@ -746,5 +911,5 @@ static bool categoryHasSubCategories(const char* category) {
+         normalizePhrase(r.cat) == normCategory &&
+         r.sub[0] != '\0') {
+-      INFO_SRF("[HIER-DEBUG]   Found subcategory: '%s' -> cmd='%s'", r.sub, r.cli);
++      DEBUG_SRF("[HIER-DEBUG]   Found subcategory: '%s' -> cmd='%s'", r.sub, r.cli);
+       return true;
+     }
+@@ -756,5 +921,5 @@ static bool categoryHasSubCategories(const char* category) {
+ static bool categoryHasDirectTargets(const char* category) {
+   String normCategory = normalizePhrase(category);
+-  INFO_SRF("[HIER-DEBUG] categoryHasDirectTargets('%s')", category);
++  DEBUG_SRF("[HIER-DEBUG] categoryHasDirectTargets('%s')", category);
+   for (size_t i = 0; i < kVoiceRouteCount; i++) {
+     const VoiceRoute& r = kVoiceRoutes[i];
+@@ -763,5 +928,5 @@ static bool categoryHasDirectTargets(const char* category) {
+         r.target[0] != '\0' &&
+         (!r.sub || r.sub[0] == '\0')) {
+-      INFO_SRF("[HIER-DEBUG]   Found direct target: '%s' -> cmd='%s'", r.target, r.cli);
++      DEBUG_SRF("[HIER-DEBUG]   Found direct target: '%s' -> cmd='%s'", r.target, r.cli);
+       return true;
+     }
+@@ -773,5 +938,5 @@ static bool categoryHasDirectTargets(const char* category) {
+ static bool categoryHasTargets(const char* category) {
+   String normCategory = normalizePhrase(category);
+-  INFO_SRF("[HIER-DEBUG] categoryHasTargets('%s') -> normalized='%s'", category, normCategory.c_str());
++  DEBUG_SRF("[HIER-DEBUG] categoryHasTargets('%s') -> normalized='%s'", category, normCategory.c_str());
+   int targetCount = 0;
+   for (size_t i = 0; i < kVoiceRouteCount; i++) {
+@@ -780,8 +945,8 @@ static bool categoryHasTargets(const char* category) {
+         normalizePhrase(r.cat) == normCategory && r.target[0] != '\0') {
+       targetCount++;
+-      INFO_SRF("[HIER-DEBUG]   Found target: '%s' -> cmd='%s'", r.target, r.cli);
++      DEBUG_SRF("[HIER-DEBUG]   Found target: '%s' -> cmd='%s'", r.target, r.cli);
+     }
+   }
+-  INFO_SRF("[HIER-DEBUG] categoryHasTargets('%s') = %s (found %d targets)", 
++  DEBUG_SRF("[HIER-DEBUG] categoryHasTargets('%s') = %s (found %d targets)",
+            normCategory.c_str(), targetCount > 0 ? "true" : "false", targetCount);
+   return targetCount > 0;
+@@ -790,5 +955,5 @@ static bool categoryHasTargets(const char* category) {
+ // Load sub-categories for a category into MultiNet (for 3-level hierarchy)
+ static bool loadSubCategoriesForCategory(const char* category) {
+-  INFO_SRF("[HIER-DEBUG] loadSubCategoriesForCategory('%s')", category);
++  DEBUG_SRF("[HIER-DEBUG] loadSubCategoriesForCategory('%s')", category);
+   
+   if (!mnCommandsReady()) {
+@@ -801,9 +966,9 @@ static bool loadSubCategoriesForCategory(const char* category) {
+   }
+   
+-  esp_mn_commands_clear();
++  if (esp_mn_commands_clear() != ESP_OK) { unlockMN(); return false; }
+   clearVoiceCliMappings();
+   
+   // Always add special phrases (cancel, help) for abort/help capability
+-  addSpecialPhrases();
++  bool valid = addSpecialPhrases();
+   
+   String normCategory = normalizePhrase(category);
+@@ -819,28 +984,22 @@ static bool loadSubCategoriesForCategory(const char* category) {
+     if (!routeAlive(r)) continue;
+ 
+-    // Check for duplicates
+-    bool exists = false;
+-    for (int j = 0; j < nextId - 1; j++) {
+-      esp_mn_phrase_t* existing = esp_mn_commands_get_from_index(j);
+-      if (existing && existing->string && strcmp(existing->string, r.sub) == 0) {
+-        exists = true;
+-        break;
+-      }
+-    }
+-    if (exists) continue;
++    // Globals and stage phrases share one list, independent of command IDs.
++    if (findLoadedVoicePhrase(r.sub)) continue;
+ 
+     esp_err_t err = esp_mn_commands_add(nextId, r.sub);
+     if (err == ESP_OK) {
+       addVoiceCliMapping(nextId, r.sub);
+-      INFO_SRF("[HIER-DEBUG]   Added subcategory: id=%d phrase='%s'", nextId, r.sub);
++      DEBUG_SRF("[HIER-DEBUG]   Added subcategory: id=%d phrase='%s'", nextId, r.sub);
+       nextId++;
+       loaded++;
++    } else {
++      valid = false;
+     }
+   }
+   
+   if (loaded > 0) {
+-    esp_mn_error_t* errList = mnUpdateLocked();
+-    if (errList && errList->num > 0) {
+-      WARN_SYSTEMF("[HIER-DEBUG] MultiNet update had %d errors", errList->num);
++    if (!mnUpdateLocked()) {
++      valid = false;
++      WARN_SYSTEMF("[HIER-DEBUG] MultiNet update failed");
+     }
+   }
+@@ -848,10 +1007,10 @@ static bool loadSubCategoriesForCategory(const char* category) {
+   
+   INFO_SRF("[HIER] Loaded %d subcategories for '%s'", loaded, category);
+-  return loaded > 0;
++  return valid && loaded > 0;
+ }
+ 
+ // Load targets for a specific category+subcategory combination
+ static bool loadTargetsForCategorySubCategory(const char* category, const char* subCategory) {
+-  INFO_SRF("[HIER-DEBUG] loadTargetsForCategorySubCategory('%s', '%s')", category, subCategory);
++  DEBUG_SRF("[HIER-DEBUG] loadTargetsForCategorySubCategory('%s', '%s')", category, subCategory);
+   
+   if (!mnCommandsReady()) {
+@@ -864,9 +1023,9 @@ static bool loadTargetsForCategorySubCategory(const char* category, const char*
+   }
+   
+-  esp_mn_commands_clear();
++  if (esp_mn_commands_clear() != ESP_OK) { unlockMN(); return false; }
+   clearVoiceCliMappings();
+   
+   // Always add special phrases (cancel, help) for abort/help capability
+-  addSpecialPhrases();
++  bool valid = addSpecialPhrases();
+   
+   String normCategory = normalizePhrase(category);
+@@ -883,18 +1042,24 @@ static bool loadTargetsForCategorySubCategory(const char* category, const char*
+     if (!routeAlive(r)) continue;
+ 
++    if (esp_mn_phrase_t* existing = findLoadedVoicePhrase(r.target)) {
++      valid = loadedTargetMatches(existing, r.cli) && valid;
++      continue;
++    }
+     esp_err_t err = esp_mn_commands_add(nextId, r.target);
+     if (err == ESP_OK) {
+       addVoiceCliMapping(nextId, r.cli);
+-      INFO_SRF("[HIER-DEBUG]   Added target: id=%d phrase='%s' -> cli='%s'",
++      DEBUG_SRF("[HIER-DEBUG]   Added target: id=%d phrase='%s' -> cli='%s'",
+                nextId, r.target, r.cli);
+       nextId++;
+       loaded++;
++    } else {
++      valid = false;
+     }
+   }
+   
+   if (loaded > 0) {
+-    esp_mn_error_t* errList = mnUpdateLocked();
+-    if (errList && errList->num > 0) {
+-      WARN_SYSTEMF("[HIER-DEBUG] MultiNet update had %d errors", errList->num);
++    if (!mnUpdateLocked()) {
++      valid = false;
++      WARN_SYSTEMF("[HIER-DEBUG] MultiNet update failed");
+     }
+   }
+@@ -902,5 +1067,5 @@ static bool loadTargetsForCategorySubCategory(const char* category, const char*
+   
+   INFO_SRF("[HIER] Loaded %d targets for '%s'->'%s'", loaded, category, subCategory);
+-  return loaded > 0;
++  return valid && loaded > 0;
+ }
+ 
+@@ -925,5 +1090,5 @@ static const char* findCommandForCategorySubCategoryTarget(const char* category,
+ static const char* findCommandForSingleStageCategory(const char* category) {
+   String normCategory = normalizePhrase(category);
+-  INFO_SRF("[HIER-DEBUG] findCommandForSingleStageCategory('%s') -> normalized='%s'", category, normCategory.c_str());
++  DEBUG_SRF("[HIER-DEBUG] findCommandForSingleStageCategory('%s') -> normalized='%s'", category, normCategory.c_str());
+   for (size_t i = 0; i < kVoiceRouteCount; i++) {
+     const VoiceRoute& r = kVoiceRoutes[i];
+@@ -931,10 +1096,10 @@ static const char* findCommandForSingleStageCategory(const char* category) {
+       // Return the first route with this category (assumes single-stage has one command)
+       if (!r.target || r.target[0] == '\0') {
+-        INFO_SRF("[HIER-DEBUG]   Found single-stage: cmd='%s'", r.cli);
++        DEBUG_SRF("[HIER-DEBUG]   Found single-stage: cmd='%s'", r.cli);
+         return r.cli;
+       }
+     }
+   }
+-  INFO_SRF("[HIER-DEBUG]   No single-stage command found for category '%s'", normCategory.c_str());
++  DEBUG_SRF("[HIER-DEBUG]   No single-stage command found for category '%s'", normCategory.c_str());
+   return nullptr;
+ }
+@@ -950,13 +1115,22 @@ static const char* voiceStateToString(VoiceState state) {
+ }
+ 
++static void voiceTableLoadFailed() {
++  srSetError("Speech command table failed; stop and restart speech recognition");
++  gVoiceState = VoiceState::IDLE;
++  gESPSRWakeDetected = false;
++  gSRFeedShouldRun.store(false, std::memory_order_release);
++  gESPSRRunning.store(false, std::memory_order_release);
++  broadcastOutput("[Voice] Command table unavailable; stop and restart speech recognition.");
++}
++
+ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+-  INFO_SRF("[HIER-DEBUG] ########## onVoiceCommandDetected() ##########");
+-  INFO_SRF("[HIER-DEBUG] commandId=%d, phrase='%s'", commandId, phrase ? phrase : "(null)");
+-  INFO_SRF("[HIER-DEBUG] Current state: %s", voiceStateToString(gVoiceState));
+-  INFO_SRF("[HIER-DEBUG] Current category: '%s', subcategory: '%s'", 
++  DEBUG_SRF("[HIER-DEBUG] ########## onVoiceCommandDetected() ##########");
++  DEBUG_SRF("[HIER-DEBUG] commandId=%d, phrase='%s'", commandId, phrase ? phrase : "(null)");
++  DEBUG_SRF("[HIER-DEBUG] Current state: %s", voiceStateToString(gVoiceState));
++  DEBUG_SRF("[HIER-DEBUG] Current category: '%s', subcategory: '%s'",
+            gCurrentCategory.c_str(), gCurrentSubCategory.c_str());
+   
+   const char* mappedValue = findCliCommandForId(commandId);
+-  INFO_SRF("[HIER-DEBUG] Mapped value from ID: '%s'", mappedValue ? mappedValue : "(null)");
++  DEBUG_SRF("[HIER-DEBUG] Mapped value from ID: '%s'", mappedValue ? mappedValue : "(null)");
+   
+   // Check for global voice commands by phrase (simpler than ID matching)
+@@ -971,5 +1145,5 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+     gCurrentCategory = "";
+     gCurrentSubCategory = "";
+-    loadCategories();
++    if (!loadCategories()) voiceTableLoadFailed();
+     return;
+   }
+@@ -1057,5 +1231,5 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+     if (categoryHasSubCategories(category)) {
+       // 3-level: category -> subcategory -> target
+-      INFO_SRF("[HIER-DEBUG] Category has subcategories -> transitioning to AWAIT_SUBCATEGORY");
++      DEBUG_SRF("[HIER-DEBUG] Category has subcategories -> transitioning to AWAIT_SUBCATEGORY");
+       gCurrentCategory = category;
+       gCurrentSubCategory = "";
+@@ -1063,5 +1237,5 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+       gCategoryTimeoutMs = millis() + gSettings.srCommandTimeout;
+       
+-      loadSubCategoriesForCategory(category);
++      if (!loadSubCategoriesForCategory(category)) { voiceTableLoadFailed(); return; }
+       INFO_SRF("[HIER] Now listening for SUBCATEGORY... (timeout in %d ms)", gSettings.srCommandTimeout);
+       
+@@ -1072,5 +1246,5 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+     } else if (categoryHasDirectTargets(category)) {
+       // 2-level: category -> target (no subcategory)
+-      INFO_SRF("[HIER-DEBUG] Category has direct targets -> transitioning to AWAIT_TARGET");
++      DEBUG_SRF("[HIER-DEBUG] Category has direct targets -> transitioning to AWAIT_TARGET");
+       gCurrentCategory = category;
+       gCurrentSubCategory = "";
+@@ -1078,5 +1252,5 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+       gCategoryTimeoutMs = millis() + gSettings.srCommandTimeout;
+       
+-      loadTargetsForCategory(category);
++      if (!loadTargetsForCategory(category)) { voiceTableLoadFailed(); return; }
+       INFO_SRF("[HIER] Now listening for TARGET... (timeout in %d ms)", gSettings.srCommandTimeout);
+       
+@@ -1087,22 +1261,19 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+     } else {
+       // Single-stage: execute immediately
+-      INFO_SRF("[HIER-DEBUG] Category has NO targets/subcategories -> single-stage execution");
++      DEBUG_SRF("[HIER-DEBUG] Category has NO targets/subcategories -> single-stage execution");
+       const char* cliCmd = findCommandForSingleStageCategory(category);
+       if (cliCmd) {
+         INFO_SRF("[HIER] Single-stage command -> CLI: %s", cliCmd);
+         String normCat = normalizePhrase(category);
+-        broadcastOutput(String("[Voice] OK, ") + normCat + ".");
++        broadcastOutput(String("[Voice] Queuing ") + normCat + ".");
+         
+-        static char* cmdOut = nullptr;
+-        if (!cmdOut) cmdOut = (char*)ps_alloc(2048, AllocPref::PreferPSRAM, "sr.cmdOut");
+-        if (!cmdOut) { WARN_SYSTEMF("Failed to alloc cmdOut"); return; }
+-        bool ok = executeVoiceCommandAsArmedUser(cliCmd, cmdOut, 2048);
++        char cmdOut[128];
++        bool ok = executeVoiceCommandAsArmedUser(cliCmd, cmdOut, sizeof(cmdOut));
+         INFO_SRF("[HIER] Result: %s", ok ? cmdOut : cmdOut);
+         if (!ok) {
+-          broadcastOutput("[VOICE] Command rejected (voice not armed or not authorized)");
++          broadcastOutput(String("[Voice] Not queued: ") + cmdOut);
+         }
+-        if (ok) systemEventPost(SYSEVT_VOICE_COMMAND, normCat.c_str());
+ #if ENABLE_OLED_DISPLAY
+-        else {
++        if (!ok) {
+           char vmsg[32];
+           snprintf(vmsg, sizeof(vmsg), "Voice: %s", normCat.c_str());
+@@ -1110,5 +1281,4 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+         }
+ #endif
+-        gCommandCount++;
+         gLastCommand = category;
+       } else {
+@@ -1120,5 +1290,5 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+       gCurrentCategory = "";
+       gCurrentSubCategory = "";
+-      loadCategories();
++      if (!loadCategories()) voiceTableLoadFailed();
+     }
+     
+@@ -1140,5 +1310,5 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+     gCategoryTimeoutMs = millis() + gSettings.srCommandTimeout;
+     
+-    loadTargetsForCategorySubCategory(gCurrentCategory.c_str(), subCategory);
++    if (!loadTargetsForCategorySubCategory(gCurrentCategory.c_str(), subCategory)) { voiceTableLoadFailed(); return; }
+     INFO_SRF("[HIER] Now listening for TARGET... (timeout in %d ms)", gSettings.srCommandTimeout);
+     
+@@ -1158,5 +1328,5 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+     // Find and execute the command - check if we're in 2-level or 3-level mode
+     const char* cliCmd = findCliCommandForId(commandId);
+-    INFO_SRF("[HIER-DEBUG] CLI command from mapping: '%s'", cliCmd ? cliCmd : "(null)");
++    DEBUG_SRF("[HIER-DEBUG] CLI command from mapping: '%s'", cliCmd ? cliCmd : "(null)");
+     
+     if (cliCmd) {
+@@ -1167,23 +1337,20 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+       if (gCurrentSubCategory.length() > 0) {
+         String normSubCat = normalizePhrase(gCurrentSubCategory.c_str());
+-        broadcastOutput(String("[Voice] OK, ") + normSubCat + " " + normTarget + ".");
++        broadcastOutput(String("[Voice] Queuing ") + normSubCat + " " + normTarget + ".");
+         gLastCommand = gCurrentCategory + " " + gCurrentSubCategory + " " + target;
+       } else {
+         String normCat = normalizePhrase(gCurrentCategory.c_str());
+-        broadcastOutput(String("[Voice] OK, ") + normCat + " " + normTarget + ".");
++        broadcastOutput(String("[Voice] Queuing ") + normCat + " " + normTarget + ".");
+         gLastCommand = gCurrentCategory + " " + target;
+       }
+       
+-      static char* cmdOut = nullptr;
+-      if (!cmdOut) cmdOut = (char*)ps_alloc(2048, AllocPref::PreferPSRAM, "sr.cmdOut");
+-      if (!cmdOut) { WARN_SYSTEMF("Failed to alloc cmdOut"); return; }
+-      bool ok = executeVoiceCommandAsArmedUser(cliCmd, cmdOut, 2048);
++      char cmdOut[128];
++      bool ok = executeVoiceCommandAsArmedUser(cliCmd, cmdOut, sizeof(cmdOut));
+       INFO_SRF("[HIER] RESULT: %s", ok ? cmdOut : cmdOut);
+       if (!ok) {
+-        broadcastOutput("[VOICE] Command rejected (voice not armed or not authorized)");
++        broadcastOutput(String("[Voice] Not queued: ") + cmdOut);
+       }
+-      if (ok) systemEventPost(SYSEVT_VOICE_COMMAND, normTarget.c_str());
+ #if ENABLE_OLED_DISPLAY
+-      else {
++      if (!ok) {
+         char vmsg[32];
+         snprintf(vmsg, sizeof(vmsg), "Voice: %s", normTarget.c_str());
+@@ -1191,5 +1358,4 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+       }
+ #endif
+-      gCommandCount++;
+     } else {
+       WARN_SYSTEMF("[HIER] No CLI command found for '%s'->'%s'->'%s'!", 
+@@ -1199,9 +1365,9 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+     
+     // Return to idle, reload categories
+-    INFO_SRF("[HIER-DEBUG] Returning to IDLE, reloading categories...");
++    DEBUG_SRF("[HIER-DEBUG] Returning to IDLE, reloading categories...");
+     gVoiceState = VoiceState::IDLE;
+     gCurrentCategory = "";
+     gCurrentSubCategory = "";
+-    loadCategories();
++    if (!loadCategories()) voiceTableLoadFailed();
+     
+   } else {
+@@ -1211,11 +1377,9 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+     if (mappedValue) {
+       INFO_SRF("Voice command %d ('%s') -> CLI: %s", commandId, phrase ? phrase : "", mappedValue);
+-      static char* cmdOut = nullptr;
+-      if (!cmdOut) cmdOut = (char*)ps_alloc(2048, AllocPref::PreferPSRAM, "sr.cmdOut");
+-      if (!cmdOut) { WARN_SYSTEMF("Failed to alloc cmdOut"); return; }
+-      bool ok = executeVoiceCommandAsArmedUser(mappedValue, cmdOut, 2048);
++      char cmdOut[128];
++      bool ok = executeVoiceCommandAsArmedUser(mappedValue, cmdOut, sizeof(cmdOut));
+       INFO_SRF("CLI result: %s", ok ? cmdOut : cmdOut);
+       if (!ok) {
+-        broadcastOutput("[VOICE] Command rejected (voice not armed or not authorized)");
++        broadcastOutput(String("[Voice] Not queued: ") + cmdOut);
+       }
+     } else {
+@@ -1224,5 +1388,5 @@ static void onVoiceCommandDetected(int commandId, const char* phrase) {
+   }
+   
+-  INFO_SRF("[HIER-DEBUG] ########## onVoiceCommandDetected() END ##########");
++  DEBUG_SRF("[HIER-DEBUG] ########## onVoiceCommandDetected() END ##########");
+ }
+ 
+@@ -1233,5 +1397,5 @@ static bool initAFE();
+ static void deinitAFE();
+ static bool initMultiNet();
+-static void deinitMultiNet();
++static bool deinitMultiNet();
+ static void srTask(void* param);
+ static void srSnipWriterTask(void* param);
+@@ -1310,4 +1474,6 @@ static void srSnipWriterTask(void* param) {
+ 
+ static bool srSnipInitRingBuffer() {
++  SRSnipGuard guard;
++  if (!guard) return false;
+   if (gSrSnipRing) return true;
+   size_t preSamples = (I2S_SR_SAMPLE_RATE * gSrSnipPreMs) / 1000;
+@@ -1329,4 +1495,6 @@ static bool srSnipInitRingBuffer() {
+ 
+ static void srSnipFreeRingBuffer() {
++  SRSnipGuard guard;
++  if (!guard) return;
+   if (gSrSnipRing) {
+     ps_free(gSrSnipRing);
+@@ -1338,4 +1506,6 @@ static void srSnipFreeRingBuffer() {
+ 
+ static void srSnipRingPush(const int16_t* samples, size_t count) {
++  SRSnipGuard guard;
++  if (!guard) return;
+   if (!gSrSnipRing || gSrSnipRingSamples == 0 || !samples || count == 0) return;
+   for (size_t i = 0; i < count; ++i) {
+@@ -1346,4 +1516,6 @@ static void srSnipRingPush(const int16_t* samples, size_t count) {
+ 
+ static void srSnipStartSession(const char* reason, int cmdId, const char* phrase) {
++  SRSnipGuard guard;
++  if (!guard) return;
+   if (gSrSnipSessionActive) {
+     SR_DBG_L(1, "SnipSession: already active, ending previous");
+@@ -1382,6 +1554,8 @@ static void srSnipStartSession(const char* reason, int cmdId, const char* phrase
+ 
+ static void srSnipFeedSession(const int16_t* samples, size_t count) {
++  SRSnipGuard guard;
++  if (!guard) return;
+   if (!gSrSnipSessionActive || !gSrSnipSessionBuf || !samples || count == 0) return;
+-  if (millis() > gSrSnipSessionDeadlineMs) {
++  if (static_cast<int32_t>(millis() - gSrSnipSessionDeadlineMs) >= 0) {
+     SR_DBG_L(1, "SnipSession: deadline reached, ending");
+     srSnipEndSession(true);
+@@ -1401,4 +1575,6 @@ static void srSnipFeedSession(const int16_t* samples, size_t count) {
+ 
+ static void srSnipEndSession(bool save) {
++  SRSnipGuard guard;
++  if (!guard) return;
+   if (!gSrSnipSessionActive) return;
+   gSrSnipSessionActive = false;
+@@ -1442,4 +1618,6 @@ static void srSnipEndSession(bool save) {
+ 
+ static bool srSnipInit() {
++  SRSnipGuard guard;
++  if (!guard) return false;
+   if (gSrSnipQueue) return true;
+   gSrSnipQueue = xQueueCreate(4, sizeof(SrSnipJob));
+@@ -1464,4 +1642,6 @@ static bool srSnipInit() {
+ 
+ static void srSnipDeinit() {
++  SRSnipGuard guard;
++  if (!guard) return;
+   if (gSrSnipSessionActive) {
+     srSnipEndSession(false);
+@@ -1566,5 +1746,5 @@ static void srDebugPrintTelemetry() {
+            (unsigned)gWakeWordCount, (unsigned)gLastWakeMs, gSrLastWakeWordIndex, gSrLastWakeNetModelIndex);
+   WARN_SRF("MN: detect_calls=%u, detected=%u, accepted=%u, last_cmd='%s'",
+-           (unsigned)gSrMnDetectCalls, (unsigned)gSrMnDetected, (unsigned)gCommandCount, gLastCommand.c_str());
++           (unsigned)gSrMnDetectCalls, (unsigned)gSrMnDetected, (unsigned)gCommandCount.load(), gLastCommand.c_str());
+   WARN_SRF("Accept: gap_enabled=%d floor=%.2f gap=%.2f require_speech=%d gap_accepts=%u rejects=%u",
+            gSrGapAcceptEnabled ? 1 : 0, gSrGapAcceptFloor, gSrGapAcceptGap,
+@@ -1610,12 +1790,17 @@ static void restoreMicrophoneAfterSRIfNeeded() {
+ 
+ static bool ensureMNCommandMutex() {
+-  if (gMNCommandMutex) return true;
+-  gMNCommandMutex = xSemaphoreCreateMutex();
+-  return (gMNCommandMutex != nullptr);
++  return ensureSRMutex(gMNCommandMutex);
+ }
+ 
+ static bool lockMN(uint32_t timeoutMs) {
+-  if (!gMNCommandMutex) return true;
+-  return xSemaphoreTake(gMNCommandMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE;
++  if (!ensureMNCommandMutex() ||
++      xSemaphoreTake(gMNCommandMutex, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) return false;
++  // OLED stop can race a CLI command that tested readiness before taking this
++  // lock. Recheck the handles while teardown is excluded.
++  if (!gMNModel || !gMNData) {
++    xSemaphoreGive(gMNCommandMutex);
++    return false;
++  }
++  return true;
+ }
+ 
+@@ -1628,15 +1813,186 @@ static bool mnCommandsReady() {
+   if (!gMNModel || !gMNData) return false;
+   if (!ensureMNCommandMutex()) return false;
+-  if (gMNCommandsAllocated) return true;
+   if (!lockMN(1000)) return false;
+-  esp_err_t err = esp_mn_commands_alloc(gMNModel, gMNData);
++  if (!gMNCommandsAllocated) {
++    gMNCommandsAllocated = esp_mn_commands_alloc(gMNModel, gMNData) == ESP_OK;
++  }
++  const bool ready = gMNCommandsAllocated;
+   unlockMN();
+-  if (err != ESP_OK) return false;
+-  gMNCommandsAllocated = true;
+-  return true;
++  return ready;
+ }
+ 
+-static esp_mn_error_t* mnUpdateLocked() {
+-  return esp_mn_commands_update();
++static bool mnTableUpdateFailed(const char* reason) {
++  gMnTableTrusted = false;
++  srSetError(reason);
++  gSRFeedShouldRun.store(false, std::memory_order_release);
++  gESPSRRunning.store(false, std::memory_order_release);
++  return false;
++}
++
++struct MNCommandSnapshot {
++  int commandId;
++  float threshold;
++  const char* text;
++  const char* phonemes;
++};
++
++static bool mnUsesCommandFileGrammar() {
++  return strncmp(gMnModelName, "mn6", 3) == 0 || strncmp(gMnModelName, "mn7", 3) == 0;
++}
++
++static srmodel_data_t* findMNCommandFile(int& fileIndex) {
++  fileIndex = -1;
++  if (!gSRModels || !gSRModels->model_name || !gSRModels->model_data) return nullptr;
++  for (int model = 0; model < gSRModels->num; ++model) {
++    if (!gSRModels->model_name[model] || strcmp(gSRModels->model_name[model], "fst") != 0) continue;
++    srmodel_data_t* files = gSRModels->model_data[model];
++    if (!files || !files->files || !files->data || !files->sizes) return nullptr;
++    for (int file = 0; file < files->num; ++file) {
++      if (files->files[file] && strcmp(files->files[file], "commands_en.txt") == 0) {
++        fileIndex = file;
++        return files;
++      }
++    }
++  }
++  return nullptr;
++}
++
++// Caller holds the MN mutex, or the startup lifecycle before any worker exists.
++// Only the public auxiliary-file descriptor changes. AFE's weights and the
++// original packed bytes stay intact. ESP-SR copies this CSV and its phrases
++// during create(), so the caller can free it after the descriptor is restored.
++static model_iface_data_t* createMNWithCommandFile(const char* csv, size_t bytes) {
++  int file = -1;
++  srmodel_data_t* files = findMNCommandFile(file);
++  if (!files || !csv || !bytes || !csv[0] || bytes > 131072) {
++    srSetError("Speech bundle needs fst/commands_en.txt and a nonempty command table");
++    return nullptr;
++  }
++  char* originalData = files->data[file];
++  const int originalSize = files->sizes[file];
++  files->data[file] = const_cast<char*>(csv);
++  files->sizes[file] = static_cast<int>(bytes);
++  model_iface_data_t* model = gMNModel->create(gMnModelName, gSettings.srCommandTimeout);
++  files->data[file] = originalData;
++  files->sizes[file] = originalSize;
++  return model;
++}
++
++static bool mnUpdateLocked() {
++  if (!mnUsesCommandFileGrammar()) {
++    const esp_mn_error_t* errors = esp_mn_commands_update();
++    if (errors && errors->num > 0) return mnTableUpdateFailed("MultiNet rejected speech commands; restart SR");
++    gMNGrammarPublished = esp_mn_commands_get_from_index(0) != nullptr;
++    return true;
++  }
++  // ESP-SR 2.5.5 MN6/7 leak ID-sized buffers when updating an existing graph.
++  // They also publish a bundled demonstration graph during create(), and an
++  // empty demonstration makes the vendor create wrapper dereference NULL.
++  // Supply the desired grammar to create itself, exactly once per instance.
++  int file = -1;
++  if (!findMNCommandFile(file)) {
++    return mnTableUpdateFailed("Speech bundle is missing fst/commands_en.txt; rebuild the bundle");
++  }
++  size_t count = 0;
++  size_t stringBytes = 0;
++  size_t csvBytes = 1;
++  for (int i = 0; ; ++i) {
++    const esp_mn_phrase_t* phrase = esp_mn_commands_get_from_index(i);
++    if (!phrase) break;
++    if (count >= ESP_MN_MAX_PHRASE_NUM || !phrase->string || !phrase->string[0] ||
++        phrase->command_id <= 0 || phrase->command_id > kSRMaxCommandId || phrase->wave) {
++      return mnTableUpdateFailed("Speech command table cannot be copied; restart SR");
++    }
++    const size_t textBytes = strlen(phrase->string) + 1;
++    const size_t phonemeBytes = phrase->phonemes ? strlen(phrase->phonemes) + 1 : 0;
++    // The vendor parses unquoted CSV with a 128-byte line buffer. Validate
++    // before destroying the current model; do not silently truncate a phrase.
++    if (strpbrk(phrase->string, ",\r\n") ||
++        (phrase->phonemes && (!phrase->phonemes[0] || strpbrk(phrase->phonemes, ",\r\n")))) {
++      return mnTableUpdateFailed("Speech phrase contains unsupported CSV characters; restart SR");
++    }
++    const size_t lineBytes = static_cast<size_t>(snprintf(nullptr, 0, "%d", phrase->command_id)) +
++        textBytes + phonemeBytes + 1; // separators and newline, excluding final NUL
++    if (lineBytes >= 128) {
++      return mnTableUpdateFailed("Speech phrase exceeds the MultiNet command-file line limit; restart SR");
++    }
++    stringBytes += textBytes + phonemeBytes;
++    csvBytes += lineBytes;
++    ++count;
++  }
++  if (count == 0) {
++    // Keep the current model solely for validating later CLI additions. Its
++    // old graph must never run, and no unsafe empty create/update is attempted.
++    gMNGrammarPublished = false;
++    return true;
++  }
++
++  const size_t bytes = count * sizeof(MNCommandSnapshot) + stringBytes + csvBytes;
++  void* storage = ps_alloc(bytes, AllocPref::PreferPSRAM, "sr.mn.commands");
++  if (!storage) return mnTableUpdateFailed("Not enough memory to replace speech commands; restart SR");
++  auto* commands = static_cast<MNCommandSnapshot*>(storage);
++  char* cursor = reinterpret_cast<char*>(commands + count);
++  char* csv = cursor + stringBytes;
++  size_t csvUsed = 0;
++  for (size_t i = 0; i < count; ++i) {
++    const esp_mn_phrase_t* phrase = esp_mn_commands_get_from_index(static_cast<int>(i));
++    commands[i].commandId = phrase->command_id;
++    commands[i].threshold = phrase->threshold;
++    const size_t textBytes = strlen(phrase->string) + 1;
++    memcpy(cursor, phrase->string, textBytes);
++    commands[i].text = cursor;
++    cursor += textBytes;
++    commands[i].phonemes = nullptr;
++    if (phrase->phonemes) {
++      const size_t phonemeBytes = strlen(phrase->phonemes) + 1;
++      memcpy(cursor, phrase->phonemes, phonemeBytes);
++      commands[i].phonemes = cursor;
++      cursor += phonemeBytes;
++    }
++    const int written = snprintf(csv + csvUsed, csvBytes - csvUsed, "%d,%s%s%s\n",
++        commands[i].commandId, commands[i].text,
++        commands[i].phonemes ? "," : "", commands[i].phonemes ? commands[i].phonemes : "");
++    if (written <= 0 || static_cast<size_t>(written) >= csvBytes - csvUsed) {
++      free(storage);
++      return mnTableUpdateFailed("Failed to serialize speech commands; restart SR");
++    }
++    csvUsed += static_cast<size_t>(written);
++  }
++
++  gMNModel->destroy(gMNData);
++  gMNData = nullptr;
++  gMNCommandsAllocated = false;
++  gMNGrammarPublished = false;
++  gMNData = createMNWithCommandFile(csv, csvUsed);
++  if (!gMNData) {
++    free(storage);
++    return mnTableUpdateFailed("Failed to recreate speech recognizer; stop and restart SR");
++  }
++  // create owns/populates the public list. Reallocating it here would discard
++  // the canonical phrases, and calling commands_update would leak again.
++  gMNCommandsAllocated = true;
++  if (gMNModel->get_samp_rate(gMNData) != I2S_SR_SAMPLE_RATE ||
++      (gSRFetchSamples && gMNModel->get_samp_chunksize(gMNData) != static_cast<int>(gSRFetchSamples))) {
++    free(storage);
++    return mnTableUpdateFailed("Recreated speech recognizer has invalid configuration; restart SR");
++  }
++  for (size_t i = 0; i < count; ++i) {
++    const auto& command = commands[i];
++    esp_mn_phrase_t* restored = esp_mn_commands_get_from_index(static_cast<int>(i));
++    if (!restored || restored->command_id != command.commandId || !restored->string ||
++        strcmp(restored->string, command.text) != 0 ||
++        (command.phonemes && (!restored->phonemes || strcmp(restored->phonemes, command.phonemes) != 0))) {
++      free(storage);
++      return mnTableUpdateFailed("Recreated speech command table does not match; restart SR");
++    }
++    restored->threshold = command.threshold;
++  }
++  if (esp_mn_commands_get_from_index(static_cast<int>(count))) {
++    free(storage);
++    return mnTableUpdateFailed("Recreated speech command table contains unexpected phrases; restart SR");
++  }
++  free(storage);
++  gMNGrammarPublished = true;
++  return true;
+ }
+ 
+@@ -1703,9 +2059,4 @@ static bool loadCommandsFileLocked(size_t& outAdded, size_t& outErrors) {
+ }
+ 
+-// False while the live MultiNet table is known NOT to reflect the commands file:
+-// a reload clears the table before repopulating it, so a failed or partial reload
+-// leaves it empty or short. Saving then would commit that over the real file.
+-static bool gMnTableTrusted = true;
+-
+ static bool saveCommandsFileLocked(size_t& outSaved) {
+   outSaved = 0;
+@@ -1769,256 +2120,190 @@ static void deinitI2SMicrophone() {
+ // ============================================================================
+ 
+-static bool initAFE() {
+-  WARN_SYSTEMF("[SR_AFE] ========== initAFE() START ==========");
+-  WARN_SYSTEMF("[SR_AFE] Heap: free=%u, PSRAM_free=%u", 
+-               (unsigned)esp_get_free_heap_size(), 
+-               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+-  
+-  // Get AFE interface
+-  WARN_SYSTEMF("[SR_AFE] Getting AFE interface from ESP_AFE_SR_HANDLE...");
+-  gAFE = (esp_afe_sr_iface_t*)&ESP_AFE_SR_HANDLE;
+-  WARN_SYSTEMF("[SR_AFE] AFE interface pointer: %p", gAFE);
+-  if (!gAFE) {
+-    ERROR_SRF("Failed to get AFE interface");
++static void deinitSRModels() {
++  if (gSRModels) {
++    if (gSRModelBlob) srmodel_host_deinit(gSRModels);
++    else esp_srmodel_deinit(gSRModels);
++    gSRModels = nullptr;
++  }
++  // srmodel_load retains pointers into this buffer. Free only after MN, AFE,
++  // and the vendor model list have all been destroyed.
++  free(gSRModelBlob);
++  gSRModelBlob = nullptr;
++  gSRModelBytes = 0;
++  gSRModelSource = "none";
++}
++
++static bool loadSRModelFile(const char* path) {
++  File file = VFS::openGuarded(path, "r", VFS::systemAuth("espsr.models_load"));
++  if (!file) {
++    srSetError("Speech model bundle is missing or unreadable");
+     return false;
+   }
+-  
+-  // Load models based on srModelSource setting
+-  // 0 = partition (default), 1 = SD card, 2 = LittleFS
+-  srmodel_list_t *models = nullptr;
+-  WARN_SYSTEMF("[SR_AFE] srModelSource setting = %d (0=partition, 1=SD, 2=LittleFS)", gSettings.srModelSource);
+-  
+-  if (gSettings.srModelSource == 1) {
+-    // Try SD card models
+-    WARN_SYSTEMF("[SR_AFE] Attempting to load models from SD card: /sd/ESP-SR Models");
+-    models = esp_srmodel_init("/sd/ESP-SR Models");
+-    WARN_SYSTEMF("[SR_AFE] SD card esp_srmodel_init returned: %p", models);
+-    if (models) {
+-      INFO_SRF("SD card models loaded successfully");
+-    } else {
+-      INFO_SRF("SD card model loading failed, falling back to partition models");
+-      logSystemEvent("SR", "model source fallback: SD load failed → using partition models (not the configured source)");
+-    }
+-  } else if (gSettings.srModelSource == 2) {
+-    // Try LittleFS models
+-    WARN_SYSTEMF("[SR_AFE] Attempting to load models from LittleFS: /ESP-SR Models");
+-    models = esp_srmodel_init("/ESP-SR Models");
+-    WARN_SYSTEMF("[SR_AFE] LittleFS esp_srmodel_init returned: %p", models);
+-    if (models) {
+-      INFO_SRF("LittleFS models loaded successfully");
+-    } else {
+-      INFO_SRF("LittleFS model loading failed, falling back to partition models");
+-      logSystemEvent("SR", "model source fallback: LittleFS load failed → using partition models (not the configured source)");
+-    }
+-  }
+-  
+-  // Use partition-based models if not loaded from external source or if external failed
+-  if (!models) {
+-    // First check if models were already initialized (from previous call)
+-    WARN_SYSTEMF("[SR_AFE] Checking get_static_srmodels()...");
+-    models = get_static_srmodels();
+-    WARN_SYSTEMF("[SR_AFE] get_static_srmodels returned: %p", models);
+-    if (!models) {
+-      // Initialize models from the "model" partition using esp_srmodel_init
+-      // This function takes the partition LABEL as a string
+-      WARN_SYSTEMF("[SR_AFE] Calling esp_srmodel_init('model') for partition...");
+-      models = esp_srmodel_init("model");
+-      WARN_SYSTEMF("[SR_AFE] Partition esp_srmodel_init returned: %p", models);
+-      if (models) {
+-        INFO_SRF("Partition models loaded successfully");
+-      } else {
+-        ERROR_SRF("Failed to load models from partition");
+-        logSystemEvent("SR", "FAILED to load models from partition — speech recognition unavailable this boot");
+-      }
+-    } else {
+-      INFO_SRF("Using previously initialized models");
+-    }
++  size_t bytes = 0;
++  {
++    FsLockGuard guard("espsr.models.size");
++    bytes = file.size();
+   }
+-  
+-  // Check for wake word model availability
+-  char* wn_name = nullptr;
+-  if (models) {
+-    WARN_SYSTEMF("[SR_AFE] Models pointer valid, calling esp_srmodel_filter with ESP_WN_PREFIX...");
+-    wn_name = esp_srmodel_filter(models, ESP_WN_PREFIX, NULL);
+-    WARN_SYSTEMF("[SR_AFE] esp_srmodel_filter returned: %s", wn_name ? wn_name : "(NULL)");
+-  } else {
+-    ERROR_SRF("Models pointer is NULL, cannot filter");
++  if (bytes == 0 || bytes > ESPSRModelPack::kMaxFileBytes) {
++    file.close();
++    srSetError("Speech model bundle has an invalid size");
++    return false;
+   }
+-  
+-  // If no wake word model, we cannot run ESP-SR meaningfully
+-  if (!wn_name) {
+-    ERROR_SRF("No wake word model found!");
+-    ERROR_SRF("Ensure CONFIG_SR_WN_* is enabled in sdkconfig");
+-    gAFE = nullptr;
++  void* blob = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
++  if (!blob) {
++    file.close();
++    srSetError("Not enough PSRAM to load speech model bundle");
+     return false;
+   }
+-  
+-  INFO_SRF("Found wake word model: %s", wn_name);
+-  // Capture the resolved name so the web status card can display it.
+-  // Cleared in stopESPSR() when AFE is torn down.
+-  strncpy(gWnModelName, wn_name, sizeof(gWnModelName) - 1);
+-  gWnModelName[sizeof(gWnModelName) - 1] = '\0';
+-
+-  // Configure AFE
+-  WARN_SYSTEMF("[SR_AFE] Creating AFE config with AFE_CONFIG_DEFAULT()...");
+-  afe_config_t afe_config = AFE_CONFIG_DEFAULT();
+-  afe_config.wakenet_model_name = wn_name;
+-  afe_config.aec_init = false;  // No echo cancellation (no speaker feedback)
+-  afe_config.se_init = true;    // Enable noise suppression
+-  afe_config.vad_init = true;   // Enable voice activity detection
+-  afe_config.wakenet_init = true;
+-  afe_config.voice_communication_init = false;
+-  afe_config.afe_ringbuf_size = 50;
+-  afe_config.afe_linear_gain = gSettings.srAfeGain;
+-  afe_config.memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
+-  
+-  // AGC mode from settings (0=off, 1=-9dB, 2=-6dB, 3=-3dB)
+-  switch (gSettings.srAgcMode) {
+-    case 0: afe_config.agc_mode = AFE_MN_PEAK_NO_AGC; break;
+-    case 1: afe_config.agc_mode = AFE_MN_PEAK_AGC_MODE_1; break;
+-    case 3: afe_config.agc_mode = AFE_MN_PEAK_AGC_MODE_3; break;
+-    default: afe_config.agc_mode = AFE_MN_PEAK_AGC_MODE_2; break;
++  size_t read = 0;
++  while (read < bytes) {
++    const size_t chunk = (bytes - read > 16384) ? 16384 : bytes - read;
++    size_t got;
++    {
++      FsLockGuard guard("espsr.models.read");
++      got = file.read(static_cast<uint8_t*>(blob) + read, chunk);
++    }
++    if (got == 0 || got > chunk) break;
++    read += got;
++    taskYIELD();
++  }
++  bool unchanged;
++  {
++    FsLockGuard guard("espsr.models.close");
++    unchanged = file.size() == bytes;
++    file.close();
++  }
++  const char* error = nullptr;
++  if (read != bytes || !unchanged || !ESPSRModelPack::validate(blob, bytes, &error)) {
++    free(blob);
++    srSetError("Speech model bundle is truncated or malformed");
++    ERROR_SRF("Bundle %s: %s", path, error ? error : "incomplete read");
++    return false;
+   }
+-  
+-  // VAD mode from settings (0-4, higher = more sensitive)
+-  afe_config.vad_mode = (vad_mode_t)gSettings.srVadMode;
+-  
+-  // Configure for single PDM microphone with no reference channel
+-  // XIAO ESP32S3 Sense has only 1 PDM mic and no speaker for echo cancellation
+-  // total_ch_num MUST equal mic_num + ref_num
+-  afe_config.pcm_config.total_ch_num = 1;
+-  afe_config.pcm_config.mic_num = 1;
+-  afe_config.pcm_config.ref_num = 0;
+-  
+-  WARN_SYSTEMF("[SR_AFE] AFE config: aec=%d, se=%d, vad=%d, wakenet=%d, voice_comm=%d",
+-               afe_config.aec_init, afe_config.se_init, afe_config.vad_init,
+-               afe_config.wakenet_init, afe_config.voice_communication_init);
+-  WARN_SYSTEMF("[SR_AFE] AFE config: ringbuf_size=%d, linear_gain=%.2f, agc_mode=%d",
+-               afe_config.afe_ringbuf_size, afe_config.afe_linear_gain, afe_config.agc_mode);
+-  WARN_SYSTEMF("[SR_AFE] AFE pcm_config: total_ch=%d, mic_num=%d, ref_num=%d",
+-               afe_config.pcm_config.total_ch_num, afe_config.pcm_config.mic_num, afe_config.pcm_config.ref_num);
+-  
+-  WARN_SYSTEMF("[SR_AFE] Heap before AFE create: free=%u, PSRAM_free=%u", 
+-               (unsigned)esp_get_free_heap_size(), 
+-               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+-  WARN_SYSTEMF("[SR_AFE] Calling gAFE->create_from_config()...");
+-  gAFEData = gAFE->create_from_config(&afe_config);
+-  WARN_SYSTEMF("[SR_AFE] gAFE->create_from_config returned: %p", gAFEData);
+-  WARN_SYSTEMF("[SR_AFE] Heap after AFE create: free=%u, PSRAM_free=%u", 
+-               (unsigned)esp_get_free_heap_size(), 
+-               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+-  if (!gAFEData) {
+-    ERROR_SRF("Failed to create AFE from config");
+-    gAFE = nullptr;
++  gSRModels = srmodel_load(blob);
++  if (!gSRModels) {
++    free(blob);
++    srSetError("Speech model loader failed");
+     return false;
+   }
+-  
+-  WARN_SYSTEMF("[SR_AFE] ========== initAFE() SUCCESS ==========");
+-  INFO_SRF("AFE initialized successfully");
++  gSRModelBlob = blob;
++  gSRModelBytes = bytes;
++  gSRModelSource = path;
++  INFO_SRF("Loaded model bundle %s (%u bytes)", path, (unsigned)bytes);
+   return true;
+ }
+ 
+-static void deinitAFE() {
+-  if (gAFE && gAFEData) {
+-    gAFE->destroy(gAFEData);
+-    gAFEData = nullptr;
+-    gAFE = nullptr;
+-    DEBUG_SRF("AFE deinitialized");
++static bool initSRModels() {
++  if (get_static_srmodels()) {
++    srSetError("Speech model list is already owned by another subsystem");
++    return false;
++  }
++  if (gSettings.srModelSource == 1 || gSettings.srModelSource == 2) {
++    const char* path = gSettings.srModelSource == 1 ?
++        "/sd/ESP-SR Models/srmodels.bin" : "/ESP-SR Models/srmodels.bin";
++    if (loadSRModelFile(path)) return true;
++    WARN_SRF("Configured model source %s failed; trying model partition", path);
++    logSystemEvent("SR", "configured model file unavailable; trying partition fallback");
+   }
++  // The vendor initializer asserts when the partition is absent. Check first.
++  if (!esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "model")) {
++    srSetError("No speech model partition; install srmodels.bin and select SD or LittleFS");
++    return false;
++  }
++  gSRModels = esp_srmodel_init("model");
++  if (!gSRModels || gSRModels->num <= 0) {
++    srSetError("No speech models available in model partition");
++    return false;
++  }
++  gSRModelSource = "partition:model";
++  gSRError.store(nullptr, std::memory_order_release); // fallback succeeded
++  INFO_SRF("Using speech models from %s", gSRModelSource);
++  return true;
+ }
+ 
+-// ============================================================================
+-// MultiNet (Command Recognition) Setup
+-// ============================================================================
+-
+-static bool initMultiNet() {
+-  WARN_SYSTEMF("[SR_MN] ========== initMultiNet() START ==========");
+-  WARN_SYSTEMF("[SR_MN] Heap: free=%u, PSRAM_free=%u", 
+-               (unsigned)esp_get_free_heap_size(), 
+-               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+-  
+-  // Get available models (should already be initialized by initAFE)
+-  WARN_SYSTEMF("[SR_MN] Calling get_static_srmodels()...");
+-  srmodel_list_t *models = get_static_srmodels();
+-  WARN_SYSTEMF("[SR_MN] get_static_srmodels returned: %p", models);
+-  if (!models) {
+-    WARN_SRF("No models available, command recognition disabled");
+-    return true;  // Not a fatal error
+-  }
+-  
+-  // Get MultiNet model
+-  WARN_SYSTEMF("[SR_MN] Calling esp_srmodel_filter for MultiNet...");
+-  char* mn_name = esp_srmodel_filter(models, ESP_MN_PREFIX, ESP_MN_ENGLISH);
+-  WARN_SYSTEMF("[SR_MN] esp_srmodel_filter returned: %s", mn_name ? mn_name : "(NULL)");
+-  if (!mn_name) {
+-    WARN_SRF("No MultiNet model found, command recognition disabled");
+-    return true;
++static bool initAFE() {
++  if (!initSRModels()) return false;
++  char* wnName = esp_srmodel_filter(gSRModels, ESP_WN_PREFIX, nullptr);
++  if (!wnName) {
++    srSetError("Speech bundle has no WakeNet model");
++    return false;
+   }
+-  
+-  WARN_SYSTEMF("[SR_MN] Calling esp_mn_handle_from_name('%s')...", mn_name);
+-  gMNModel = esp_mn_handle_from_name(mn_name);
+-  WARN_SYSTEMF("[SR_MN] esp_mn_handle_from_name returned: %p", gMNModel);
+-  if (!gMNModel) {
+-    WARN_SRF("Failed to get MultiNet handle for: %s", mn_name);
+-    return true;
++  afe_config_t* config = afe_config_init("M", gSRModels, AFE_TYPE_SR, AFE_MODE_LOW_COST);
++  if (!config) {
++    srSetError("Failed to allocate speech front-end configuration");
++    return false;
+   }
+-  
+-  WARN_SYSTEMF("[SR_MN] Calling gMNModel->create('%s', %d)...", mn_name, gSettings.srCommandTimeout);
+-  gMNData = gMNModel->create(mn_name, gSettings.srCommandTimeout);
+-  WARN_SYSTEMF("[SR_MN] gMNModel->create returned: %p", gMNData);
+-  WARN_SYSTEMF("[SR_MN] Heap after MN create: free=%u, PSRAM_free=%u", 
+-               (unsigned)esp_get_free_heap_size(), 
+-               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+-  if (!gMNData) {
+-    WARN_SRF("Failed to create MultiNet data");
+-    gMNModel = nullptr;
+-    return true;
++  config->wakenet_model_name = wnName;
++  config->aec_init = false; // no playback reference channel
++  config->se_init = false;  // microphone-array enhancement needs multiple mics
++  config->ns_init = false;  // ESP-SR recommends disabling NS for ASR accuracy
++  config->vad_init = true;
++  config->wakenet_init = true;
++  config->afe_ringbuf_size = 50;
++  config->afe_linear_gain = clampFloat(gSettings.srAfeGain, 0.1f, 10.0f);
++  config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
++  // Preserve the existing setting's target levels, using the new AGC fields.
++  config->agc_init = gSettings.srAgcMode != 0;
++  config->agc_mode = AFE_AGC_MODE_WAKENET;
++  config->agc_target_level_dbfs = gSettings.srAgcMode == 1 ? 9 :
++                                gSettings.srAgcMode == 3 ? 3 : 6;
++  config->vad_mode = static_cast<vad_mode_t>(gSettings.srVadMode);
++  gAFE = esp_afe_handle_from_config(config);
++  if (gAFE) gAFEData = gAFE->create_from_config(config);
++  afe_config_free(config);
++  if (!gAFEData) {
++    srSetError("Failed to create speech front end");
++    return false;
+   }
++  strlcpy(gWnModelName, wnName, sizeof(gWnModelName));
++  INFO_SRF("Speech front end ready: %s, mono 16 kHz", gWnModelName);
++  return true;
++}
+ 
+-  if (mnCommandsReady()) {
+-    if (lockMN(2000)) {
+-      size_t added = 0;
+-      size_t parseErrors = 0;
+-      bool ok = loadCommandsFileLocked(added, parseErrors);
+-      esp_mn_error_t* errList = mnUpdateLocked();
+-      unlockMN();
++static void deinitAFE() {
++  if (gAFE && gAFEData) gAFE->destroy(gAFEData);
++  gAFEData = nullptr;
++  gAFE = nullptr;
++}
+ 
+-      if (!ok) {
+-        WARN_SRF("Failed to read commands file: %s", kESPSRCommandFile);
+-      } else {
+-        INFO_SRF("Loaded %u commands from %s", (unsigned)added, kESPSRCommandFile);
+-      }
+-      if (parseErrors > 0) {
+-        WARN_SRF("%u command lines could not be added", (unsigned)parseErrors);
+-      }
+-      if (errList && errList->num > 0) {
+-        WARN_SRF("%d commands rejected by MultiNet", errList->num);
+-      }
+-    } else {
+-      WARN_SRF("Failed to lock MultiNet for command load");
+-    }
++static bool initMultiNet() {
++  char* mnName = esp_srmodel_filter(gSRModels, ESP_MN_PREFIX, ESP_MN_ENGLISH);
++  if (!mnName || !(gMNModel = esp_mn_handle_from_name(mnName))) {
++    srSetError("Speech bundle has no supported English MultiNet model");
++    return false;
+   }
+-  
+-  // Capture the resolved name so the web status card can display it.
+-  // Cleared in stopESPSR() when MultiNet is torn down.
+-  strncpy(gMnModelName, mn_name, sizeof(gMnModelName) - 1);
+-  gMnModelName[sizeof(gMnModelName) - 1] = '\0';
+-
+-  INFO_SRF("MultiNet initialized: %s", mn_name);
++  strlcpy(gMnModelName, mnName, sizeof(gMnModelName));
++  // A valid nonempty bootstrap avoids ESP-SR's unsafe empty-create path. This
++  // is never recognized: loadCategories replaces it before workers start.
++  static const char bootstrap[] = "1,TELL ME A JOKE,TfL Mm c qbK\n";
++  gMNData = mnUsesCommandFileGrammar() ? createMNWithCommandFile(bootstrap, sizeof(bootstrap) - 1) :
++                                       gMNModel->create(mnName, gSettings.srCommandTimeout);
++  if (!gMNData || !mnCommandsReady()) {
++    srSetError("Failed to initialize speech command recognizer");
++    return false;
++  }
++  strlcpy(gMnModelName, mnName, sizeof(gMnModelName));
++  INFO_SRF("MultiNet initialized: %s", gMnModelName);
+   return true;
+ }
+ 
+-static void deinitMultiNet() {
++static bool deinitMultiNet() {
+   if (gMNModel && gMNData) {
+-    if (lockMN(2000)) {
+-      esp_mn_commands_free();
+-      unlockMN();
++    if (!lockMN(2000)) {
++      srSetError("Speech command recognizer is still busy; retry stop");
++      return false;
+     }
+-    gMNCommandsAllocated = false;
++    // ESP-SR 2.5.5 MultiNet destroy owns the command list too. Freeing it
++    // separately would make destroy clear an already-freed list.
+     gMNModel->destroy(gMNData);
++    gMNCommandsAllocated = false;
++    gMNGrammarPublished = false;
+     gMNData = nullptr;
+     gMNModel = nullptr;
+-    DEBUG_SRF("MultiNet deinitialized");
++    unlockMN();
+   }
++  gMNModel = nullptr;
++  gMNGrammarPublished = false;
++  return true;
+ }
+ 
+@@ -2027,99 +2312,78 @@ static void deinitMultiNet() {
+ // ============================================================================
+ 
+-static void srTask(void* param) {
+-  (void)param;
+-  
+-  WARN_SYSTEMF("[SR_TASK] ========== srTask() STARTED ==========");
+-  WARN_SYSTEMF("[SR_TASK] Heap: free=%u, PSRAM_free=%u", 
+-               (unsigned)esp_get_free_heap_size(), 
+-               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+-  WARN_SYSTEMF("[SR_TASK] Running on core %d, priority %d", xPortGetCoreID(), uxTaskPriorityGet(NULL));
+-  
+-  int afeFeedChunk = 0;
+-  int afeFetchChunk = 0;
+-  int afeSampleRate = I2S_SR_SAMPLE_RATE;
+-  int afeTotalChannels = 1;
+-  int afeMicChannels = 1;
+-  
+-  WARN_SYSTEMF("[SR_TASK] gAFE=%p, gAFEData=%p", gAFE, gAFEData);
+-  if (gAFE && gAFEData) {
+-    WARN_SYSTEMF("[SR_TASK] Querying AFE parameters...");
+-    afeFeedChunk = gAFE->get_feed_chunksize(gAFEData);
+-    afeFetchChunk = gAFE->get_fetch_chunksize(gAFEData);
+-    afeSampleRate = gAFE->get_samp_rate(gAFEData);
+-    afeTotalChannels = gAFE->get_total_channel_num(gAFEData);
+-    afeMicChannels = gAFE->get_channel_num(gAFEData);
+-    WARN_SYSTEMF("[SR_TASK] AFE feed_chunk=%d samples (%d bytes)", afeFeedChunk, afeFeedChunk * (int)sizeof(int16_t));
+-    WARN_SYSTEMF("[SR_TASK] AFE fetch_chunk=%d samples (%d bytes)", afeFetchChunk, afeFetchChunk * (int)sizeof(int16_t));
+-    WARN_SYSTEMF("[SR_TASK] AFE sample_rate=%d Hz", afeSampleRate);
+-    WARN_SYSTEMF("[SR_TASK] AFE total_channels=%d, mic_channels=%d", afeTotalChannels, afeMicChannels);
+-    INFO_SRF("AFE params: feed_chunk=%d, fetch_chunk=%d, rate=%d, total_ch=%d, mic_ch=%d",
+-             afeFeedChunk, afeFetchChunk, afeSampleRate, afeTotalChannels, afeMicChannels);
+-  } else {
+-    WARN_SYSTEMF("[SR_TASK] WARNING: AFE not initialized! gAFE=%p gAFEData=%p", gAFE, gAFEData);
+-  }
+-
+-  gSrAfeFeedChunk = afeFeedChunk;
+-  gSrAfeFetchChunk = afeFetchChunk;
+-
+-  size_t feedChunkSamples = (afeFeedChunk > 0) ? (size_t)afeFeedChunk : (size_t)160;
+-  size_t feedChunkBytes = feedChunkSamples * sizeof(int16_t);
+-
+-  size_t mnBufSamplesCap = (afeFetchChunk > 0) ? (size_t)afeFetchChunk : (size_t)160;
+-  size_t mnBufBytes = mnBufSamplesCap * sizeof(int16_t);
+-
+-  size_t i2sReadBytes = (size_t)SR_AUDIO_CHUNK_SIZE;
+-  if (i2sReadBytes < feedChunkBytes) {
+-    i2sReadBytes = feedChunkBytes;
+-  }
+-  size_t i2sReadSamplesCap = i2sReadBytes / sizeof(int16_t);
+-
+-  WARN_SYSTEMF("[SR_TASK] Allocating buffers: i2sRead=%u bytes, afeFeed=%u bytes, ring=%u samples, mn=%u bytes",
+-               (unsigned)i2sReadBytes, (unsigned)feedChunkBytes, (unsigned)(feedChunkSamples * 16), (unsigned)mnBufBytes);
+-  
+-  int16_t* i2sReadBuf = (int16_t*)ps_alloc(i2sReadBytes, AllocPref::PreferPSRAM, "sr.afe.i2sread");
+-  WARN_SYSTEMF("[SR_TASK] i2sReadBuf: %p", i2sReadBuf);
+-  int16_t* afeFeedBuf = (int16_t*)ps_alloc(feedChunkBytes, AllocPref::PreferPSRAM, "sr.afe.feed");
+-  WARN_SYSTEMF("[SR_TASK] afeFeedBuf: %p", afeFeedBuf);
+-  size_t ringSamplesCap = feedChunkSamples * 16;
+-  int16_t* ringBuf = (int16_t*)ps_alloc(ringSamplesCap * sizeof(int16_t),
+-                                        AllocPref::PreferPSRAM, "sr.afe.ring");
+-  WARN_SYSTEMF("[SR_TASK] ringBuf: %p", ringBuf);
+-  int16_t* mnInputBuf = (int16_t*)ps_alloc(mnBufBytes, AllocPref::PreferPSRAM, "sr.mn.input");
+-  WARN_SYSTEMF("[SR_TASK] mnInputBuf: %p", mnInputBuf);
+-  if (!i2sReadBuf || !afeFeedBuf || !ringBuf || !mnInputBuf) {
+-    ERROR_SRF("Failed to allocate SR buffers (read=%u, feed=%u, ring=%u samples, mn=%u bytes)",
+-             (unsigned)i2sReadBytes, (unsigned)feedChunkBytes, (unsigned)ringSamplesCap, (unsigned)mnBufBytes);
+-    if (i2sReadBuf) free(i2sReadBuf);
+-    if (afeFeedBuf) free(afeFeedBuf);
+-    if (ringBuf) free(ringBuf);
+-    if (mnInputBuf) free(mnInputBuf);
+-    gSRTaskShouldRun = false;
+-    vTaskDelete(nullptr);
+-    return;
++static void srFeedTask(void*) {
++  size_t filled = 0;
++  uint32_t lastAudioMs = millis();
++  while (gSRFeedShouldRun.load(std::memory_order_acquire)) {
++    const size_t got = audioReadPcm(gSRFeedBuffer + filled, gSRFeedSamples - filled, 100);
++    if (!gSRFeedShouldRun.load(std::memory_order_acquire)) break;
++    if (got == 0) {
++      ++gSrI2SReadZero;
++      if (audioGetSource() == AUDIO_SRC_G2_LEFT) ++gSrG2ReadZero;
++      if (strcmp(audioCaptureOwner(), "sr") != 0 || millis() - lastAudioMs >= 5000) {
++        srSetError("Microphone stream stopped; stop and restart speech recognition");
++        gSRFeedShouldRun.store(false, std::memory_order_release);
++        gESPSRRunning.store(false, std::memory_order_release);
++        break;
++      }
++      vTaskDelay(pdMS_TO_TICKS(1));
++      continue;
++    }
++    if (got > gSRFeedSamples - filled) {
++      srSetError("Microphone returned more samples than requested");
++      gESPSRRunning.store(false, std::memory_order_release);
++      break;
++    }
++    lastAudioMs = millis();
++    ++gSrI2SReadOk;
++    gSrI2SBytesOk += got * sizeof(int16_t);
++    if (audioGetSource() == AUDIO_SRC_G2_LEFT) gSrG2BytesOk += got * sizeof(int16_t);
++    {
++      SRSnipGuard guard;
++      if (guard) {
++        if (gSrSnipEnabled) srSnipRingPush(gSRFeedBuffer + filled, got);
++        srSnipFeedSession(gSRFeedBuffer + filled, got);
++      }
++    }
++    filled += got;
++    if (filled < gSRFeedSamples) continue; // retain short HAL reads, never pad/drop
++    int16_t minimum = 32767, maximum = -32768;
++    int64_t sumAbs = 0;
++    for (size_t i = 0; i < filled; ++i) {
++      const int32_t value = gSRFeedBuffer[i];
++      if (value < minimum) minimum = value;
++      if (value > maximum) maximum = value;
++      sumAbs += value < 0 ? -value : value;
++    }
++    gSrLastPcmMin = minimum;
++    gSrLastPcmMax = maximum;
++    gSrLastPcmAbsAvg = static_cast<float>(sumAbs) / filled;
++    // Glasses already supply processed PCM; board-mic gain/filter settings
++    // must not amplify or re-filter their stream.
++    if (audioGetSource() == AUDIO_SRC_LOCAL_PDM) {
++      applyMicAudioProcessing(gSRFeedBuffer, filled, getMicSoftwareGainMultiplier(), gSrFiltersEnabled);
++    }
++    if (gAFE->feed(gAFEData, gSRFeedBuffer) <= 0) {
++      srSetError("Speech front end rejected microphone audio");
++      gESPSRRunning.store(false, std::memory_order_release);
++      break;
++    }
++    ++gSrAfeFeedOk;
++    filled = 0;
+   }
++  gSRFeedShouldRun.store(false, std::memory_order_release);
++  // After this acknowledgement the worker must never touch pipeline resources.
++  gSRFeedExited.store(true, std::memory_order_release);
++  vTaskDelete(nullptr);
++}
+ 
+-  size_t ringHead = 0;
+-  size_t ringCount = 0;
+-  size_t fedSinceFetchSamples = 0;
+-
+-  WARN_SYSTEMF("[SR_TASK] Buffers allocated OK. feed_chunk=%u samples, i2s_read_cap=%u samples, ring_cap=%u samples, mn_cap=%u samples",
+-               (unsigned)feedChunkSamples, (unsigned)i2sReadSamplesCap, (unsigned)ringSamplesCap, (unsigned)mnBufSamplesCap);
+-  WARN_SYSTEMF("[SR_TASK] (PDM I2S owned by HAL_Audio)");
+-  SR_DBG_L(1, "SR buffers: feed_chunk=%u samples, read_cap=%u samples (%u bytes), ring_cap=%u samples",
+-           (unsigned)feedChunkSamples, (unsigned)i2sReadSamplesCap, (unsigned)i2sReadBytes, (unsigned)ringSamplesCap);
+-  
++static void srTask(void*) {
++  int16_t* mnInputBuf = gSRMNBuffer;
++  const size_t mnBufSamplesCap = gSRFetchSamples;
+   bool listeningForCommand = false;
+   uint32_t commandTimeoutMs = 0;
+-  bool commandSpeechStarted = false;  // Has user started speaking the command?
+-  uint32_t loopCount = 0;
+-  uint32_t lastDetailedLogLoop = 0;
+-  
+-  WARN_SYSTEMF("[SR_TASK] ========== ENTERING MAIN LOOP ==========");
+-  
+-  while (gSRTaskShouldRun) {
+-    loopCount++;
+-    bool doDetailedLog = (loopCount <= 5) || (loopCount - lastDetailedLogLoop >= 500);
+-    
++  bool commandSpeechStarted = false;
++  while (gSRTaskShouldRun.load(std::memory_order_acquire)) {
++    gSRStackHwm.store(uxTaskGetStackHighWaterMark(nullptr), std::memory_order_relaxed);
+     if (gSrSnipManualStartRequested) {
+       gSrSnipManualStartRequested = false;
+@@ -2130,5 +2394,5 @@ static void srTask(void* param) {
+       srSnipEndSession(true);
+     }
+-    
++
+     if (gSrTelemetryPeriodMs > 0) {
+       uint32_t now = millis();
+@@ -2144,495 +2408,351 @@ static void srTask(void* param) {
+       }
+     }
+-    
+-    size_t bytesRead = 0;
+-    uint32_t readStartMs = millis();
+-    esp_err_t err = ESP_OK;
+-    {
+-      // Unified pull — HAL_Audio dispatches PDM vs the G2 LC3→PCM ring by the
+-      // active source; short reads are fine (the downstream ring re-chunks into
+-      // 160-sample AFE frames). For G2, block up to 100 ms for the BLE pipe.
+-#if ENABLE_MICROPHONE
+-      size_t got = audioReadPcm((int16_t*)i2sReadBuf, i2sReadBytes / sizeof(int16_t), /*timeoutMs*/ 100);
+-      bytesRead = got * sizeof(int16_t);
+-#else
+-      bytesRead = 0;   // no mic subsystem compiled in this build
+-#endif
+-      if (audioGetSource() == AUDIO_SRC_G2_LEFT) {
+-        if (bytesRead > 0) gSrG2BytesOk += bytesRead;
+-        else               gSrG2ReadZero++;
+-      }
+-    }
+-    uint32_t readDurationMs = millis() - readStartMs;
+ 
+-    if (doDetailedLog) {
+-      WARN_SYSTEMF("[SR_LOOP] Loop %u: %s_read took %u ms, err=0x%x (%s), bytesRead=%u",
+-                   (unsigned)loopCount,
+-                   audioGetSource() == AUDIO_SRC_G2_LEFT ? "g2_mic" : "i2s",
+-                   (unsigned)readDurationMs, err, esp_err_to_name(err), (unsigned)bytesRead);
+-    }
+ 
+-    if (err != ESP_OK) {
+-      gSrI2SReadErr++;
+-      if (loopCount <= 10) {
+-        WARN_SYSTEMF("[SR_LOOP] I2S READ ERROR at loop %u: %s", (unsigned)loopCount, esp_err_to_name(err));
+-      }
+-      SR_DBG_L(3, "I2S read error: %s (loop=%u)", esp_err_to_name(err), (unsigned)loopCount);
+-      vTaskDelay(pdMS_TO_TICKS(10));
++    // Fetch independently of microphone feed: ESP-SR 2.x buffers internally,
++    // and waiting for output must never prevent new input from reaching AFE.
++    afe_fetch_result_t* fetchResult = gAFE->fetch_with_delay(gAFEData, pdMS_TO_TICKS(100));
++    if (!gSRTaskShouldRun.load(std::memory_order_acquire)) break;
++    if (gSRFeedExited.load(std::memory_order_acquire) && gSRError.load()) break;
++    if (!fetchResult) continue;
++    gSrLastAfeRetValue = fetchResult->ret_value;
++    if (fetchResult->ret_value != ESP_OK) continue;
++    if (!fetchResult->data || fetchResult->data_size != static_cast<int>(gSRFetchSamples * sizeof(int16_t))) {
++      srSetError("Speech front end returned an invalid PCM frame");
++      gESPSRRunning.store(false, std::memory_order_release);
++      gSRFeedShouldRun.store(false, std::memory_order_release);
++      // Keep draining until the feeder acknowledges stop, then exit safely.
++      if (gSRFeedExited.load(std::memory_order_acquire)) break;
+       continue;
+     }
+-    if (bytesRead == 0) {
+-      gSrI2SReadZero++;
+-      if (loopCount <= 10) {
+-        WARN_SYSTEMF("[SR_LOOP] %s READ ZERO BYTES at loop %u",
+-                     audioGetSource() == AUDIO_SRC_G2_LEFT ? "G2-MIC" : "I2S",
+-                     (unsigned)loopCount);
++    ++gSrAfeFetchOk;
++    gSrLastVolumeDb = fetchResult->data_volume;
++    gSrLastVadState = (int)fetchResult->vad_state;
++    gSrLastAfeTriggerChannel = fetchResult->trigger_channel_id;
++
++    SR_DBG_L(4, "AFE fetch: vol=%.1f dB, vad=%d, wake_state=%d, ret=%d",
++             fetchResult->data_volume, (int)fetchResult->vad_state,
++             (int)fetchResult->wakeup_state, fetchResult->ret_value);
++
++    if (fetchResult->wakeup_state == WAKENET_DETECTED) {
++      // A repeated wake aborts the old hierarchy. Reload categories before
++      // accepting more PCM, otherwise a target table would be read as categories.
++      if (gVoiceState != VoiceState::IDLE && !loadCategories()) {
++        srSetError("Could not reset speech command table after wake word");
++        gESPSRRunning.store(false, std::memory_order_release);
++        gSRFeedShouldRun.store(false, std::memory_order_release);
++        continue;
+       }
+-      SR_DBG_L(3, "read zero bytes (loop=%u, source=%u)",
+-               (unsigned)loopCount, (unsigned)audioGetSource());
+-      vTaskDelay(pdMS_TO_TICKS(10));
+-      continue;
+-    }
+-    
+-    gSrI2SReadOk++;
+-    gSrI2SBytesOk += bytesRead;
+-    size_t samplesRead = bytesRead / sizeof(int16_t);
+-
+-    if (samplesRead > 0) {
+-      int16_t mn = 32767;
+-      int16_t mx = -32768;
+-      int64_t sumAbs = 0;
+-      for (size_t i = 0; i < samplesRead; i++) {
+-        int16_t v = i2sReadBuf[i];
+-        if (v < mn) mn = v;
+-        if (v > mx) mx = v;
+-        sumAbs += (v < 0) ? -(int32_t)v : (int32_t)v;
++      if (lockMN(50)) {
++        gMNModel->clean(gMNData);
++        unlockMN();
+       }
+-      gSrLastPcmMin = mn;
+-      gSrLastPcmMax = mx;
+-      gSrLastPcmAbsAvg = (float)sumAbs / (float)samplesRead;
+-      
+-      if (doDetailedLog) {
+-        WARN_SYSTEMF("[SR_LOOP] Loop %u: PCM samples=%u, min=%d, max=%d, avg_abs=%.1f",
+-                     (unsigned)loopCount, (unsigned)samplesRead, mn, mx, gSrLastPcmAbsAvg);
+-        lastDetailedLogLoop = loopCount;
++      gWakeWordCount++;
++      gLastWakeMs = millis();
++      gESPSRWakeDetected = true;
++      listeningForCommand = true;
++      commandSpeechStarted = false;  // Reset - waiting for user to start speaking command
++      commandTimeoutMs = millis() + gSettings.srCommandTimeout;
++      gSrLastWakeWordIndex = fetchResult->wake_word_index;
++      gSrLastWakeNetModelIndex = fetchResult->wakenet_model_index;
++
++      // Transition to hierarchical state machine
++      DEBUG_SRF("[HIER-DEBUG] State transition: %s -> AWAIT_CATEGORY", voiceStateToString(gVoiceState));
++      gVoiceState = VoiceState::AWAIT_CATEGORY;
++      gCurrentCategory = "";
++      gCurrentSubCategory = "";
++
++      INFO_SRF("[HIER] ============================================");
++      INFO_SRF("[HIER] WAKE WORD DETECTED!");
++      INFO_SRF("[HIER] ============================================");
++      INFO_SRF("[HIER] Listening for CATEGORY... (timeout in %d ms)", gSettings.srCommandTimeout);
++
++      // User-facing feedback
++      broadcastOutput("");
++      broadcastOutput("[Voice] Yes?");
++      systemEventPost(SYSEVT_VOICE_WAKE);
++      DEBUG_SRF("[HIER-DEBUG] Voice CLI mappings count: %u", (unsigned)gVoiceCliMappingCount);
++      INFO_SRF("Wake stats: count=%u, idx=%d, model=%d, vol=%.1f dB, wake_len=%d",
++               gWakeWordCount, fetchResult->wake_word_index, fetchResult->wakenet_model_index,
++               fetchResult->data_volume, fetchResult->wake_word_length);
++
++      if (gSrSnipEnabled && !gSrSnipSessionActive) {
++        srSnipStartSession("wake", -1, nullptr);
+       }
+-    }
+-    
+-    SR_DBG_L(4, "I2S read: %u bytes, %u samples (loop=%u)", (unsigned)bytesRead, (unsigned)samplesRead, (unsigned)loopCount);
+ 
+-    if (gSrSnipEnabled && gSrSnipRing) {
+-      srSnipRingPush(i2sReadBuf, samplesRead);
+-    }
+-    if (gSrSnipSessionActive) {
+-      srSnipFeedSession(i2sReadBuf, samplesRead);
++      if (gWakeWordCallback) {
++        char* words = esp_srmodel_get_wake_words(gSRModels, gWnModelName);
++        gWakeWordCallback(words ? words : gWnModelName);
++        free(words); // ESP-SR allocates the returned wake-word string.
++      }
+     }
+ 
+-    if (ringSamplesCap > 0 && samplesRead > 0) {
+-      const int16_t* src = i2sReadBuf;
+-      size_t srcSamples = samplesRead;
+-      if (srcSamples >= ringSamplesCap) {
+-        src = &i2sReadBuf[srcSamples - ringSamplesCap];
+-        srcSamples = ringSamplesCap;
+-        memcpy(ringBuf, src, srcSamples * sizeof(int16_t));
+-        ringHead = 0;
+-        ringCount = srcSamples;
+-      } else {
+-        size_t freeSpace = ringSamplesCap - ringCount;
+-        if (srcSamples > freeSpace) {
+-          size_t drop = srcSamples - freeSpace;
+-          ringHead = (ringHead + drop) % ringSamplesCap;
+-          ringCount -= drop;
+-        }
+-        size_t tail = (ringHead + ringCount) % ringSamplesCap;
+-        size_t first = srcSamples;
+-        if (tail + first > ringSamplesCap) {
+-          first = ringSamplesCap - tail;
+-        }
+-        memcpy(&ringBuf[tail], src, first * sizeof(int16_t));
+-        if (srcSamples > first) {
+-          memcpy(&ringBuf[0], &src[first], (srcSamples - first) * sizeof(int16_t));
+-        }
+-        ringCount += srcSamples;
++    if (listeningForCommand && gMNModel && gMNData) {
++      // Extend timeout when user starts speaking their command
++      if (!commandSpeechStarted && fetchResult->vad_state == VAD_SPEECH) {
++        commandSpeechStarted = true;
++        commandTimeoutMs = millis() + gSettings.srCommandTimeout;  // Fresh timeout from speech start
++        SR_DBG_L(1, "Speech detected - timeout extended to %d ms from now", gSettings.srCommandTimeout);
+       }
+-    }
+ 
+-    if (gAFE && gAFEData) {
+-      while (ringCount >= feedChunkSamples) {
+-        size_t first = feedChunkSamples;
+-        if (ringHead + first > ringSamplesCap) {
+-          first = ringSamplesCap - ringHead;
+-        }
+-        memcpy(afeFeedBuf, &ringBuf[ringHead], first * sizeof(int16_t));
+-        if (feedChunkSamples > first) {
+-          memcpy(&afeFeedBuf[first], &ringBuf[0], (feedChunkSamples - first) * sizeof(int16_t));
++      if (static_cast<int32_t>(millis() - commandTimeoutMs) >= 0) {
++        DEBUG_SRF("[HIER-DEBUG] ===== TIMEOUT TRIGGERED =====");
++        DEBUG_SRF("[HIER-DEBUG] Current state: %s", voiceStateToString(gVoiceState));
++        DEBUG_SRF("[HIER-DEBUG] Current category: '%s'", gCurrentCategory.c_str());
++        DEBUG_SRF("[HIER-DEBUG] Time since wake: %u ms", (unsigned)(millis() - gLastWakeMs));
++
++        if (lockMN(50)) {
++          gMNModel->clean(gMNData);
++          unlockMN();
+         }
+-        ringHead = (ringHead + feedChunkSamples) % ringSamplesCap;
+-        ringCount -= feedChunkSamples;
+ 
+-        // Apply shared audio preprocessing (DC offset, optional filters, gain)
+-        applyMicAudioProcessing(afeFeedBuf, feedChunkSamples, getMicSoftwareGainMultiplier(), gSrFiltersEnabled);
++        // Handle timeout based on current state
++        if (gVoiceState == VoiceState::AWAIT_CATEGORY) {
++          INFO_SRF("[HIER] ============================================");
++          INFO_SRF("[HIER] TIMEOUT: No category detected");
++          INFO_SRF("[HIER] ============================================");
++          DEBUG_SRF("[HIER-DEBUG] State transition: AWAIT_CATEGORY -> IDLE");
+ 
+-        gAFE->feed(gAFEData, afeFeedBuf);
+-        gSrAfeFeedOk++;
+-        fedSinceFetchSamples += feedChunkSamples;
+-        
+-        if (gSrAfeFeedOk <= 5 || (gSrAfeFeedOk % 500 == 0)) {
+-          int16_t feedMin = 32767, feedMax = -32768;
+-          for (size_t i = 0; i < feedChunkSamples; i++) {
+-            if (afeFeedBuf[i] < feedMin) feedMin = afeFeedBuf[i];
+-            if (afeFeedBuf[i] > feedMax) feedMax = afeFeedBuf[i];
++          // User-facing feedback
++          broadcastOutput("[Voice] Sorry, I didn't catch that.");
++
++          gVoiceState = VoiceState::IDLE;
++          gCurrentCategory = "";
++          gCurrentSubCategory = "";
++        } else if (gVoiceState == VoiceState::AWAIT_SUBCATEGORY) {
++          INFO_SRF("[HIER] ============================================");
++          INFO_SRF("[HIER] TIMEOUT: No subcategory detected for '%s'", gCurrentCategory.c_str());
++          INFO_SRF("[HIER] ============================================");
++          DEBUG_SRF("[HIER-DEBUG] State transition: AWAIT_SUBCATEGORY -> IDLE");
++
++          // User-facing feedback
++          broadcastOutput(String("[Voice] Timed out waiting for ") + gCurrentCategory + " selection.");
++
++          gVoiceState = VoiceState::IDLE;
++          gCurrentCategory = "";
++          gCurrentSubCategory = "";
++          // Reload categories for next wake word
++          DEBUG_SRF("[HIER-DEBUG] Reloading categories after subcategory timeout...");
++          if (!loadCategories()) voiceTableLoadFailed();
++        } else if (gVoiceState == VoiceState::AWAIT_TARGET) {
++          INFO_SRF("[HIER] ============================================");
++          INFO_SRF("[HIER] TIMEOUT: No target detected for '%s'->'%s'",
++                   gCurrentCategory.c_str(), gCurrentSubCategory.c_str());
++          INFO_SRF("[HIER] ============================================");
++          DEBUG_SRF("[HIER-DEBUG] State transition: AWAIT_TARGET -> IDLE");
++
++          // User-facing feedback
++          if (gCurrentSubCategory.length() > 0) {
++            broadcastOutput(String("[Voice] Timed out waiting for ") + gCurrentSubCategory + " action.");
++          } else {
++            broadcastOutput(String("[Voice] Timed out waiting for ") + gCurrentCategory + " action.");
+           }
+-          float swg = getMicSoftwareGainMultiplier();
+-          WARN_SYSTEMF("[SR_AFE] Feed #%u: min=%d, max=%d, dc=%d, swgain=%.1f, micgain=%d",
+-                       (unsigned)gSrAfeFeedOk, feedMin, feedMax, (int)getMicDcOffset(), swg, gSettings.microphoneGain);
++
++          gVoiceState = VoiceState::IDLE;
++          gCurrentCategory = "";
++          gCurrentSubCategory = "";
++          // Reload categories for next wake word
++          DEBUG_SRF("[HIER-DEBUG] Reloading categories after target timeout...");
++          if (!loadCategories()) voiceTableLoadFailed();
+         }
+-      }
+ 
+-      while (fedSinceFetchSamples >= (size_t)afeFetchChunk) {
+-        fedSinceFetchSamples -= (size_t)afeFetchChunk;
+-        
+-        afe_fetch_result_t* fetchResult = gAFE->fetch(gAFEData);
+-        
+-        if (gSrAfeFetchOk < 10 || (gSrAfeFetchOk % 100 == 0)) {
+-          WARN_SYSTEMF("[SR_AFE] Fetch #%u: result_ptr=%p", (unsigned)(gSrAfeFetchOk + 1), fetchResult);
++        listeningForCommand = false;
++        gESPSRWakeDetected = false;
++        if (gSrSnipSessionActive) {
++          srSnipEndSession(true);
+         }
+-        
+-        if (!fetchResult) {
+-          if (gSrAfeFetchOk < 5) {
+-            WARN_SYSTEMF("[SR_AFE] Fetch #%u returned NULL", (unsigned)(gSrAfeFetchOk + 1));
+-          }
++      } else {
++        if (!lockMN(50)) {
+           continue;
+         }
+-
+-        gSrAfeFetchOk++;
+-        gSrLastAfeRetValue = fetchResult->ret_value;
+-        
+-        if (gSrAfeFetchOk <= 10) {
+-          WARN_SYSTEMF("[SR_AFE] Fetch #%u: ret=%d, vol=%.1f dB, vad=%d, wake=%d, data=%p",
+-                       (unsigned)gSrAfeFetchOk, fetchResult->ret_value, fetchResult->data_volume,
+-                       (int)fetchResult->vad_state, (int)fetchResult->wakeup_state, fetchResult->data);
++        if (!gMNGrammarPublished || gSRError.load(std::memory_order_acquire)) {
++          unlockMN();
++          continue;
+         }
+-        
+-        if (fetchResult->ret_value == ESP_FAIL) {
+-          if (gSrAfeFetchOk <= 10) {
+-            WARN_SYSTEMF("[SR_AFE] Fetch #%u: ret_value=ESP_FAIL, skipping", (unsigned)gSrAfeFetchOk);
++        bool mnLocked = true;
++        gSrMnDetectCalls++;
++
++        const bool isCategoryStageNow = (gVoiceState == VoiceState::AWAIT_CATEGORY);
++        const bool isSubCategoryStageNow = (gVoiceState == VoiceState::AWAIT_SUBCATEGORY);
++        const bool isTargetStageNow = (gVoiceState == VoiceState::AWAIT_TARGET);
++        const bool speechOkNow = (!gSrTargetRequireSpeech) || isCategoryStageNow || isSubCategoryStageNow || commandSpeechStarted || (fetchResult->vad_state == VAD_SPEECH);
++        if ((isTargetStageNow || isSubCategoryStageNow) && gSrTargetRequireSpeech && !speechOkNow) {
++          if (mnLocked) {
++            unlockMN();
+           }
+           continue;
+         }
+ 
+-        gSrLastVolumeDb = fetchResult->data_volume;
+-        gSrLastVadState = (int)fetchResult->vad_state;
+-        gSrLastAfeTriggerChannel = fetchResult->trigger_channel_id;
+-
+-        SR_DBG_L(4, "AFE fetch: vol=%.1f dB, vad=%d, wake_state=%d, ret=%d",
+-                 fetchResult->data_volume, (int)fetchResult->vad_state,
+-                 (int)fetchResult->wakeup_state, fetchResult->ret_value);
+-
+-        if (fetchResult->wakeup_state == WAKENET_DETECTED) {
+-          gWakeWordCount++;
+-          gLastWakeMs = millis();
+-          gESPSRWakeDetected = true;
+-          listeningForCommand = true;
+-          commandSpeechStarted = false;  // Reset - waiting for user to start speaking command
+-          commandTimeoutMs = millis() + gSettings.srCommandTimeout;
+-          gSrLastWakeWordIndex = fetchResult->wake_word_index;
+-          gSrLastWakeNetModelIndex = fetchResult->wakenet_model_index;
+-          
+-          // Transition to hierarchical state machine
+-          INFO_SRF("[HIER-DEBUG] State transition: %s -> AWAIT_CATEGORY", voiceStateToString(gVoiceState));
+-          gVoiceState = VoiceState::AWAIT_CATEGORY;
+-          gCurrentCategory = "";
+-          
+-          INFO_SRF("[HIER] ============================================");
+-          INFO_SRF("[HIER] WAKE WORD DETECTED!");
+-          INFO_SRF("[HIER] ============================================");
+-          INFO_SRF("[HIER] Listening for CATEGORY... (timeout in %d ms)", gSettings.srCommandTimeout);
+-          
+-          // User-facing feedback
+-          broadcastOutput("");
+-          broadcastOutput("[Voice] Yes?");
+-          systemEventPost(SYSEVT_VOICE_WAKE);
+-          INFO_SRF("[HIER-DEBUG] Voice CLI mappings count: %u", (unsigned)gVoiceCliMappingCount);
+-          INFO_SRF("Wake stats: count=%u, idx=%d, model=%d, vol=%.1f dB, wake_len=%d",
+-                   gWakeWordCount, fetchResult->wake_word_index, fetchResult->wakenet_model_index,
+-                   fetchResult->data_volume, fetchResult->wake_word_length);
+-          
+-          if (gSrSnipEnabled && !gSrSnipSessionActive) {
+-            srSnipStartSession("wake", -1, nullptr);
+-          }
+-          
+-          if (gWakeWordCallback) {
+-            gWakeWordCallback("hey_device");
+-          }
++        const bool dynGainOkNow = (fetchResult->vad_state == VAD_SPEECH) || commandSpeechStarted;
++
++        int16_t* mnInput = (int16_t*)fetchResult->data;
++        size_t mnSamples = 0;
++        if (fetchResult->data && fetchResult->data_size > 0) {
++          mnSamples = (size_t)fetchResult->data_size / sizeof(int16_t);
+         }
+-        
+-        if (listeningForCommand && gMNModel && gMNData) {
+-          // Extend timeout when user starts speaking their command
+-          if (!commandSpeechStarted && fetchResult->vad_state == AFE_VAD_SPEECH) {
+-            commandSpeechStarted = true;
+-            commandTimeoutMs = millis() + gSettings.srCommandTimeout;  // Fresh timeout from speech start
+-            SR_DBG_L(1, "Speech detected - timeout extended to %d ms from now", gSettings.srCommandTimeout);
++        if (gSrDynGainEnabled && dynGainOkNow && mnInputBuf && mnSamples > 0 && mnSamples <= mnBufSamplesCap) {
++          int32_t peakAbs = 0;
++          for (size_t i = 0; i < mnSamples; ++i) {
++            int32_t v = (int32_t)mnInput[i];
++            if (v < 0) v = -v;
++            if (v > peakAbs) peakAbs = v;
+           }
+-          
+-          if (millis() > commandTimeoutMs) {
+-            INFO_SRF("[HIER-DEBUG] ===== TIMEOUT TRIGGERED =====");
+-            INFO_SRF("[HIER-DEBUG] Current state: %s", voiceStateToString(gVoiceState));
+-            INFO_SRF("[HIER-DEBUG] Current category: '%s'", gCurrentCategory.c_str());
+-            INFO_SRF("[HIER-DEBUG] Time since wake: %u ms", (unsigned)(millis() - gLastWakeMs));
+-            
+-            gMNModel->clean(gMNData);
+-            
+-            // Handle timeout based on current state
+-            if (gVoiceState == VoiceState::AWAIT_CATEGORY) {
+-              INFO_SRF("[HIER] ============================================");
+-              INFO_SRF("[HIER] TIMEOUT: No category detected");
+-              INFO_SRF("[HIER] ============================================");
+-              INFO_SRF("[HIER-DEBUG] State transition: AWAIT_CATEGORY -> IDLE");
+-              
+-              // User-facing feedback
+-              broadcastOutput("[Voice] Sorry, I didn't catch that.");
+-              
+-              gVoiceState = VoiceState::IDLE;
+-              gCurrentCategory = "";
+-              gCurrentSubCategory = "";
+-            } else if (gVoiceState == VoiceState::AWAIT_SUBCATEGORY) {
+-              INFO_SRF("[HIER] ============================================");
+-              INFO_SRF("[HIER] TIMEOUT: No subcategory detected for '%s'", gCurrentCategory.c_str());
+-              INFO_SRF("[HIER] ============================================");
+-              INFO_SRF("[HIER-DEBUG] State transition: AWAIT_SUBCATEGORY -> IDLE");
+-              
+-              // User-facing feedback
+-              broadcastOutput(String("[Voice] Timed out waiting for ") + gCurrentCategory + " selection.");
+-              
+-              gVoiceState = VoiceState::IDLE;
+-              gCurrentCategory = "";
+-              gCurrentSubCategory = "";
+-              // Reload categories for next wake word
+-              INFO_SRF("[HIER-DEBUG] Reloading categories after subcategory timeout...");
+-              loadCategories();
+-            } else if (gVoiceState == VoiceState::AWAIT_TARGET) {
+-              INFO_SRF("[HIER] ============================================");
+-              INFO_SRF("[HIER] TIMEOUT: No target detected for '%s'->'%s'", 
+-                       gCurrentCategory.c_str(), gCurrentSubCategory.c_str());
+-              INFO_SRF("[HIER] ============================================");
+-              INFO_SRF("[HIER-DEBUG] State transition: AWAIT_TARGET -> IDLE");
+-              
+-              // User-facing feedback
+-              if (gCurrentSubCategory.length() > 0) {
+-                broadcastOutput(String("[Voice] Timed out waiting for ") + gCurrentSubCategory + " action.");
+-              } else {
+-                broadcastOutput(String("[Voice] Timed out waiting for ") + gCurrentCategory + " action.");
+-              }
+-              
+-              gVoiceState = VoiceState::IDLE;
+-              gCurrentCategory = "";
+-              gCurrentSubCategory = "";
+-              // Reload categories for next wake word
+-              INFO_SRF("[HIER-DEBUG] Reloading categories after target timeout...");
+-              loadCategories();
+-            }
+-            
+-            listeningForCommand = false;
+-            gESPSRWakeDetected = false;
+-            if (gSrSnipSessionActive) {
+-              srSnipEndSession(true);
++          if (peakAbs > 0) {
++            float desired = gSrDynGainTargetPeak / (float)peakAbs;
++            desired = clampFloat(desired, gSrDynGainMin, gSrDynGainMax);
++            gSrDynGainCurrent = gSrDynGainCurrent + (desired - gSrDynGainCurrent) * gSrDynGainAlpha;
++            gSrDynGainCurrent = clampFloat(gSrDynGainCurrent, gSrDynGainMin, gSrDynGainMax);
++            for (size_t i = 0; i < mnSamples; ++i) {
++              int32_t s = (int32_t)((float)mnInput[i] * gSrDynGainCurrent);
++              mnInputBuf[i] = clampS16(s);
+             }
++            mnInput = mnInputBuf;
++            gSrDynGainApplied++;
+           } else {
+-            if (!lockMN(50)) {
+-              continue;
+-            }
+-            bool mnLocked = true;
+-            gSrMnDetectCalls++;
+-
+-            const bool isCategoryStageNow = (gVoiceState == VoiceState::AWAIT_CATEGORY);
+-            const bool isSubCategoryStageNow = (gVoiceState == VoiceState::AWAIT_SUBCATEGORY);
+-            const bool isTargetStageNow = (gVoiceState == VoiceState::AWAIT_TARGET);
+-            const bool speechOkNow = (!gSrTargetRequireSpeech) || isCategoryStageNow || isSubCategoryStageNow || commandSpeechStarted || (fetchResult->vad_state == AFE_VAD_SPEECH);
+-            if ((isTargetStageNow || isSubCategoryStageNow) && gSrTargetRequireSpeech && !speechOkNow) {
+-              if (mnLocked) {
+-                unlockMN();
+-              }
+-              continue;
+-            }
++            gSrDynGainBypassed++;
++          }
++        } else {
++          gSrDynGainBypassed++;
++        }
+ 
+-            const bool dynGainOkNow = (fetchResult->vad_state == AFE_VAD_SPEECH) || commandSpeechStarted;
++        esp_mn_state_t mnState = gMNModel->detect(gMNData, mnInput);
+ 
+-            int16_t* mnInput = (int16_t*)fetchResult->data;
+-            size_t mnSamples = 0;
+-            if (fetchResult->data && fetchResult->data_size > 0) {
+-              mnSamples = (size_t)fetchResult->data_size / sizeof(int16_t);
++        SR_DBG_L(4, "MN detect: state=%d (DETECTING=0, DETECTED=1, TIMEOUT=2)", (int)mnState);
++
++        // Log periodically during AWAIT_SUBCATEGORY or AWAIT_TARGET to show we're listening
++        static uint32_t lastTargetListenLog = 0;
++        if ((gVoiceState == VoiceState::AWAIT_SUBCATEGORY || gVoiceState == VoiceState::AWAIT_TARGET) && mnState == ESP_MN_STATE_DETECTING) {
++          uint32_t now = millis();
++          if (now - lastTargetListenLog > 1500) {
++            lastTargetListenLog = now;
++            const char* stageStr = (gVoiceState == VoiceState::AWAIT_SUBCATEGORY) ? "SUBCATEGORY" : "TARGET";
++            INFO_SRF("[%s] Listening... vad=%d vol=%.1f dB",
++                     stageStr, fetchResult->vad_state, fetchResult->data_volume);
++          }
++        }
++
++        if (mnState == ESP_MN_STATE_DETECTED) {
++          gSrMnDetected++;
++          esp_mn_results_t* results = gMNModel->get_results(gMNData);
++          if (results && results->num > 0) {
++            int cmdId = results->command_id[0];
++            char cmdPhraseCopy[128];
++            if (!copyRecognizedVoicePhrase(cmdId, cmdPhraseCopy, sizeof(cmdPhraseCopy))) {
++              WARN_SRF("Ignoring recognition with unknown or oversized phrase id=%d", cmdId);
++              gMNModel->clean(gMNData);
++              unlockMN();
++              continue;
+             }
+-            if (gSrDynGainEnabled && dynGainOkNow && mnInputBuf && mnSamples > 0 && mnSamples <= mnBufSamplesCap) {
+-              int32_t peakAbs = 0;
+-              for (size_t i = 0; i < mnSamples; ++i) {
+-                int32_t v = (int32_t)mnInput[i];
+-                if (v < 0) v = -v;
+-                if (v > peakAbs) peakAbs = v;
+-              }
+-              if (peakAbs > 0) {
+-                float desired = gSrDynGainTargetPeak / (float)peakAbs;
+-                desired = clampFloat(desired, gSrDynGainMin, gSrDynGainMax);
+-                gSrDynGainCurrent = gSrDynGainCurrent + (desired - gSrDynGainCurrent) * gSrDynGainAlpha;
+-                gSrDynGainCurrent = clampFloat(gSrDynGainCurrent, gSrDynGainMin, gSrDynGainMax);
+-                for (size_t i = 0; i < mnSamples; ++i) {
+-                  int32_t s = (int32_t)((float)mnInput[i] * gSrDynGainCurrent);
+-                  mnInputBuf[i] = clampS16(s);
+-                }
+-                mnInput = mnInputBuf;
+-                gSrDynGainApplied++;
++            const char* cmdPhrase = cmdPhraseCopy;
++            float cmdProb = results->prob[0];
++
++            const bool isCategoryStage = (gVoiceState == VoiceState::AWAIT_CATEGORY);
++            const bool isSubCategoryStage = (gVoiceState == VoiceState::AWAIT_SUBCATEGORY);
++            // Use category confidence for both category and subcategory stages
++            const float requiredConfidence = (isCategoryStage || isSubCategoryStage) ? gSrMinCategoryConfidence : gSrMinCommandConfidence;
++            const float cmdProb2 = (results->num > 1) ? results->prob[1] : 0.0f;
++            const bool speechOk = (!gSrTargetRequireSpeech) || isCategoryStage || isSubCategoryStage || commandSpeechStarted || (fetchResult->vad_state == VAD_SPEECH);
++            const bool acceptByGap = (!isCategoryStage && !isSubCategoryStage) && gSrGapAcceptEnabled && speechOk && (cmdProb >= gSrGapAcceptFloor) && ((cmdProb - cmdProb2) >= gSrGapAcceptGap);
++            const bool accepted = (cmdProb >= requiredConfidence) || acceptByGap;
++            INFO_SRF("=== VOICE COMMAND CANDIDATES ===");
++            INFO_SRF("  #1: id=%d '%s' prob=%.1f%% %s",
++                     cmdId, cmdPhrase ? cmdPhrase : "?", cmdProb * 100.0f,
++                     accepted ? "<-- SELECTED" : "<-- REJECTED");
++
++            // Always show all candidates so user can see what was considered
++            for (int i = 1; i < results->num && i < ESP_MN_RESULT_MAX_NUM; ++i) {
++              // Look up the phrase for this command ID
++              char* altPhraseStr = esp_mn_commands_get_string(results->command_id[i]);
++              INFO_SRF("  #%d: id=%d '%s' prob=%.1f%%",
++                       i + 1, results->command_id[i], altPhraseStr, results->prob[i] * 100.0f);
++            }
++            INFO_SRF("================================");
++
++            if (!accepted) {
++              gSrLowConfidenceRejects++;
++              WARN_SRF("Rejected command: id=%d prob=%.3f (need>=%.2f or gap floor=%.2f gap=%.2f) (rejects=%lu)",
++                           cmdId, cmdProb, requiredConfidence, gSrGapAcceptFloor, gSrGapAcceptGap, (unsigned long)gSrLowConfidenceRejects);
++              if (isCategoryStage) {
++                broadcastOutput(String("[Voice] I heard '") + normalizePhrase(cmdPhraseCopy) + "'... can you say it again?");
+               } else {
+-                gSrDynGainBypassed++;
++                broadcastOutput("[Voice] Sorry, can you repeat that?");
+               }
+-            } else {
+-              gSrDynGainBypassed++;
+-            }
+ 
+-            esp_mn_state_t mnState = gMNModel->detect(gMNData, mnInput);
+-            
+-            SR_DBG_L(4, "MN detect: state=%d (DETECTING=0, DETECTED=1, TIMEOUT=2)", (int)mnState);
+-            
+-            // Log periodically during AWAIT_SUBCATEGORY or AWAIT_TARGET to show we're listening
+-            static uint32_t lastTargetListenLog = 0;
+-            if ((gVoiceState == VoiceState::AWAIT_SUBCATEGORY || gVoiceState == VoiceState::AWAIT_TARGET) && mnState == ESP_MN_STATE_DETECTING) {
+-              uint32_t now = millis();
+-              if (now - lastTargetListenLog > 1500) {
+-                lastTargetListenLog = now;
+-                const char* stageStr = (gVoiceState == VoiceState::AWAIT_SUBCATEGORY) ? "SUBCATEGORY" : "TARGET";
+-                INFO_SRF("[%s] Listening... vad=%d vol=%.1f dB",
+-                         stageStr, fetchResult->vad_state, 20.0f * log10f(fetchResult->data_volume + 1e-10f));
++              gMNModel->clean(gMNData);
++              commandTimeoutMs = millis() + gSettings.srCommandTimeout;
++              if (gSrSnipSessionActive) {
++                srSnipEndSession(true);
+               }
+-            }
+-            
+-            if (mnState == ESP_MN_STATE_DETECTED) {
+-              gSrMnDetected++;
+-              esp_mn_results_t* results = gMNModel->get_results(gMNData);
+-              if (results && results->num > 0) {
+-                int cmdId = results->command_id[0];
+-                const char* cmdPhrase = results->string;
+-                float cmdProb = results->prob[0];
+-                char cmdPhraseCopy[128];
+-                cmdPhraseCopy[0] = '\0';
+-                if (cmdPhrase) {
+-                  strncpy(cmdPhraseCopy, cmdPhrase, sizeof(cmdPhraseCopy) - 1);
+-                  cmdPhraseCopy[sizeof(cmdPhraseCopy) - 1] = '\0';
+-                }
+-                
+-                const bool isCategoryStage = (gVoiceState == VoiceState::AWAIT_CATEGORY);
+-                const bool isSubCategoryStage = (gVoiceState == VoiceState::AWAIT_SUBCATEGORY);
+-                // Use category confidence for both category and subcategory stages
+-                const float requiredConfidence = (isCategoryStage || isSubCategoryStage) ? gSrMinCategoryConfidence : gSrMinCommandConfidence;
+-                const float cmdProb2 = (results->num > 1) ? results->prob[1] : 0.0f;
+-                const bool speechOk = (!gSrTargetRequireSpeech) || isCategoryStage || isSubCategoryStage || commandSpeechStarted || (fetchResult->vad_state == AFE_VAD_SPEECH);
+-                const bool acceptByGap = (!isCategoryStage && !isSubCategoryStage) && gSrGapAcceptEnabled && speechOk && (cmdProb >= gSrGapAcceptFloor) && ((cmdProb - cmdProb2) >= gSrGapAcceptGap);
+-                const bool accepted = (cmdProb >= requiredConfidence) || acceptByGap;
+-                INFO_SRF("=== VOICE COMMAND CANDIDATES ===");
+-                INFO_SRF("  #1: id=%d '%s' prob=%.1f%% %s", 
+-                         cmdId, cmdPhrase ? cmdPhrase : "?", cmdProb * 100.0f,
+-                         accepted ? "<-- SELECTED" : "<-- REJECTED");
+-                
+-                // Always show all candidates so user can see what was considered
+-                for (int i = 1; i < results->num && i < ESP_MN_RESULT_MAX_NUM; ++i) {
+-                  // Look up the phrase for this command ID
+-                  char* altPhraseStr = esp_mn_commands_get_string(results->command_id[i]);
+-                  INFO_SRF("  #%d: id=%d '%s' prob=%.1f%%", 
+-                           i + 1, results->command_id[i], altPhraseStr, results->prob[i] * 100.0f);
+-                }
+-                INFO_SRF("================================");
+-                
+-                if (!accepted) {
+-                  gSrLowConfidenceRejects++;
+-                  WARN_SRF("Rejected command: id=%d prob=%.3f (need>=%.2f or gap floor=%.2f gap=%.2f) (rejects=%lu)",
+-                               cmdId, cmdProb, requiredConfidence, gSrGapAcceptFloor, gSrGapAcceptGap, (unsigned long)gSrLowConfidenceRejects);
+-                  if (isCategoryStage) {
+-                    broadcastOutput(String("[Voice] I heard '") + normalizePhrase(cmdPhraseCopy) + "'... can you say it again?");
+-                  } else {
+-                    broadcastOutput("[Voice] Sorry, can you repeat that?");
+-                  }
+-
+-                  gMNModel->clean(gMNData);
+-                  commandTimeoutMs = millis() + gSettings.srCommandTimeout;
+-                  if (gSrSnipSessionActive) {
+-                    srSnipEndSession(true);
+-                  }
+-                } else {
+-                  if (acceptByGap && cmdProb < requiredConfidence) {
+-                    gSrGapAccepts++;
+-                  }
+-                  gCommandCount++;
+-                  gLastCommand = cmdPhrase ? cmdPhrase : String(cmdId);
+-                  gLastConfidence = cmdProb;
+-                  
+-                  if (gSrSnipSessionActive) {
+-                    gSrSnipSessionCmdId = cmdId;
+-                    strncpy(gSrSnipSessionPhrase, cmdPhrase ? cmdPhrase : "", sizeof(gSrSnipSessionPhrase) - 1);
+-                    srSnipEndSession(true);
+-                  }
+-                  // Reset MultiNet state to prevent stale detection on next wake
+-                  gMNModel->clean(gMNData);
+-
+-                  if (gCommandCallback) {
+-                    unlockMN();
+-                    mnLocked = false;
+-                    gCommandCallback(cmdId, cmdPhraseCopy[0] ? cmdPhraseCopy : nullptr);
+-
+-                    // Continue listening if we're in a multi-stage state
+-                    if (gVoiceState == VoiceState::AWAIT_SUBCATEGORY || gVoiceState == VoiceState::AWAIT_TARGET) {
+-                      listeningForCommand = true;
+-                      gESPSRWakeDetected = true;
+-                      commandSpeechStarted = false;
+-                      commandTimeoutMs = millis() + gSettings.srCommandTimeout;
+-                    } else {
+-                      listeningForCommand = false;
+-                      gESPSRWakeDetected = false;
+-                    }
+-                  } else {
+-                    listeningForCommand = false;
+-                    gESPSRWakeDetected = false;
+-                  }
++            } else {
++              if (acceptByGap && cmdProb < requiredConfidence) {
++                gSrGapAccepts++;
++              }
++              gLastCommand = cmdPhrase ? cmdPhrase : String(cmdId);
++              gLastConfidence = cmdProb;
++
++              {
++                SRSnipGuard guard;
++                if (guard && gSrSnipSessionActive) {
++                  gSrSnipSessionCmdId = cmdId;
++                  strlcpy(gSrSnipSessionPhrase, cmdPhrase ? cmdPhrase : "", sizeof(gSrSnipSessionPhrase));
++                  srSnipEndSession(true);
+                 }
+               }
+-            } else if (mnState == ESP_MN_STATE_TIMEOUT) {
+-              SR_DBG_L(1, "MN state timeout");
++              // Reset MultiNet state to prevent stale detection on next wake
+               gMNModel->clean(gMNData);
+-              
+-              // Reset hierarchical state on MN timeout
+-              if (gVoiceState == VoiceState::AWAIT_SUBCATEGORY || gVoiceState == VoiceState::AWAIT_TARGET) {
+-                INFO_SRF("[HIER] MN timeout in %s stage - returning to idle", 
+-                         gVoiceState == VoiceState::AWAIT_SUBCATEGORY ? "subcategory" : "target");
+-                // Release lock before loadCategories to avoid deadlock
++
++              if (gCommandCallback) {
+                 unlockMN();
+                 mnLocked = false;
+-                loadCategories();
+-              }
+-              gVoiceState = VoiceState::IDLE;
+-              gCurrentCategory = "";
+-              gCurrentSubCategory = "";
+-              
+-              listeningForCommand = false;
+-              gESPSRWakeDetected = false;
+-              if (gSrSnipSessionActive) {
+-                srSnipEndSession(true);
++                gCommandCallback(cmdId, cmdPhraseCopy[0] ? cmdPhraseCopy : nullptr);
++
++                // Continue listening if we're in a multi-stage state
++                if (gVoiceState == VoiceState::AWAIT_SUBCATEGORY || gVoiceState == VoiceState::AWAIT_TARGET) {
++                  listeningForCommand = true;
++                  gESPSRWakeDetected = true;
++                  commandSpeechStarted = false;
++                  commandTimeoutMs = millis() + gSettings.srCommandTimeout;
++                } else {
++                  listeningForCommand = false;
++                  gESPSRWakeDetected = false;
++                }
++              } else {
++                listeningForCommand = false;
++                gESPSRWakeDetected = false;
+               }
+             }
+-            if (mnLocked) {
+-              unlockMN();
+-            }
+           }
++        } else if (mnState == ESP_MN_STATE_TIMEOUT) {
++          SR_DBG_L(1, "MN state timeout");
++          gMNModel->clean(gMNData);
++
++          // Reset hierarchical state on MN timeout
++          if (gVoiceState == VoiceState::AWAIT_SUBCATEGORY || gVoiceState == VoiceState::AWAIT_TARGET) {
++            INFO_SRF("[HIER] MN timeout in %s stage - returning to idle",
++                     gVoiceState == VoiceState::AWAIT_SUBCATEGORY ? "subcategory" : "target");
++            // Release lock before loadCategories to avoid deadlock
++            unlockMN();
++            mnLocked = false;
++            if (!loadCategories()) voiceTableLoadFailed();
++          }
++          gVoiceState = VoiceState::IDLE;
++          gCurrentCategory = "";
++          gCurrentSubCategory = "";
++
++          listeningForCommand = false;
++          gESPSRWakeDetected = false;
++          if (gSrSnipSessionActive) {
++            srSnipEndSession(true);
++          }
++        }
++        if (mnLocked) {
++          unlockMN();
+         }
+       }
+     }
+-    
+-    vTaskDelay(pdMS_TO_TICKS(1));
+   }
+-  
+-  if (gSrSnipSessionActive) {
+-    srSnipEndSession(false);
+-  }
+-  
+-  free(i2sReadBuf);
+-  free(afeFeedBuf);
+-  free(ringBuf);
+-  free(mnInputBuf);
+-  INFO_SRF("SR task stopped (loops=%u)", (unsigned)loopCount);
++  srSnipEndSession(false);
++  gSRStackHwm.store(uxTaskGetStackHighWaterMark(nullptr), std::memory_order_relaxed);
++  gSRTaskExited.store(true, std::memory_order_release);
+   vTaskDelete(nullptr);
+ }
+@@ -2643,8 +2763,15 @@ static void srTask(void* param) {
+ 
+ void initESPSR() {
+-  if (gESPSRInitialized) return;
+-  
++  ensureSRMutex(gSRLifecycleMutex);
++  ensureSRMutex(gSRSnipMutex, true);
++  ensureVoiceArmMutex();
++  if (!gSRLifecycleMutex || !gSRSnipMutex || !gVoiceArmMutex) {
++    srSetError("Failed to allocate speech synchronization primitives");
++    return;
++  }
++  SRLifecycleGuard guard;
++  if (!guard || gESPSRInitialized) return;
+   INFO_SRF("Initializing ESP-SR...");
+-  
++
+   // Create ESP-SR Models folder for custom model storage
+   // Try SD card first, fall back to LittleFS if SD not available
+@@ -2672,139 +2799,153 @@ void initESPSR() {
+ }
+ 
++static bool srWaitForWorker(const std::atomic<bool>& exited, uint32_t timeoutMs) {
++  const uint32_t started = millis();
++  while (!exited.load(std::memory_order_acquire)) {
++    if (millis() - started >= timeoutMs) return false;
++    vTaskDelay(pdMS_TO_TICKS(10));
++  }
++  return true;
++}
++
++// Caller holds lifecycle mutex. AFE fetch stays alive until feed has stopped,
++// so a feeder blocked on AFE backpressure can finish during shutdown.
++static bool stopESPSRLocked() {
++  gESPSRRunning.store(false, std::memory_order_release);
++  gSRFeedShouldRun.store(false, std::memory_order_release);
++  if (!srWaitForWorker(gSRFeedExited, 5000)) {
++    srSetError("Speech feeder is still stopping; resources retained, retry stop");
++    return false;
++  }
++  gSRTaskShouldRun.store(false, std::memory_order_release);
++  if (!srWaitForWorker(gSRTaskExited, 5000)) {
++    srSetError("Speech detector is still stopping; resources retained, retry stop");
++    return false;
++  }
++  gSRFeedTaskHandle = nullptr;
++  gSRTaskHandle = nullptr;
++  if (!deinitMultiNet()) return false;
++  deinitAFE();
++  deinitSRModels();
++  free(gSRFeedBuffer);
++  free(gSRMNBuffer);
++  gSRFeedBuffer = gSRMNBuffer = nullptr;
++  gSRFeedSamples = gSRFetchSamples = 0;
++  deinitI2SMicrophone();
++  gWnModelName[0] = gMnModelName[0] = '\0';
++  gESPSRWakeDetected = false;
++  gVoiceState = VoiceState::IDLE;
++  gCurrentCategory = "";
++  gCurrentSubCategory = "";
++  restoreMicrophoneAfterSRIfNeeded();
++  return true;
++}
++
++static void prepareSRAudioProcessing() {
++  // SR claims the HAL directly, so it must restore the saved gain that the
++  // microphone sensor would normally apply in initMicrophone().
++  if (gSettings.microphoneGain >= 0 && gSettings.microphoneGain <= 100) {
++    micGain = gSettings.microphoneGain;
++  }
++  resetMicAudioProcessingState();
++}
++
+ bool startESPSR() {
+-  WARN_SYSTEMF("[SR_START] ########## startESPSR() BEGIN ##########");
+-  WARN_SYSTEMF("[SR_START] Heap: free=%u, PSRAM_free=%u", 
+-               (unsigned)esp_get_free_heap_size(), 
+-               (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+-  
+   initESPSR();
+-  if (gESPSRRunning) {
+-    WARN_SYSTEMF("[SR_START] Already running, returning true");
+-    return true;
++  SRLifecycleGuard guard;
++  if (!guard) return false;
++  if (gESPSRRunning.load(std::memory_order_acquire)) return true;
++  if (gSRTaskHandle || gSRFeedTaskHandle || gAFEData || gSRModels) {
++    srSetError("Previous speech pipeline needs a completed stop before restart");
++    return false;
+   }
+-  
+-  INFO_SRF("Starting ESP-SR pipeline...");
+-
++  gSRError.store(nullptr, std::memory_order_release);
+ #if ENABLE_MICROPHONE
+-  WARN_SYSTEMF("[SR_START] Checking microphone sensor: gMicRunning=%d recState=%s",
+-               gMicRunning ? 1 : 0,
+-               micRecordingStateName(getMicRecordingState()));
+   if (gMicRunning || micRecordingBusy()) {
+-    // Restore only a source that was actually enabled. A source-loss callback
+-    // can leave gMicRunning=false while its WAV is still FINALIZING; that case
+-    // must still be joined before SR claims HAL_Audio, but should not be
+-    // resurrected after SR exits.
+     gRestoreMicAfterSR = gMicRunning;
+-    INFO_SRF("Microphone sensor/recorder is busy; draining it to start SR");
+     if (!stopMicrophone()) {
+-      ERROR_SRF("Microphone recorder did not reach IDLE; refusing SR start");
+       gRestoreMicAfterSR = false;
++      srSetError("Microphone recorder did not reach idle");
+       return false;
+     }
+-    vTaskDelay(pdMS_TO_TICKS(20));
+   }
+ #endif
+-  
+-  // Initialize components in order
+-  WARN_SYSTEMF("[SR_START] Step 1: initI2SMicrophone()");
+-  if (!initI2SMicrophone()) {
+-    ERROR_SRF("Failed to init I2S microphone");
+-    restoreMicrophoneAfterSRIfNeeded();
++  if (!initI2SMicrophone() || !initAFE() || !initMultiNet()) {
++    if (!gSRError.load()) srSetError("Failed to claim microphone for speech");
++    stopESPSRLocked();
+     return false;
+   }
+-  WARN_SYSTEMF("[SR_START] Step 1 COMPLETE");
+-  
+-  WARN_SYSTEMF("[SR_START] Step 2: initAFE()");
+-  if (!initAFE()) {
+-    ERROR_SRF("Failed to init AFE");
+-    deinitI2SMicrophone();
+-    restoreMicrophoneAfterSRIfNeeded();
++  const int feed = gAFE->get_feed_chunksize(gAFEData);
++  const int fetch = gAFE->get_fetch_chunksize(gAFEData);
++  const int mn = gMNModel->get_samp_chunksize(gMNData);
++  if (feed <= 0 || feed > 4096 || fetch <= 0 || fetch > 4096 || fetch != mn ||
++      gAFE->get_samp_rate(gAFEData) != I2S_SR_SAMPLE_RATE ||
++      gAFE->get_feed_channel_num(gAFEData) != 1 ||
++      gAFE->get_fetch_channel_num(gAFEData) != 1 ||
++      gMNModel->get_samp_rate(gMNData) != I2S_SR_SAMPLE_RATE || !gAFE->fetch_with_delay) {
++    srSetError("Speech models require incompatible PCM rate, channels, or frame sizes");
++    stopESPSRLocked();
+     return false;
+   }
+-  WARN_SYSTEMF("[SR_START] Step 2 COMPLETE");
+-  
+-  WARN_SYSTEMF("[SR_START] Step 3: initMultiNet()");
+-  if (!initMultiNet()) {
+-    WARN_SRF("MultiNet init failed, continuing without command recognition");
+-  }
+-  WARN_SYSTEMF("[SR_START] Step 3 COMPLETE");
+-  
+-  // Start SR task
+-  WARN_SYSTEMF("[SR_START] Step 4: Creating srTask (stack=%u, priority=%d, core=1)",
+-               (unsigned)SR_STACK_WORDS, (int)SR_TASK_PRIORITY_LEVEL);
+-  gSRTaskShouldRun = true;
+-  taskStackRecord("sr_task", SR_STACK_WORDS);
+-  BaseType_t ret = xTaskCreatePinnedToCore(
+-    srTask,
+-    "sr_task",
+-    SR_STACK_WORDS,
+-    nullptr,
+-    SR_TASK_PRIORITY_LEVEL,
+-    &gSRTaskHandle,
+-    1  // Run on core 1
+-  );
+-  WARN_SYSTEMF("[SR_START] xTaskCreatePinnedToCore returned: %d (pdPASS=%d)", (int)ret, (int)pdPASS);
+-  
+-  if (ret != pdPASS) {
+-    ERROR_SRF("Failed to create SR task");
+-    deinitMultiNet();
+-    deinitAFE();
+-    deinitI2SMicrophone();
+-    restoreMicrophoneAfterSRIfNeeded();
++  gSRFeedSamples = feed;
++  gSRFetchSamples = fetch;
++  gSrAfeFeedChunk = feed;
++  gSrAfeFetchChunk = fetch;
++  gSRFeedBuffer = static_cast<int16_t*>(ps_alloc(feed * sizeof(int16_t), AllocPref::PreferPSRAM, "sr.afe.feed"));
++  gSRMNBuffer = static_cast<int16_t*>(ps_alloc(fetch * sizeof(int16_t), AllocPref::PreferPSRAM, "sr.mn.input"));
++  if (!gSRFeedBuffer || !gSRMNBuffer) {
++    srSetError("Failed to allocate speech PCM buffers");
++    stopESPSRLocked();
+     return false;
+   }
+-  
+-  gESPSRRunning = true;
+-  
+-  // Reset audio preprocessing state (shared with microphone module)
+-  resetMicAudioProcessingState();
+-  
+-  // Auto-sync voice commands from registry (hierarchical categories)
+-  INFO_SRF("[SR_START] ========================================");
+-  INFO_SRF("[SR_START] Step 5: Auto-syncing voice commands");
+-  INFO_SRF("[SR_START] ========================================");
+-  INFO_SRF("[HIER-DEBUG] Initializing hierarchical voice state machine...");
+-  INFO_SRF("[HIER-DEBUG] Setting state to IDLE");
++  // Configure command tables, callbacks and DSP before either worker can run.
++  prepareSRAudioProcessing();
++  gSrDynGainCurrent = 1.0f;
+   gVoiceState = VoiceState::IDLE;
+   gCurrentCategory = "";
+-  INFO_SRF("[HIER-DEBUG] Calling loadCategories()...");
+-  loadCategories();
+-  INFO_SRF("[HIER-DEBUG] Registering onVoiceCommandDetected callback...");
++  gCurrentSubCategory = "";
++  if (!loadCategories()) {
++    srSetError("Speech command table could not be loaded");
++    stopESPSRLocked();
++    return false;
++  }
+   setESPSRCommandCallback(onVoiceCommandDetected);
+-  INFO_SRF("[SR_START] Step 5 COMPLETE - Voice commands auto-synced");
+-  INFO_SRF("[HIER-DEBUG] Initial state: %s, mappings: %u", voiceStateToString(gVoiceState), (unsigned)gVoiceCliMappingCount);
+-  
+-  WARN_SYSTEMF("[SR_START] ########## startESPSR() SUCCESS ##########");
+-  INFO_SRF("ESP-SR pipeline started successfully");
++  gSRTaskShouldRun.store(true, std::memory_order_release);
++  gSRTaskExited.store(false, std::memory_order_release);
++  taskStackRecord("sr_task", SR_STACK_WORDS);
++  if (xTaskCreatePinnedToCore(srTask, "sr_task", SR_STACK_WORDS, nullptr,
++      SR_TASK_PRIORITY_LEVEL, &gSRTaskHandle, 1) != pdPASS) {
++    gSRTaskExited.store(true, std::memory_order_release);
++    srSetError("Failed to create speech detection task");
++    stopESPSRLocked();
++    return false;
++  }
++  gSRFeedShouldRun.store(true, std::memory_order_release);
++  gSRFeedExited.store(false, std::memory_order_release);
++  taskStackRecord("sr_feed", SR_STACK_WORDS);
++  if (xTaskCreatePinnedToCore(srFeedTask, "sr_feed", SR_STACK_WORDS, nullptr,
++      SR_TASK_PRIORITY_LEVEL, &gSRFeedTaskHandle, 1) != pdPASS) {
++    gSRFeedExited.store(true, std::memory_order_release);
++    srSetError("Failed to create speech capture task");
++    stopESPSRLocked();
++    return false;
++  }
++  gESPSRRunning.store(true, std::memory_order_release);
++  if (gSRError.load(std::memory_order_acquire)) {
++    stopESPSRLocked();
++    return false;
++  }
++  INFO_SRF("Speech pipeline started: %s / %s (%s)", gWnModelName, gMnModelName, gSRModelSource);
+   return true;
+ }
+ 
+-void stopESPSR() {
+-  if (!gESPSRRunning) return;
+-  
+-  INFO_SRF("Stopping ESP-SR pipeline...");
+-  
+-  // Stop task
+-  gSRTaskShouldRun = false;
+-  if (gSRTaskHandle) {
+-    vTaskDelay(pdMS_TO_TICKS(200));  // Wait for task to stop
+-    gSRTaskHandle = nullptr;
+-  }
+-  
+-  // Deinit components in reverse order
+-  deinitMultiNet();
+-  deinitAFE();
+-  deinitI2SMicrophone();
+-
+-  // Clear the resolved model names so the web status card stops showing
+-  // them once SR has been torn down.
+-  gWnModelName[0] = '\0';
+-  gMnModelName[0] = '\0';
+-
+-  restoreMicrophoneAfterSRIfNeeded();
+-
+-  gESPSRRunning = false;
+-  gESPSRWakeDetected = false;
+-  INFO_SRF("ESP-SR pipeline stopped");
++bool stopESPSR() {
++  initESPSR();
++  SRLifecycleGuard guard;
++  if (!guard) return false;
++  // Invalidate queued recognition before waiting for either worker.
++  if (!gVoiceArmMutex || xSemaphoreTake(gVoiceArmMutex, pdMS_TO_TICKS(200)) != pdTRUE) return false;
++  voiceDisarmInternal();
++  xSemaphoreGive(gVoiceArmMutex);
++  return stopESPSRLocked();
+ }
+ 
+@@ -2829,5 +2970,9 @@ void buildESPSRStatusJson(String& output) {
+   doc["enabled"] = true;
+   doc["initialized"] = gESPSRInitialized;
+-  doc["running"] = gESPSRRunning;
++  doc["running"] = gESPSRRunning.load();
++  doc["stopping"] = !gESPSRRunning.load() && (gSRTaskHandle || gSRFeedTaskHandle || gAFEData);
++  doc["lastError"] = gSRError.load() ? gSRError.load() : "";
++  doc["modelSource"] = gSRModelSource;
++  doc["modelBytes"] = gSRModelBytes;
+   doc["wakeActive"] = gESPSRWakeDetected;
+   doc["state"] = getESPSRVoiceState();
+@@ -2835,5 +2980,5 @@ void buildESPSRStatusJson(String& output) {
+   doc["subcategory"] = gCurrentSubCategory;
+   doc["wakeCount"] = gWakeWordCount;
+-  doc["commandCount"] = gCommandCount;
++  doc["commandCount"] = gCommandCount.load();
+   doc["lastWakeMs"] = gLastWakeMs;
+   doc["lastCommand"] = gLastCommand;
+@@ -2857,15 +3002,14 @@ void buildESPSRStatusJson(String& output) {
+   doc["vadState"] = gSrLastVadState;
+   doc["micgain"] = gSettings.microphoneGain;
+-  // Stack: FreeRTOS high-water mark = minimum *unused* stack left (in words).
+-  // Peak depth estimate ≈ allocWords - hwmWords (upper bound since last reset).
+-  doc["srTaskStackAllocWords"] = SR_STACK_WORDS;
+-  doc["srTaskStackAllocBytes"] = (uint32_t)SR_STACK_WORDS * 4u;
++  // ESP-IDF task stack depths and high-water marks are bytes, unlike vanilla
++  // FreeRTOS. Preserve the legacy Words fields as derived 32-bit word counts.
++  doc["srTaskStackAllocWords"] = (uint32_t)SR_STACK_WORDS / sizeof(uint32_t);
++  doc["srTaskStackAllocBytes"] = (uint32_t)SR_STACK_WORDS;
+   if (gESPSRRunning && gSRTaskHandle) {
+-    const UBaseType_t hwm = uxTaskGetStackHighWaterMark(gSRTaskHandle);
+-    doc["srTaskStackHwmWords"] = (uint32_t)hwm;
+-    doc["srTaskStackHwmBytes"] = (uint32_t)hwm * 4u;
+-    const uint32_t usedWords =
+-        (SR_STACK_WORDS > hwm) ? (uint32_t)(SR_STACK_WORDS - hwm) : 0u;
+-    doc["srTaskStackPeakUsedBytesEst"] = usedWords * 4u;
++    const uint32_t hwmBytes = gSRStackHwm.load(std::memory_order_relaxed);
++    doc["srTaskStackHwmWords"] = hwmBytes / sizeof(uint32_t);
++    doc["srTaskStackHwmBytes"] = hwmBytes;
++    doc["srTaskStackPeakUsedBytesEst"] =
++        (SR_STACK_WORDS > hwmBytes) ? (uint32_t)(SR_STACK_WORDS - hwmBytes) : 0u;
+   } else {
+     doc["srTaskStackHwmWords"] = 0;
+@@ -2901,5 +3045,9 @@ const char* cmd_sr_start(const String& argsInput) {
+   }
+   bool ok = startESPSR();
+-  if (!ok) return "Error: failed to start";
++  if (!ok) {
++    static String error;
++    error = String("Error: ") + (gSRError.load() ? gSRError.load() : "speech lifecycle is busy");
++    return error.c_str();
++  }
+ 
+   ensureVoiceArmMutex();
+@@ -2908,6 +3056,4 @@ const char* cmd_sr_start(const String& argsInput) {
+     armed = voiceArmFromContextInternal(currentAuthContext());
+     xSemaphoreGive(gVoiceArmMutex);
+-  } else {
+-    armed = voiceArmFromContextInternal(currentAuthContext());
+   }
+ 
+@@ -2937,5 +3083,5 @@ const char* cmd_sr_stop(const String& argsInput) {
+   RETURN_VALID_IF_VALIDATE_CSTR();
+   (void)argsInput;
+-  stopESPSR();
++  if (!stopESPSR()) return "Error: speech stop incomplete; resources retained, retry srstop";
+ 
+   ensureVoiceArmMutex();
+@@ -2944,5 +3090,5 @@ const char* cmd_sr_stop(const String& argsInput) {
+     xSemaphoreGive(gVoiceArmMutex);
+   } else {
+-    voiceDisarmInternal();
++    return "Error: voice authority busy; retry";
+   }
+   broadcastOutput("[VOICE] Disarmed (sr stopped)");
+@@ -2958,6 +3104,4 @@ static const char* cmd_voice_arm_cli(const String& argsInput) {
+     armed = voiceArmFromContextInternal(currentAuthContext());
+     xSemaphoreGive(gVoiceArmMutex);
+-  } else {
+-    armed = voiceArmFromContextInternal(currentAuthContext());
+   }
+   if (!armed) return "Error: cannot arm voice from this transport/user";
+@@ -2977,5 +3121,5 @@ static const char* cmd_voice_disarm_cli(const String& argsInput) {
+     xSemaphoreGive(gVoiceArmMutex);
+   } else {
+-    voiceDisarmInternal();
++    return "Error: voice authority busy; retry";
+   }
+   broadcastOutput("[VOICE] Disarmed");
+@@ -3028,14 +3172,14 @@ static const char* cmd_sr_stack(const String& argsInput) {
+     return "Error: sr_task: not running — use srstart first";
+   }
+-  const UBaseType_t hwm = uxTaskGetStackHighWaterMark(gSRTaskHandle);
+-  const uint32_t allocB = (uint32_t)SR_STACK_WORDS * 4u;
+-  const uint32_t freeB = (uint32_t)hwm * 4u;
++  const UBaseType_t hwm = gSRStackHwm.load(std::memory_order_relaxed);
++  const uint32_t allocB = (uint32_t)SR_STACK_WORDS;
++  const uint32_t freeB = (uint32_t)hwm;
+   const uint32_t usedEst =
+-      (SR_STACK_WORDS > hwm) ? (uint32_t)(SR_STACK_WORDS - hwm) * 4u : 0u;
++      (SR_STACK_WORDS > hwm) ? (uint32_t)(SR_STACK_WORDS - hwm) : 0u;
+   snprintf(buf, sizeof(buf),
+-           "sr_task: alloc=%uB est_peak_used=%uB hwm_free=%uB (%u words free). "
++           "sr_task: alloc=%uB est_peak_used=%uB hwm_free=%uB. "
+            "Shrink SR_STACK_WORDS in System_TaskUtils.h only if hwm_free stays "
+            ">= ~25%% of alloc after your worst-case voice test.",
+-           (unsigned)allocB, (unsigned)usedEst, (unsigned)freeB, (unsigned)hwm);
++           (unsigned)allocB, (unsigned)usedEst, (unsigned)freeB);
+   return buf;
+ }
+@@ -3109,5 +3253,5 @@ static const char* cmd_sr_cmds_add(const String& argsInput) {
+   if (!isAllDigits(idStr) || phrase.length() == 0) return "Error: invalid arguments — Usage: sr cmds add <id> <phrase>";
+   int id = a.argInt(0, 0);
+-  if (id <= 0) return "Error: id must be > 0";
++  if (id <= 0 || id > kSRMaxCommandId) return "Error: id must be 1-1023";
+ 
+   if (!mnCommandsReady()) {
+@@ -3119,7 +3263,7 @@ static const char* cmd_sr_cmds_add(const String& argsInput) {
+ 
+   esp_err_t err = esp_mn_commands_add(id, phrase.c_str());
+-  esp_mn_error_t* errList = nullptr;
++  bool updated = true;
+   if (err == ESP_OK) {
+-    errList = mnUpdateLocked();
++    updated = mnUpdateLocked();
+   }
+   unlockMN();
+@@ -3128,5 +3272,5 @@ static const char* cmd_sr_cmds_add(const String& argsInput) {
+     return "Error: failed to add command";
+   }
+-  if (errList && errList->num > 0) {
++  if (!updated) {
+     return "Error: MultiNet rejected one or more commands";
+   }
+@@ -3161,9 +3305,9 @@ static const char* cmd_sr_cmds_del(const String& argsInput) {
+ 
+   esp_err_t err = ESP_ERR_INVALID_STATE;
+-  esp_mn_error_t* errList = nullptr;
++  bool updated = true;
+   if (phrase && strlen(phrase) > 0) {
+     err = esp_mn_commands_remove(phrase);
+     if (err == ESP_OK) {
+-      errList = mnUpdateLocked();
++      updated = mnUpdateLocked();
+     }
+   }
+@@ -3173,5 +3317,5 @@ static const char* cmd_sr_cmds_del(const String& argsInput) {
+     return "Error: command not found";
+   }
+-  if (errList && errList->num > 0) {
++  if (!updated) {
+     return "Error: MultiNet rejected one or more commands";
+   }
+@@ -3193,12 +3337,12 @@ static const char* cmd_sr_cmds_clear(const String& argsInput) {
+ 
+   esp_err_t err = esp_mn_commands_clear();
+-  esp_mn_error_t* errList = nullptr;
++  bool updated = true;
+   if (err == ESP_OK) {
+-    errList = mnUpdateLocked();
++    updated = mnUpdateLocked();
+   }
+   unlockMN();
+ 
+   if (err != ESP_OK) return "Error: failed";
+-  if (errList && errList->num > 0) return "Error: MultiNet rejected one or more commands";
++  if (!updated) return "Error: MultiNet rejected one or more commands";
+   return "OK";
+ }
+@@ -3223,9 +3367,9 @@ static const char* cmd_sr_cmds_reload(const String& argsInput) {
+   bool ok = loadCommandsFileLocked(added, parseErrors);
+   if (ok && parseErrors == 0) gMnTableTrusted = true;
+-  esp_mn_error_t* errList = mnUpdateLocked();
++  const bool updated = mnUpdateLocked();
+   unlockMN();
+ 
+   if (!ok) return "Error: failed to read commands file (is SD mounted?)";
+-  if ((errList && errList->num > 0) || parseErrors > 0) {
++  if (!updated || parseErrors > 0) {
+     return "Error: some commands could not be loaded";
+   }
+@@ -3270,5 +3414,8 @@ static const char* cmd_sr_cmds_sync(const String& argsInput) {
+   
+   // Load categories using the hierarchical helper
+-  loadCategories();
++  if (!loadCategories()) {
++    voiceTableLoadFailed();
++    return "Error: failed to sync voice command table";
++  }
+   
+   // Register the command callback to execute CLI commands
+@@ -3281,9 +3428,9 @@ static const char* cmd_sr_cmds_sync(const String& argsInput) {
+       esp_mn_phrase_t* phrase = esp_mn_commands_get_from_index(i);
+       if (!phrase) break;
+-      added++;
++      if (phrase->command_id < GLOBAL_VOICE_CMD_ID_START) added++;
+     }
+     unlockMN();
+   }
+-  
++
+   static char buf[128];
+   snprintf(buf, sizeof(buf), "OK (synced %u voice categories from registry)", (unsigned)added);
+@@ -3365,5 +3512,5 @@ static const char* cmd_sr_confidence(const String& argsInput) {
+ 
+   if (a.count() == 0) {
+-    static char buf[96];
++    static char buf[256];
+     snprintf(buf, sizeof(buf),
+              "Category confidence threshold: %.2f\nTarget confidence threshold: %.2f (rejects: %lu)\nUsage: sr confidence [<0.0-1.0> | category <0.0-1.0> | target <0.0-1.0>]",
+@@ -3796,5 +3943,5 @@ static const char* cmd_sr_tuning_vad(const String& argsInput) {
+   if (args.length() == 0) {
+     static char buf[100];
+-    snprintf(buf, sizeof(buf), "VAD mode: %d (0-4, higher=more sensitive)\nUsage: sr tuning vad <0-4>", gSettings.srVadMode);
++    snprintf(buf, sizeof(buf), "VAD mode: %d (0-4, higher=more restrictive)\nUsage: sr tuning vad <0-4>", gSettings.srVadMode);
+     return buf;
+   }
+@@ -3807,5 +3954,5 @@ static const char* cmd_sr_tuning_vad(const String& argsInput) {
+   setSetting(gSettings.srVadMode, val);
+   static char buf[80];
+-  snprintf(buf, sizeof(buf), "VAD sensitivity set to %d. Restart SR to apply.", val);
++  snprintf(buf, sizeof(buf), "VAD mode set to %d (higher rejects more noise). Restart SR to apply.", val);
+   return buf;
+ }
+diff --git a/components/hardwareone/System_ESPSR.h b/components/hardwareone/System_ESPSR.h
+index d44362e..aa30238 100644
+--- a/components/hardwareone/System_ESPSR.h
++++ b/components/hardwareone/System_ESPSR.h
+@@ -16,5 +16,6 @@
+ void initESPSR();
+ bool startESPSR();
+-void stopESPSR();
++// False means a worker is still stopping; its resources remain owned for retry.
++bool stopESPSR();
+ bool isESPSRRunning();
+ bool isESPSRWakeActive();
+diff --git a/components/hardwareone/System_ESPSRModelPack.h b/components/hardwareone/System_ESPSRModelPack.h
+new file mode 100644
+index 0000000..3c8dba6
+--- /dev/null
++++ b/components/hardwareone/System_ESPSRModelPack.h
+@@ -0,0 +1,96 @@
++#pragma once
++
++#include <stddef.h>
++#include <stdint.h>
++#include <string.h>
++
++// ESP-SR 2.5.5's srmodel_load() takes no length and trusts packed offsets.
++// Validate file metadata before calling it. This is structural validation, not
++// authentication or validation of the neural-network coefficients themselves.
++namespace ESPSRModelPack {
++constexpr size_t kMaxFileBytes = 16u * 1024u * 1024u;
++constexpr uint32_t kMaxModels = 16;
++constexpr uint32_t kMaxFilesPerModel = 32;
++
++inline uint32_t u32(const uint8_t* p) {
++  return uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
++         (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
++}
++inline bool reject(const char** error, const char* message) {
++  if (error) *error = message;
++  return false;
++}
++inline bool nameValid(const uint8_t* name) {
++  return name[0] != 0 && memchr(name, 0, 32) != nullptr;
++}
++
++inline bool validate(const void* buffer, size_t bytes, const char** error = nullptr) {
++  if (error) *error = nullptr;
++  if (!buffer || bytes < 4 || bytes > kMaxFileBytes)
++    return reject(error, "model bundle size is invalid");
++  const auto* data = static_cast<const uint8_t*>(buffer);
++  const uint32_t models = u32(data);
++  if (!models || models > kMaxModels)
++    return reject(error, "model count is invalid");
++  size_t cursor = 4;
++  size_t modelNames[kMaxModels]{};
++  // Pass one: prove all table reads are bounded before examining payloads.
++  for (uint32_t m = 0; m < models; ++m) {
++    if (bytes - cursor < 36)
++      return reject(error, "model table is truncated");
++    if (!nameValid(data + cursor))
++      return reject(error, "model name is empty or unterminated");
++    for (uint32_t prior = 0; prior < m; ++prior)
++      if (strcmp(reinterpret_cast<const char*>(data + cursor),
++                 reinterpret_cast<const char*>(data + modelNames[prior])) == 0)
++        return reject(error, "duplicate model name");
++    modelNames[m] = cursor;
++    const uint32_t files = u32(data + cursor + 32);
++    cursor += 36;
++    if (!files || files > kMaxFilesPerModel)
++      return reject(error, "model file count is invalid");
++    if (files > (bytes - cursor) / 40)
++      return reject(error, "file table is truncated");
++    bool hasInfo = false;
++    for (uint32_t f = 0; f < files; ++f) {
++      const size_t at = cursor + size_t(f) * 40;
++      if (!nameValid(data + at))
++        return reject(error, "file name is empty or unterminated");
++      const char* name = reinterpret_cast<const char*>(data + at);
++      for (uint32_t prior = 0; prior < f; ++prior)
++        if (strcmp(name, reinterpret_cast<const char*>(data + cursor + size_t(prior) * 40)) == 0)
++          return reject(error, "duplicate model file name");
++      if (strcmp(name, "_MODEL_INFO_") == 0) hasInfo = true;
++      const uint32_t offset = u32(data + at + 32);
++      const uint32_t length = u32(data + at + 36);
++      // Vendor uses signed int for both fields. The bundle cap also bounds
++      // its allocations and leaves get_model_info(size + 1) representable.
++      if (!length || offset > bytes || length > bytes - offset)
++        return reject(error, "model payload is outside the bundle");
++    }
++    // The auxiliary FST table is packed as a model but has no metadata file.
++    if (!hasInfo && strcmp(reinterpret_cast<const char*>(data + modelNames[m]), "fst") != 0)
++      return reject(error, "model information is missing");
++    cursor += size_t(files) * 40;
++  }
++  const size_t headerEnd = cursor;
++  size_t payloadEnd = headerEnd;
++  cursor = 4;
++  // The official packer appends each payload in table order with no padding.
++  // Requiring that layout rejects header references, overlaps and hidden tails.
++  for (uint32_t m = 0; m < models; ++m) {
++    const uint32_t files = u32(data + cursor + 32);
++    cursor += 36;
++    for (uint32_t f = 0; f < files; ++f, cursor += 40) {
++      const uint32_t offset = u32(data + cursor + 32);
++      const uint32_t length = u32(data + cursor + 36);
++      if (offset != payloadEnd)
++        return reject(error, "model payload layout is inconsistent");
++      payloadEnd += length;  // Bounds established above; offset == payloadEnd.
++    }
++  }
++  if (payloadEnd != bytes)
++    return reject(error, "model bundle has trailing data");
++  return true;
++}
++}  // namespace ESPSRModelPack
+diff --git a/config/sdkconfig.defaults b/config/sdkconfig.defaults
+index 004b430..a4882d3 100644
+--- a/config/sdkconfig.defaults
++++ b/config/sdkconfig.defaults
+@@ -215,9 +215,8 @@ CONFIG_ESP_SPI_BUS_LOCK_ISR_FUNCS_IN_IRAM=y
+ CONFIG_MODEL_IN_FLASH=y
+ # CONFIG_MODEL_IN_SDCARD is not set
+-CONFIG_USE_AFE=y
+ CONFIG_AFE_INTERFACE_V1=y
+-CONFIG_USE_WAKENET=y
++CONFIG_SR_NSN_WEBRTC=y
++CONFIG_SR_VADN_WEBRTC=y
+ CONFIG_SR_WN_WN9_HILEXIN=y
+-CONFIG_USE_MULTINET=y
+ CONFIG_SR_MN_EN_MULTINET7_QUANT=y
+ # Chinese model: pick "None" explicitly. ESP-SR's kconfig has a `choice`

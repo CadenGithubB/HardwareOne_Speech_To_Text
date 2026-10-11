@@ -1,0 +1,546 @@
+--- a/components/hardwareone/System_Dictation.cpp
++++ b/components/hardwareone/System_Dictation.cpp
+@@ -12,6 +12,8 @@
+ #include "System_Debug.h"
+ #include "System_DictationPolicy.h"
+ #include "System_Microphone.h"
++#include "System_ESPSR.h"
++#include "System_STT.h"
+ #include "System_TaskUtils.h"
+ #include "System_UartLink.h"
+ #include "System_User.h"
+@@ -26,7 +28,7 @@
+ // This task owns every potentially blocking terminal operation: UART event
+ // framing, filesystem deletion, and source shutdown. Display and recorder tasks
+ // only publish fixed-size work under gDictMux and notify it.
+-static constexpr uint32_t kDictationWorkerStackBytes = 3072;
++static constexpr uint32_t kDictationWorkerStackBytes = ENABLE_LOCAL_STT ? 4096 : 3072;
+ static constexpr uint32_t kDictationWorkerRetryMs = 50;
+ 
+ struct DictationPublishedCapture {
+@@ -529,10 +531,225 @@
+   return clear;
+ }
+ 
++#if ENABLE_LOCAL_STT
++// A local exchange never enters the UART/WAV path. This slot survives UI
++// cancellation until a late begin/worker has acknowledged the exact token.
++struct LocalDictation {
++  uint64_t exchange = 0;
++  STTOwner actor;
++  STTToken token = 0;
++  bool beginPending = false;
++  bool beginInFlight = false;
++  bool stopRequested = false;
++  bool cancelled = false;
++};
++static LocalDictation gLocalDict;
++static bool gLocalReadyPending = false;
++static bool gLocalReadyKnown = false;
++static bool gLocalReady = false;
++static uint32_t gLocalReadyCheckedMs = 0;
++static bool dictationEnsureWorker();
++
++static void dictationRefreshLocalReady() {
++  bool due;
++  portENTER_CRITICAL(&gDictMux);
++  due = gLocalReadyPending;
++  gLocalReadyPending = false;
++  portEXIT_CRITICAL(&gDictMux);
++  if (!due) return;
++  char error[96] = {};
++  const bool ready = sttLocalAvailable(error, sizeof(error));
++  portENTER_CRITICAL(&gDictMux);
++  gLocalReady = ready;
++  gLocalReadyKnown = true;
++  gLocalReadyCheckedMs = millis();
++  portEXIT_CRITICAL(&gDictMux);
++}
++
++static bool dictationLocalAvailable(const char** whyNot) {
++  if (!dictationEnsureWorker()) {
++    if (whyNot) *whyNot = "local worker unavailable";
++    return false;
++  }
++  bool known, ready;
++  portENTER_CRITICAL(&gDictMux);
++  known = gLocalReadyKnown;
++  ready = gLocalReady;
++  if (!known || millis() - gLocalReadyCheckedMs >= 5000) gLocalReadyPending = true;
++  portEXIT_CRITICAL(&gDictMux);
++  dictationWakeWorker();
++  const char* why = nullptr;
++#if ENABLE_ESP_SR
++  if (isESPSRRunning() || audioCaptureOwnedBy("sr")) why = "run closesr first";
++#endif
++  if (!why && (gMicRunning || micRecordingBusy() || audioCaptureOwnedBy("mic")))
++    why = "run closemic first";
++  if (!why && audioCaptureBusy() && !audioCaptureOwnedBy("stt")) why = "microphone busy";
++  if (!why && !known) why = "checking local model";
++  if (!why && !ready) why = "local model unavailable";
++  if (whyNot) *whyNot = why;
++  return why == nullptr;
++}
++
++static bool dictationBeginLocal(CommandSource source, TransportSessionEpoch epoch) {
++  const char* why = nullptr;
++  if (!dictationAvailable(&why)) return false;
++  const uint32_t nonce = esp_random();
++  bool admitted = false;
++  portENTER_CRITICAL(&gDictMux);
++  if (!gLocalDict.exchange &&
++      (gDict.state == DictationState::IDLE || gDict.state == DictationState::FAILED) &&
++      !gDict.cleanupOwner && !gDict.micStopPending && !gDict.published.pending &&
++      !gDict.cancelEvent.pending) {
++    if (!gDictBootNonce) gDictBootNonce = nonce ? nonce : 1;
++    if (++gDictCounter == 0) ++gDictCounter;
++    const uint64_t id = (static_cast<uint64_t>(gDictBootNonce) << 32) | gDictCounter;
++    gLocalDict = LocalDictation{};
++    gLocalDict.exchange = id;
++    gLocalDict.actor = STTOwner{source, epoch};
++    gLocalDict.beginPending = true;
++    gDict.owner = id;
++    gDict.displaySource = source;
++    gDict.displayEpoch = epoch;
++    gDict.state = DictationState::RECORDING;
++    gDict.stateEnteredMs = millis();
++    gDict.textPending = false;
++    memset(gDict.text, 0, sizeof(gDict.text));
++    gDict.failure[0] = '\0';
++    gDict.weStartedMic = false;
++    gDict.requestHostEpoch = 0;
++    gDict.requestPushInFlight = gDict.requestWasPushed = false;
++    admitted = true;
++  }
++  portEXIT_CRITICAL(&gDictMux);
++  if (admitted) dictationWakeWorker();
++  return admitted;
++}
++
++static void dictationCancelLocal(CommandSource source, bool force) {
++  portENTER_CRITICAL(&gDictMux);
++  if (force || gDict.displaySource == source) {
++    if (gLocalDict.exchange) gLocalDict.cancelled = true;
++    gDict.owner = 0;
++    gDict.state = DictationState::IDLE;
++    gDict.stateEnteredMs = millis();
++    gDict.displaySource = SOURCE_INTERNAL;
++    gDict.displayEpoch = 0;
++    gDict.textPending = false;
++    memset(gDict.text, 0, sizeof(gDict.text));
++    gDict.failure[0] = '\0';
++  }
++  portEXIT_CRITICAL(&gDictMux);
++  dictationWakeWorker();
++}
++
++static void dictationProcessLocal() {
++  dictationRefreshLocalReady();
++  LocalDictation run;
++  portENTER_CRITICAL(&gDictMux);
++  run = gLocalDict;
++  if (run.beginPending) {
++    gLocalDict.beginPending = false;
++    gLocalDict.beginInFlight = true;
++  }
++  portEXIT_CRITICAL(&gDictMux);
++  if (!run.exchange) return;
++
++  if (run.beginPending) {
++    STTToken token = 0;
++    char error[96] = {};
++    const bool accepted = !run.cancelled &&
++        displaySessionStillLive(run.actor.source, run.actor.epoch) &&
++        sttBegin(run.actor, STT_MAX_CAPTURE_MS, &token, error, sizeof(error));
++    portENTER_CRITICAL(&gDictMux);
++    if (gLocalDict.exchange == run.exchange) {
++      gLocalDict.beginInFlight = false;
++      if (accepted) gLocalDict.token = token;
++      if (!accepted) {
++        if (gDict.owner == run.exchange) {
++          gDict.owner = 0;
++          gDict.state = DictationState::FAILED;
++          gDict.stateEnteredMs = millis();
++          snprintf(gDict.failure, sizeof(gDict.failure), "%s",
++                   error[0] ? error : "session changed");
++        }
++        gLocalDict = LocalDictation{};
++      }
++      run = gLocalDict;
++    }
++    portEXIT_CRITICAL(&gDictMux);
++    if (!accepted) return;
++  }
++  if (!run.token) return;
++
++  // This check uses the original actor even when cancellation has cleared the
++  // UI owner. An expired session self-cancels inside STT; metadata-only join
++  // checking below remains possible without resurrecting its authority.
++  const bool live = displaySessionStillLive(run.actor.source, run.actor.epoch);
++  if (run.cancelled || !live) (void)sttCancel(run.actor, run.token);
++  else if (run.stopRequested) (void)sttRequestFinish(run.actor, run.token);
++  const bool active = sttRunActive(run.token);
++  STTSnapshot snap;
++  const bool hasSnapshot = live && sttSnapshot(run.actor, run.token, &snap);
++  if (active) {
++    portENTER_CRITICAL(&gDictMux);
++    if (gDict.owner == run.exchange && !gLocalDict.cancelled && hasSnapshot) {
++      const DictationState state = (snap.state == STTState::Preparing ||
++                                   snap.state == STTState::Recording)
++                                      ? DictationState::RECORDING : DictationState::WAITING;
++      if (gDict.state != state) {
++        gDict.state = state;
++        gDict.stateEnteredMs = millis();
++      }
++    }
++    portEXIT_CRITICAL(&gDictMux);
++    return;
++  }
++
++  char text[STT_MAX_TEXT + 1] = {};
++  const bool ready = !run.cancelled && hasSnapshot && snap.state == STTState::Done &&
++      sttResult(run.actor, run.token, text, sizeof(text));
++  const size_t len = strlen(text);
++  const bool printable = ready && dictationPrintableAscii(text, len, false);
++  const bool stillLive = displaySessionStillLive(run.actor.source, run.actor.epoch);
++  portENTER_CRITICAL(&gDictMux);
++  if (gLocalDict.exchange == run.exchange && gDict.owner == run.exchange &&
++      !gLocalDict.cancelled && gDict.displaySource == run.actor.source &&
++      gDict.displayEpoch == run.actor.epoch) {
++    gDict.owner = 0;
++    gDict.stateEnteredMs = millis();
++    if (printable && stillLive) {
++      // Keep the keyboard's established 256-byte contract. The broker's CLI
++      // uses its separate 512-byte limit; field maxLength wins at append time.
++      snprintf(gDict.text, sizeof(gDict.text), "%.*s", DICTATION_MAX_TEXT, text);
++      gDict.textPending = true;
++      gDict.state = DictationState::WAITING;
++    } else {
++      gDict.state = DictationState::FAILED;
++      snprintf(gDict.failure, sizeof(gDict.failure), "%s",
++               !stillLive ? "session changed"
++               : (hasSnapshot && snap.error[0]) ? snap.error
++               : ready ? "no printable speech recognized" : "local transcription failed");
++    }
++  }
++  portEXIT_CRITICAL(&gDictMux);
++  // Drop the broker's retained copy only after the terminal join and copy.
++  (void)sttCancel(run.actor, run.token);
++  memset(text, 0, sizeof(text));
++  portENTER_CRITICAL(&gDictMux);
++  if (gLocalDict.exchange == run.exchange) gLocalDict = LocalDictation{};
++  portEXIT_CRITICAL(&gDictMux);
++}
++#endif // ENABLE_LOCAL_STT
++
+ static bool dictationWorkerHasWork() {
+   bool work = false;
+   portENTER_CRITICAL(&gDictMux);
+-  work = gDict.published.pending || gDict.cancelEvent.pending ||
++  work =
++#if ENABLE_LOCAL_STT
++         gLocalReadyPending || gLocalDict.exchange != 0 ||
++#endif
++         gDict.published.pending || gDict.cancelEvent.pending ||
+          gDict.cleanupOwner != 0 ||
+          (gDict.micStopPending && !gDict.owner);
+   portEXIT_CRITICAL(&gDictMux);
+@@ -543,6 +760,9 @@
+   for (;;) {
+     (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+     while (dictationWorkerHasWork()) {
++#if ENABLE_LOCAL_STT
++      dictationProcessLocal();
++#endif
+       (void)dictationProcessPublished();
+       dictationProcessCancelEvent();
+       (void)dictationProcessCleanup();
+@@ -592,6 +812,11 @@
+     if (whyNot) *whyNot = "no mic";
+     return false;
+   }
++#if ENABLE_LOCAL_STT
++  // An enabled local provider never silently exports microphone audio to a
++  // host, even if its model is missing or its inference fails.
++  return dictationLocalAvailable(whyNot);
++#endif
+   if (!uartLinkIsRunning()) {
+     if (whyNot) *whyNot = "no host link";
+     return false;
+@@ -610,6 +835,10 @@
+        displaySource != SOURCE_G2_GLASSES) ||
+       displayEpoch == kNoTransportSessionEpoch) return false;
+   if (!displaySessionStillLive(displaySource, displayEpoch)) return false;
++
++#if ENABLE_LOCAL_STT
++  return dictationBeginLocal(displaySource, displayEpoch);
++#endif
+ 
+   if (!dictationEnsureWorker()) return false;
+ 
+@@ -769,6 +998,14 @@
+ }
+ 
+ void dictationRequestStopFor(CommandSource displaySource) {
++#if ENABLE_LOCAL_STT
++  portENTER_CRITICAL(&gDictMux);
++  if (gLocalDict.exchange && gLocalDict.actor.source == displaySource &&
++      gDict.owner == gLocalDict.exchange) gLocalDict.stopRequested = true;
++  portEXIT_CRITICAL(&gDictMux);
++  dictationWakeWorker();
++  return;
++#endif
+   uint64_t owner = 0;
+   portENTER_CRITICAL(&gDictMux);
+   if (gDict.displaySource == displaySource &&
+@@ -785,6 +1022,10 @@
+ }
+ 
+ static void dictationCancelImpl(CommandSource displaySource, bool force) {
++#if ENABLE_LOCAL_STT
++  dictationCancelLocal(displaySource, force);
++  return;
++#endif
+   uint64_t owner = 0;
+   bool mine = false;
+   DictationState priorState = DictationState::IDLE;
+@@ -859,10 +1100,32 @@
+   portEXIT_CRITICAL(&gDictMux);
+   out.sourceName = sourceLabel(audioGetSource());
+   out.level = (out.state == DictationState::RECORDING) ? getAudioLevel() : 0;
++#if ENABLE_LOCAL_STT
++  out.bufferedLocal = true;
++  LocalDictation local;
++  portENTER_CRITICAL(&gDictMux);
++  local = gLocalDict;
++  portEXIT_CRITICAL(&gDictMux);
++  STTSnapshot snap;
++  if (local.token && sttSnapshot(local.actor, local.token, &snap)) {
++    out.sourceName = sourceLabel(static_cast<AudioSource>(snap.audioSource));
++    out.level = snap.level;
++    out.preparing = snap.state == STTState::Preparing;
++  } else {
++    out.level = 0;
++    out.preparing = local.beginPending || local.beginInFlight;
++  }
++#endif
+   return out;
+ }
+ 
+ void dictationTick() {
++#if ENABLE_LOCAL_STT
++  // The local worker and broker supervise the capture/engine. Host heartbeat,
++  // WAV publication and UART response deadlines do not apply to this provider.
++  if (dictationWorkerHasWork()) dictationWakeWorker();
++  return;
++#endif
+   DictationState state;
+   uint32_t elapsed;
+   uint64_t owner;
+@@ -921,12 +1184,34 @@
+ bool dictationTakeTextFor(CommandSource displaySource,
+                           char* out, size_t outSize) {
+   if (!out || outSize == 0) return false;
++  out[0] = '\0';
++  TransportSessionEpoch epoch = 0;
++  portENTER_CRITICAL(&gDictMux);
++  if (gDict.displaySource == displaySource && gDict.textPending)
++    epoch = gDict.displayEpoch;
++  portEXIT_CRITICAL(&gDictMux);
++  if (!epoch) return false;
++  if (!displaySessionStillLive(displaySource, epoch)) {
++    // This fence applies to BOTH providers: a pending transcript cannot survive
++    // logout/re-pair and become the replacement user's next field input.
++    portENTER_CRITICAL(&gDictMux);
++    if (gDict.displaySource == displaySource && gDict.displayEpoch == epoch) {
++      memset(gDict.text, 0, sizeof(gDict.text));
++      gDict.textPending = false;
++      gDict.state = DictationState::IDLE;
++      gDict.micStopPending = gDict.weStartedMic;
++    }
++    portEXIT_CRITICAL(&gDictMux);
++    dictationWakeWorker();
++    return false;
++  }
+   bool took = false;
+   portENTER_CRITICAL(&gDictMux);
+-  if (gDict.displaySource == displaySource && gDict.textPending) {
++  if (gDict.displaySource == displaySource && gDict.displayEpoch == epoch &&
++      gDict.textPending) {
+     snprintf(out, outSize, "%s", gDict.text);
+     gDict.textPending = false;
+-    gDict.text[0] = '\0';
++    memset(gDict.text, 0, sizeof(gDict.text));
+     gDict.state = DictationState::IDLE;
+     gDict.stateEnteredMs = millis();
+     gDict.micStopPending = gDict.weStartedMic;
+@@ -939,6 +1224,10 @@
+   }
+   portEXIT_CRITICAL(&gDictMux);
+   if (took) dictationWakeWorker();
++  if (!displaySessionStillLive(displaySource, epoch)) {
++    memset(out, 0, outSize);
++    return false;
++  }
+   return took;
+ }
+ 
+@@ -999,7 +1288,8 @@
+   TransportSessionEpoch displayEpoch = kNoTransportSessionEpoch;
+   uint32_t requestHostEpoch = 0;
+   portENTER_CRITICAL(&gDictMux);
+-  if (gDict.state == DictationState::WAITING && gDict.owner == id) {
++  if (gDict.state == DictationState::WAITING && gDict.owner == id &&
++      gDict.requestHostEpoch != 0) {
+     matched = true;
+     displaySource = gDict.displaySource;
+     displayEpoch = gDict.displayEpoch;
+@@ -1165,7 +1455,8 @@
+     bool matched = false;
+     uint32_t requestHostEpoch = 0;
+     portENTER_CRITICAL(&gDictMux);
+-    matched = (gDict.state == DictationState::WAITING && gDict.owner == id);
++    matched = (gDict.state == DictationState::WAITING && gDict.owner == id &&
++               gDict.requestHostEpoch != 0);
+     if (matched) requestHostEpoch = gDict.requestHostEpoch;
+     portEXIT_CRITICAL(&gDictMux);
+     if (!matched) return "Error: no dictation is waiting for that id";
+--- a/components/hardwareone/System_Dictation.h
++++ b/components/hardwareone/System_Dictation.h
+@@ -1,18 +1,13 @@
+ // System_Dictation.h — speech-to-text as a text INPUT METHOD.
+ //
+-// This is the firmware half of "dictate into a keyboard". It is
+-// deliberately source-agnostic: a dictation capture is an ordinary owned
+-// recording, so whichever source the mic layer has resolved — onboard PDM or
+-// the G2 glasses' LEFT-temple mic over BLE — feeds it with no branch here.
+-// startRecordingInternal() re-resolves the preference and owns every G2-only
+-// concern (capture container, FAST conn params, stream kick), so the only
+-// source-specific thing at this layer is the label shown to the user.
++// An OLED/G2 keyboard input method with one provider latched per exchange.
++// ENABLE_LOCAL_STT builds use the shared local broker with bounded raw-HAL
++// capture and final text. Other builds retain the CM5 adapter and owned VAD
++// WAV capture. Both accept PDM or G2 audio through the same HAL. Local failure
++// never falls back to exporting audio to a host.
+ //
+-// Why the CM5 is mandatory: nothing on this device turns speech into arbitrary
+-// text. ESP-SR is WakeNet + MultiNet — a fixed command grammar that recognizes
+-// phrases from a table and cannot emit an unseen word — and it is compiled out
+-// on this build anyway. Free-text transcription lives on the Linux
+-// co-processor, so a dictation is a round trip:
++// ESP-SR provides fixed commands, not arbitrary dictation. The legacy CM5
++// provider performs free-text transcription on Linux with this round trip:
+ //
+ //   1. wearer arms it on an OLED/G2 keyboard        dictationBegin*()
+ //   2. owned VAD capture runs, WAV/result/IDLE publish (recorder task)
+@@ -52,7 +47,7 @@
+ enum class DictationState : uint8_t {
+   IDLE = 0,     // nothing in flight; the mode shows "ready"
+   RECORDING,    // capture running; VAD or the wearer will end it
+-  WAITING,      // WAV closed, request pushed, host is transcribing
++  WAITING,      // provider is transcribing; final text awaits a one-time drain
+   FAILED,       // terminal, with a reason; cleared by the next arm
+ };
+ 
+@@ -63,6 +58,8 @@
+   uint32_t elapsedMs;       // time in the current non-idle state
+   int level;                // 0..100 audio level while RECORDING, else 0
+   char failure[40];
++  bool bufferedLocal = false; // Local capture has a duration cap, not host VAD.
++  bool preparing = false;    // Do not prompt SPEAK NOW before HAL capture.
+ };
+ 
+ enum class DictationUartIntrinsicResult : uint8_t {
+--- a/components/hardwareone/System_STT.h
++++ b/components/hardwareone/System_STT.h
+@@ -44,6 +44,9 @@
+ // changes saved audio settings, writes a WAV, or implicitly re-arms voice.
+ bool sttBegin(STTOwner owner, uint32_t captureMs, STTToken* token,
+               char* error, size_t errorCap);
++// Internal join predicate: contains no transcript/session data and remains
++// usable after revocation. Unknown or terminal tokens are inactive.
++bool sttRunActive(STTToken token);
+ bool sttRequestFinish(STTOwner owner, STTToken token);
+ bool sttCancel(STTOwner owner, STTToken token);
+ // token=0 means this owner's current run. No other session's data is exposed.
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -341,6 +341,13 @@
+   return true;
+ }
+ 
++bool sttRunActive(STTToken token) {
++  portENTER_CRITICAL(&gSTTMux);
++  const bool active = token && gSTT.snapshot.token == token && gSTT.snapshot.workerActive;
++  portEXIT_CRITICAL(&gSTTMux);
++  return active;
++}
++
+ bool sttRequestFinish(STTOwner owner, STTToken token) {
+   if (!sttOwnerLive(owner)) return false;
+   portENTER_CRITICAL(&gSTTMux);
+--- a/components/hardwareone/G2_Glasses.cpp
++++ b/components/hardwareone/G2_Glasses.cpp
+@@ -30157,12 +30157,15 @@
+   } else if (snap.ownerSource == SOURCE_G2_GLASSES) {
+     switch (snap.state) {
+       case DictationState::RECORDING:
+-        line1 = "SPEAK NOW";
+-        line2 = "STOP SPEAKING TO END TRANSMISSION";
+-        footer = "AUTO-STOPS AFTER SILENCE";
++        line1 = snap.preparing ? "GET READY" : "SPEAK NOW";
++        line2 = snap.preparing ? "STARTING MICROPHONE"
++                : snap.bufferedLocal ? "TAP MIC TO FINISH"
++                                     : "STOP SPEAKING TO END TRANSMISSION";
++        footer = snap.bufferedLocal ? "LOCAL RECORDING / 20 SEC MAX"
++                                   : "AUTO-STOPS AFTER SILENCE";
+         break;
+       case DictationState::WAITING:
+-        line1 = "TRANSCRIBING";
++        line1 = snap.bufferedLocal ? "LOCAL STT" : "TRANSCRIBING";
+         line2 = "TAP MIC TO CANCEL";
+         footer = "LIST ROW STAYS FOCUSED";
+         break;
+--- a/components/hardwareone/OLED_Utils.cpp
++++ b/components/hardwareone/OLED_Utils.cpp
+@@ -1776,6 +1776,11 @@
+     }
+     switch (snap.state) {
+       case DictationState::RECORDING: {
++        if (snap.preparing) {
++          display->setCursor(0, micY);
++          display->print("Starting mic...");
++          break;
++        }
+         // Filled dot + elapsed seconds reads as "live" at a glance.
+         display->fillCircle(5, micY + 3, 3, DISPLAY_COLOR_WHITE);
+         display->setCursor(14, micY);
+@@ -1794,7 +1799,7 @@
+       }
+       case DictationState::WAITING:
+         display->setCursor(0, micY);
+-        display->print("Transcribing");
++        display->print(snap.bufferedLocal ? "Local STT" : "Transcribing");
+         for (uint32_t i = 0; i < ((millis() / 400) % 4); ++i) display->print(".");
+         break;
+       case DictationState::FAILED:
+--- a/components/hardwareone/System_BuildConfig.h
++++ b/components/hardwareone/System_BuildConfig.h
+@@ -1467,13 +1467,10 @@
+ // after the board blocks, because ENABLE_OLED_DISPLAY is not resolved until
+ // then.
+ //
+-// The CM5 host link that actually performs the transcription is deliberately a
+-// RUNTIME condition rather than a build one: nothing on this device turns
+-// speech into arbitrary text (ESP-SR is a fixed command grammar), so the mode
+-// is useless without an authenticated host — but that host comes and goes while
+-// the firmware runs. uartLinkIsRunning() stubs to false on boards with no
+-// UART_LINK_* pins, so dictationAvailable() refuses there too and the keyboard
+-// skips the mode. Source-agnostic: PDM or G2, whichever the mic layer resolves.
++// ENABLE_LOCAL_STT selects local buffered transcription without a UART host.
++// Otherwise the authenticated CM5 adapter remains the runtime requirement.
++// Provider choice is latched per exchange; local failures never silently send
++// audio to a remote host. The capture source stays shared (PDM or G2).
+ // Dictation needs a mic and a KEYBOARD to dictate into — not specifically a
+ // panel. The module is display-agnostic by design (4 of its 1221 lines mention
+ // the OLED at all) and G2_Glasses.cpp:30097 arms it with
