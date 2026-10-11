@@ -1,0 +1,31 @@
+# Speaker labels: the Fast ResNet-34 trunk exported by esp-ppq as w8a16
+# (experiments/stt_p4/speaker/export_speaker.py). Exactly the kernels ESP-DL bound for it on the
+# device (diagnostics build, TL kbind, 2026-10-11): 9 w8a16 (8-bit weights, 16-bit
+# activations) and one s16 depthwise (the batch norms that follow a ReLU, run as
+# grouped 1x1 convs). A different speaker model may need others: rerun with
+# HW1_STT_SPEAKER_DIAGNOSTICS=1 and add what TL kbind prints.
+kernel_abi: 1
+ops:
+  - Add
+  - Conv
+  - Gemm
+  - GlobalAveragePool
+  - LUT
+  - Mul
+  - ReduceMean
+  - Relu
+  - RequantizeLinear
+  - Reshape
+  - Sigmoid
+  - Transpose
+kernels:
+  - dl_esp32p4_w8a16_conv2d_per_channel_11cn_bias
+  - dl_esp32p4_w8a16_conv2d_per_channel_11cn_bias_relu
+  - dl_esp32p4_w8a16_conv2d_per_channel_33cn_bias
+  - dl_esp32p4_w8a16_conv2d_per_channel_33cn_relu
+  - dl_esp32p4_w8a16_conv2d_per_channel_hwcn_bias
+  - dl_esp32p4_w8a16_conv2d_per_channel_hwcn_relu
+  - dl_esp32p4_w8a16_unaligned_conv2d_per_channel_11cn_bias
+  - dl_esp32p4_w8a16_unaligned_conv2d_per_channel_11cn_bias_relu
+  - dl_esp32p4_w8a16_unaligned_conv2d_per_channel_hwcn_bias_relu
+  - dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1_bias

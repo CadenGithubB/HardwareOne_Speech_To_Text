@@ -1,0 +1,10 @@
+## IDF Component Manager manifest for hw1_stt
+dependencies:
+  # ESP-DL 3.3.12 with firmware/tools/esp-dl-3.3.12-hw1.patch (P4 conv tiling,
+  # prepared conv args, ReLU LUTs as a vector max, a metadata allocator hook the
+  # engine points at PSRAM). firmware/tools/prepare_esp_dl.py stages it here.
+  espressif/esp-dl:
+    version: "==3.3.12"
+    override_path: "../../.sdk-overrides/esp32p4/espressif__esp-dl"
+    rules:
+      - if: "target in [esp32p4]"

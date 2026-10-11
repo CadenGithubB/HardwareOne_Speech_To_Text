@@ -1,0 +1,9 @@
+# Same table as HardwareOne's P4X-EYE build (16 MB flash). The app partition starts at
+# 0x10000 and is 7252 KB; the littlefs partition is unused by this example and kept only so
+# the layouts match (an app-only flash in either direction leaves everything else intact).
+# Name,   Type, SubType,  Offset,   Size,     Flags
+nvs,      data, nvs,      0xA000,   0x4000,
+nvs_key,  data, nvs_keys, 0xE000,   0x1000,   encrypted
+phy_init, data, phy,      0xf000,   0x1000,
+factory,  app,  factory,  0x10000,  0x715000,
+littlefs, data, littlefs, 0x725000, 0x8DB000, encrypted

@@ -9,3 +9,5 @@ __pycache__/
 *.pyc
 .DS_Store
 ._*
+# Patched SDK components staged by firmware/tools/prepare_esp_dl.py
+firmware/.sdk-overrides/
