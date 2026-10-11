@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parents[2] / 'docs' / 'Version Report.html'
+OUT = Path(__file__).resolve().parents[2] / 'docs' / 'index.html'
 extra = json.loads(Path(sys.argv[1]).read_text()) if len(sys.argv) > 1 else {}
 BD = json.loads(Path(__file__).with_name('breakdown.json').read_text())
 LAYERS = json.loads(Path(__file__).with_name('layers.json').read_text())

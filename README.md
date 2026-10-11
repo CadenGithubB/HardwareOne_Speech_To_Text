@@ -4,13 +4,14 @@ On-device speech-to-text for HardwareOne's ESP32-P4 (P4X-EYE): the tools that tr
 test the models. The firmware side (the speech engine, language-model decoder and speaker labels) lives in
 the HardwareOne repo under `components/hardwareone/stt`.
 
-- `docs/Version Report.html`: how caption speed, memory and accuracy changed across test versions 1.1-2.0.
+- [Version report](https://cadengithubb.github.io/HardwareOne_Speech_To_Text/) (`docs/index.html`, served by
+  GitHub Pages): how caption speed, memory and accuracy changed across test versions 1.1-2.0.
 - `tools/stt_train_15x5`: QuartzNet 15x5 fine-tuning, data stores and benchmarks.
 - `tools/stt_train`: data preparation, the earlier 5x5 trainer, the word language model (`lm/`) and the tech
   vocabulary build (`techvocab/`).
 - `tools/stt_p4`: int8 export, model packing, deploy scripts and the speaker-label model exporter (`speaker/`).
 - `tools/device_tests`: the speaker-to-P4-microphone test harness and its analysis.
-- `tools/report`: regenerates `docs/Version Report.html` from recorded test sessions.
+- `tools/report`: regenerates `docs/index.html` (the version report) from recorded test sessions.
 - `tools/speech_portable`, `tools/translation_p4`: earlier portable speech and translation experiments.
 
 The `stt_*`, `speech_portable` and `translation_p4` folders are the same folders as HardwareOne's
