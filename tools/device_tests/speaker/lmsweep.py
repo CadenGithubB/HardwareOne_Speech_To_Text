@@ -23,7 +23,7 @@ import numpy as np
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'train' / 'lm'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'stt_train' / 'lm'))
 import analyse  # noqa: E402
 import hw1lm  # noqa: E402
 

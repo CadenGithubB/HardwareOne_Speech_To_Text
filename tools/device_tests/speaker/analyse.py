@@ -42,7 +42,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from tl_parse import ROM_BOOT, parse_line, read_lines_tsv  # noqa: E402
 
-COMMON = HERE.parents[1] / 'train_15x5' / 'common.py'
+COMMON = HERE.parents[1] / 'stt_train_15x5' / 'common.py'
 DEFAULT_ROOT = HERE / 'sessions'
 BIN_ORDER = ['short', 'mid', 'long']
 
