@@ -1,0 +1,103 @@
+{
+  "scope": "Four synthetic sentences excluded from calibration; file-only macOS voices, no microphone/acoustic/device evidence.",
+  "model_sha256": "8a6766f69597e319c585613e94faba97dd2054a8d527fd21b1aa7d408981b925",
+  "frontend_sha256": "ca91eb9683f7151b8be1a01532a6790c6eb7d515f67169a207751e3fc48cc58b",
+  "onnx_sha256": "0190ac56c370bce2f9bd9b881f1a64d8c1b1581bf2c47b655ec8e975c04c57a6",
+  "quantization_metadata_sha256": "ec996e28c98b4248a1daf4321351294530f7c627a9863b924338881c8a12296c",
+  "method": "Frozen ONNX float weights plus exported PPQ scales, nearest-even CPU fake quantization; no calibration performed.",
+  "macos": "26.6.2",
+  "script_sha256": "dcaec8a70a796582e4fb5b946eae21d3d2e8639547ce1c27e3abc452857ced74",
+  "frozen_fixture_parity": [
+    {
+      "fixture": "0.wav",
+      "output_byte_exact": true,
+      "sha256": "b13d484dc5d7530e3b5221fe3c21f80cbd0506175d9842e566fad9ad69495d70"
+    },
+    {
+      "fixture": "1.wav",
+      "output_byte_exact": true,
+      "sha256": "b7f709bf4eb1150ae185f4cc407f11aacf4ac49596b8cf893fc9d19d5b99bc6e"
+    }
+  ],
+  "cases": [
+    {
+      "file": "heldout-0-samantha.wav",
+      "voice": "Samantha",
+      "words_per_minute": 150,
+      "reference": "please write a note that the next meeting starts at ten tomorrow morning",
+      "wav_sha256": "73154516633dfed56fed7bbe8f0a21d4830c630d343123e5305a30c1ca81822a",
+      "pcm_sha256": "e7a8031fc78df53a818ab67bee4525eac5fccd32ec018fdd230188b0f24f1636",
+      "samples": 61968,
+      "seconds": 3.873,
+      "feature_frames": 388,
+      "original_float": "please write a note that the next meeting starts at tent to morrow morning",
+      "portable_float": "please write a note that the next meeting starts at tent to morrow morning",
+      "frozen_int8": "please write a note that the next meeting starts at tent to morrow morning",
+      "word_count": 13,
+      "original_float_word_errors": 3,
+      "portable_float_word_errors": 3,
+      "frozen_int8_word_errors": 3
+    },
+    {
+      "file": "heldout-1-daniel.wav",
+      "voice": "Daniel",
+      "words_per_minute": 150,
+      "reference": "the blue camera is on the desk beside the small black battery",
+      "wav_sha256": "1ec5e937ab190dfa8d79eeacd9fe7a560949fbdb901e79721e57b645c8522346",
+      "pcm_sha256": "e21084be577f4eebd191d778c9f3ba1f938c9b01803695fa215a65eceb81e491",
+      "samples": 58083,
+      "seconds": 3.6301875,
+      "feature_frames": 364,
+      "original_float": "the blue camaris on the desk beside the small black battery",
+      "portable_float": "the blue camaris on the desk beside the small black battery",
+      "frozen_int8": "the blue camaris on the desk beside the small black battery",
+      "word_count": 12,
+      "original_float_word_errors": 2,
+      "portable_float_word_errors": 2,
+      "frozen_int8_word_errors": 2
+    },
+    {
+      "file": "heldout-2-karen.wav",
+      "voice": "Karen",
+      "words_per_minute": 150,
+      "reference": "i would like to test speech recognition without an internet connection",
+      "wav_sha256": "3dc15cda50c7407747ea69124b4db17e4e9dd33b916009a98c839ef9bfe124a7",
+      "pcm_sha256": "dcac24bc8d785c8caabbe90f8199f0c3d31a3a9180e5e3067e0c1ae7846e6720",
+      "samples": 63645,
+      "seconds": 3.9778125,
+      "feature_frames": 398,
+      "original_float": "i would like to test speech recognition without an intinate connection",
+      "portable_float": "i would like to test speech recognition without an intinate connection",
+      "frozen_int8": "i would like to test speech recognition without an intinate connection",
+      "word_count": 11,
+      "original_float_word_errors": 1,
+      "portable_float_word_errors": 1,
+      "frozen_int8_word_errors": 1
+    },
+    {
+      "file": "heldout-3-samantha.wav",
+      "voice": "Samantha",
+      "words_per_minute": 150,
+      "reference": "add milk and bread to my shopping list and remind me to call alex",
+      "wav_sha256": "e0e4ff61fa856ffa9a124ba378130553242292393149020372b498e24980cf95",
+      "pcm_sha256": "1e0eae55bf928c574c74f87ab80dd63a6d96caf54d24f5f33921718d655dcae1",
+      "samples": 63259,
+      "seconds": 3.9536875,
+      "feature_frames": 396,
+      "original_float": "ad milk and bread to my shopping list and remind me to call alexs",
+      "portable_float": "ad milk and bread to my shopping list and remind me to call alexs",
+      "frozen_int8": "ad milk and bread to my shopping list and remind me to call alecs",
+      "word_count": 14,
+      "original_float_word_errors": 2,
+      "portable_float_word_errors": 2,
+      "frozen_int8_word_errors": 2
+    }
+  ],
+  "aggregate": {
+    "sentences": 4,
+    "words": 50,
+    "original_float_word_errors": 8,
+    "portable_float_word_errors": 8,
+    "frozen_int8_word_errors": 8
+  }
+}
