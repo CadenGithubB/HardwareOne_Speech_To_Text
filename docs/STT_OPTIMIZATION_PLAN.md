@@ -161,13 +161,17 @@ not a speedup inferred by comparing these short phrases against older, longer
 phrases. No firmware optimization, model change or new device test was performed
 in writing this plan.
 
-## October 31 A/B progress
+## October 31 A/B results
 
-[AB_TEST_RESULTS.md](AB_TEST_RESULTS.md) records five complete sessions per
-logging condition and the separate fault-affected attempts. That comparison
-found no clear WER or latency improvement. A further 201-stage profile again
-identified 512→512 pointwise layers as a major share of accumulated stage time;
-it did not measure cache misses or PSRAM traffic. Candidate testing and memory
-attribution remain in progress. The user reports ordinary transcription use is
-more stable than this instrumented bench workload; the test cannot estimate
-ordinary-use crash frequency or determine the cause of the bench assertions.
+[AB_TEST_RESULTS.md](AB_TEST_RESULTS.md) records the logging control, stage
+profile, five-run comparisons of both prepared candidates, conversation speaker
+scores, technical recordings and fault history. Neither candidate met the
+no-regression win criterion. Speaker-off freed sampled PSRAM but removed labels;
+the preview candidate delayed first preview. The 512→512 pointwise profile did
+not measure cache misses or PSRAM traffic. The original app was restored and
+verified. The user reports ordinary transcription is more stable than this
+instrumented workload, which cannot estimate ordinary-use crash frequency.
+
+The LM sweep is blocked by absent production controls or replay; bit-exact kernel
+trials and complete memory attribution remain future work. No optimization was
+integrated from these measurements.

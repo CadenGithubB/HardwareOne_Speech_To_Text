@@ -177,19 +177,23 @@ NVS counters and answers USB `status`, but that board had no microSD card, so mo
 load and captions were not reached. HardwareOne 0.99.98.5 was restored afterwards.
 Details are in [the device smoke test](STANDALONE_PORT.md#october-31-device-smoke-test).
 
-## October 31 HardwareOne A/B testing in progress
+## October 31 HardwareOne A/B testing
 
-See [AB_TEST_RESULTS.md](AB_TEST_RESULTS.md) for the bench conditions, numeric
-logging control, stage profile, fault history and remaining checks. Five
-complete runs per logging condition did not establish a clear WER or latency
-improvement. Watchdog warnings and assertion reboots also occurred under this
-serial-polling stress workload; their cause and ordinary-use frequency remain
-unknown. The user reports crashes are uncommon in ordinary transcription use.
+See [AB_TEST_RESULTS.md](AB_TEST_RESULTS.md) for the test conditions, matched
+session distributions, confidence intervals, conversation and technical
+recordings, fault history, and limitations. Neither prepared candidate qualified
+as a no-regression win. Speaker-off reduced sampled PSRAM use but removed speaker
+labels; slower previews delayed first preview. Speaker-label results varied on a
+repeated recording, primarily because unknown labels increased in one run.
 
-The fixed model and onboard PDM mic remain in use. A matched rebuilt HardwareOne
-baseline and two already-prepared single-change candidates are being tested;
-the original app-slot image is privately backed up and must be restored after
-testing. The installed and rebuilt baseline binaries differ, so the earlier
-logging data is not used as a candidate A/B baseline. Do not integrate a
-candidate or claim a win without the completed comparison, fault counts and
-requested confidence intervals. Raw captures and images remain private.
+The fixed model and onboard PDM microphone were used throughout. The original
+app image was restored and its complete app slot verified after candidate tests;
+the final session stopped STT, found file logging inactive and recorded 7,016,448 B
+LittleFS free. The installed and rebuilt baseline binaries differed, so logging
+results were not used as candidate A/B baselines. Watchdog warnings and assertion
+reboots occurred under instrumented playback; the user reports ordinary use is
+more stable, and these tests cannot establish ordinary-use frequency or causation.
+Raw audio, logs, transcripts, backups and prepared candidate bundle remain private.
+
+The LM sweep, bit-exact kernel experiments and full RAM attribution remain for a
+future agent; no new firmware improvements or integration were performed here.

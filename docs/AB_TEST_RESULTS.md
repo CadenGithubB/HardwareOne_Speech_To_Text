@@ -231,3 +231,30 @@ For the repeated first conversation, the first run assigned the unknown label
 This accounts for most of the score difference under the unknown-is-incorrect
 rule. The cause of the different unknown-label frequency was not established;
 playback, segmentation and speaker-clustering behavior warrant investigation.
+
+## Technical recordings and pending work
+
+The five vocabulary-heavy recordings each ran once on the restored original
+app, with 36 of 36 reference clips retained per recording. Full-recording WER
+was 192/443 (43.34%), 183/416 (43.99%), 173/426 (40.61%), 226/470 (48.09%),
+and 185/403 (45.91%), respectively. These are full-reference word errors, not
+isolated technical-term accuracy; there is no controlled LM-strength comparison.
+All five runs completed with zero reported audio overruns, watchdog warnings,
+or fatal markers. The five conversation runs also reported zero audio overruns.
+Each playback used the Mac speaker at 75% and the onboard PDM mic.
+
+All ten additional sessions checked LittleFS before and after and kept system
+file logging inactive. The last recorded free space was 7,016,448 B. Free space
+varied over the block and the final reading was lower than the first; the cause
+was not established. No filesystem cleanup was attempted. STT was stopped at
+the end of each complete session. The saved original app-slot image was restored
+and verified over all 7,426,048 B; no other partition was flashed.
+
+An LM-strength sweep remains blocked: the available production firmware lacks
+an accessible runtime strength control and logit export/replay path, and the
+user reserved further firmware development for another agent. The profile
+identified the pointwise stage as a candidate for investigation, but no kernel
+or layout candidate was prepared or tested against the export fixtures. Memory
+attribution is incomplete and no right-sizing has been qualified. Candidate
+sources are preserved in a private Git bundle based on `aa6508fd`; no candidate
+has been integrated into another checkout. These are follow-up work, not wins.
