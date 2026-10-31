@@ -1,0 +1,525 @@
+{
+  "schema": 1,
+  "date": "2026-10-31",
+  "firmware": "0.99.99",
+  "source": "G2 native Conversate",
+  "conditions": "live uncontrolled speech; requested debug flags and per-frame logs ON; loglink ON; Showcase paused; no file logging",
+  "session_dir": "private/performance/active-glasses-20261031-104631",
+  "cold_start_captured": false,
+  "window_seconds": 48.26677654101513,
+  "phrases": 6,
+  "segments": [
+    {
+      "seq": 16,
+      "capture_audio_s": 3.26,
+      "inferred_audio_s": 2.76,
+      "load_ms": 8,
+      "frontend_ms": 17,
+      "inference_ms": 907,
+      "decode_ms": 31,
+      "other_ms": 27,
+      "worker_elapsed_ms": 990,
+      "close_to_done_ms": 522,
+      "worker_start_relative_close_ms": -468,
+      "save_hook_ms": 0,
+      "ok": true,
+      "lm": true,
+      "promoted": true,
+      "boot_min_psram_bytes": 2502104,
+      "boot_min_internal_bytes": 92200,
+      "features": {
+        "seg": 16,
+        "frames": 276,
+        "cached": 256
+      },
+      "yield": {
+        "seg": 16,
+        "blocks": 3,
+        "yield_us": 4639
+      },
+      "speaker": {
+        "seq": 16,
+        "spk": -1,
+        "sim": 0.762,
+        "new": 0,
+        "tent": 1,
+        "samples": 44160,
+        "fe_us": 64565,
+        "nn_us": 3846391,
+        "head_us": 44774,
+        "us": 3962179,
+        "lag_ms": 3977
+      },
+      "send_ack_ms": 62
+    },
+    {
+      "seq": 17,
+      "capture_audio_s": 3.61,
+      "inferred_audio_s": 3.11,
+      "load_ms": 7,
+      "frontend_ms": 16,
+      "inference_ms": 1013,
+      "decode_ms": 69,
+      "other_ms": 24,
+      "worker_elapsed_ms": 1129,
+      "close_to_done_ms": 625,
+      "worker_start_relative_close_ms": -504,
+      "save_hook_ms": 0,
+      "ok": true,
+      "lm": true,
+      "promoted": true,
+      "boot_min_psram_bytes": 2502104,
+      "boot_min_internal_bytes": 92200,
+      "features": {
+        "seg": 17,
+        "frames": 311,
+        "cached": 300
+      },
+      "yield": {
+        "seg": 17,
+        "blocks": 3,
+        "yield_us": 4441
+      },
+      "speaker": {
+        "seq": 17,
+        "spk": -1,
+        "sim": 0.768,
+        "new": 0,
+        "tent": 1,
+        "samples": 49760,
+        "fe_us": 64327,
+        "nn_us": 809540,
+        "head_us": 41036,
+        "us": 920611,
+        "lag_ms": 1117
+      },
+      "send_ack_ms": 63
+    },
+    {
+      "seq": 18,
+      "capture_audio_s": 3.51,
+      "inferred_audio_s": 3.51,
+      "load_ms": 7,
+      "frontend_ms": 24,
+      "inference_ms": 1097,
+      "decode_ms": 29,
+      "other_ms": 16,
+      "worker_elapsed_ms": 1173,
+      "close_to_done_ms": 1179,
+      "worker_start_relative_close_ms": 6,
+      "save_hook_ms": 0,
+      "ok": true,
+      "lm": true,
+      "promoted": false,
+      "boot_min_psram_bytes": 2502104,
+      "boot_min_internal_bytes": 92200,
+      "features": {
+        "seg": 18,
+        "frames": 351,
+        "cached": 326
+      },
+      "yield": {
+        "seg": 18,
+        "blocks": 4,
+        "yield_us": 5921
+      },
+      "speaker": null,
+      "send_ack_ms": null
+    },
+    {
+      "seq": 19,
+      "capture_audio_s": 5.66,
+      "inferred_audio_s": 5.57,
+      "load_ms": 7,
+      "frontend_ms": 33,
+      "inference_ms": 1754,
+      "decode_ms": 79,
+      "other_ms": 35,
+      "worker_elapsed_ms": 1908,
+      "close_to_done_ms": 1862,
+      "worker_start_relative_close_ms": -46,
+      "save_hook_ms": 1,
+      "ok": true,
+      "lm": true,
+      "promoted": true,
+      "boot_min_psram_bytes": 2502104,
+      "boot_min_internal_bytes": 92200,
+      "features": {
+        "seg": 19,
+        "frames": 557,
+        "cached": 557
+      },
+      "yield": {
+        "seg": 19,
+        "blocks": 6,
+        "yield_us": 7142
+      },
+      "speaker": {
+        "seq": 19,
+        "spk": -1,
+        "sim": 0.779,
+        "new": 0,
+        "tent": 1,
+        "samples": 89120,
+        "fe_us": 900962,
+        "nn_us": 5210097,
+        "head_us": 663304,
+        "us": 6938366,
+        "lag_ms": 6960
+      },
+      "send_ack_ms": 47
+    },
+    {
+      "seq": 20,
+      "capture_audio_s": 5.37,
+      "inferred_audio_s": 5.37,
+      "load_ms": 9,
+      "frontend_ms": 41,
+      "inference_ms": 1769,
+      "decode_ms": 86,
+      "other_ms": 32,
+      "worker_elapsed_ms": 1937,
+      "close_to_done_ms": 1956,
+      "worker_start_relative_close_ms": 19,
+      "save_hook_ms": 0,
+      "ok": true,
+      "lm": true,
+      "promoted": false,
+      "boot_min_psram_bytes": 2502104,
+      "boot_min_internal_bytes": 92200,
+      "features": {
+        "seg": 20,
+        "frames": 537,
+        "cached": 464
+      },
+      "yield": {
+        "seg": 20,
+        "blocks": 6,
+        "yield_us": 7170
+      },
+      "speaker": {
+        "seq": 20,
+        "spk": 1,
+        "sim": 0.784,
+        "new": 0,
+        "tent": 0,
+        "samples": 85920,
+        "fe_us": 206928,
+        "nn_us": 828078,
+        "head_us": 46437,
+        "us": 1088522,
+        "lag_ms": 2477
+      },
+      "send_ack_ms": 45
+    },
+    {
+      "seq": 21,
+      "capture_audio_s": 2.95,
+      "inferred_audio_s": 2.45,
+      "load_ms": 7,
+      "frontend_ms": 16,
+      "inference_ms": 749,
+      "decode_ms": 38,
+      "other_ms": 21,
+      "worker_elapsed_ms": 831,
+      "close_to_done_ms": 340,
+      "worker_start_relative_close_ms": -491,
+      "save_hook_ms": 0,
+      "ok": true,
+      "lm": true,
+      "promoted": true,
+      "boot_min_psram_bytes": 2502104,
+      "boot_min_internal_bytes": 92200,
+      "features": {
+        "seg": 21,
+        "frames": 245,
+        "cached": 240
+      },
+      "yield": {
+        "seg": 21,
+        "blocks": 2,
+        "yield_us": 2960
+      },
+      "speaker": null,
+      "send_ack_ms": 62
+    }
+  ],
+  "mean": {
+    "load_ms": 7.5,
+    "frontend_ms": 24.5,
+    "inference_ms": 1214.8333333333333,
+    "decode_ms": 55.333333333333336,
+    "other_ms": 25.833333333333332,
+    "worker_elapsed_ms": 1328,
+    "close_to_done_ms": 1080.6666666666667,
+    "inference_share_percent": 91.47841365461846
+  },
+  "previews": {
+    "successful_drafts": 15,
+    "canceled_or_failed_drafts": 6
+  },
+  "memory_samples": [
+    {
+      "t_s": 1.001,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 3.044,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 5.087,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 7.123,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 9.601,
+      "psram_free": 3337076,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 11.763,
+      "psram_free": 3003584,
+      "psram_total": 32851892,
+      "internal_free": 199411,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 14.545,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 16.592,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 18.644,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 20.696,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 22.737,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 24.773,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 26.819,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 28.862,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 30.903,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 32.95,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 35.003,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 199387,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 37.385,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 39.538,
+      "psram_free": 3337468,
+      "psram_total": 32851892,
+      "internal_free": 203907,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 42.147,
+      "psram_free": 2763720,
+      "psram_total": 32851892,
+      "internal_free": 199407,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    },
+    {
+      "t_s": 45.581,
+      "psram_free": 2991008,
+      "psram_total": 32851892,
+      "internal_free": 199347,
+      "internal_total": 495203,
+      "internal_largest": 100352,
+      "internal_boot_min": 92200
+    }
+  ],
+  "memory_sample_interval_seconds_approx": 2,
+  "sampled_min_psram_free": 2763720,
+  "sampled_min_internal_free": 199347,
+  "boot_min_psram_free": 2502104,
+  "boot_min_internal_free": 92200,
+  "layers": {
+    "completed_model_runs": 21,
+    "final_phrases": 6,
+    "stage_time_delta_ms": 17941.185,
+    "groups_ms": {
+      "512\u2192512 pointwise": 10242.047999999999,
+      "Other pointwise": 2533.844,
+      "Depthwise": 4333.839999999999,
+      "Add / ReLU": 831.4529999999999
+    },
+    "group_percent": {
+      "512\u2192512 pointwise": 57.08679777840761,
+      "Other pointwise": 14.123058203792,
+      "Depthwise": 24.155818024283228,
+      "Add / ReLU": 4.63432599351715
+    },
+    "stage_total_quantization_error_bound_ms": 167.835,
+    "scope": "finals, drafts, speculative runs, and partial canceled stage work; stage wall time, not exclusive CPU time",
+    "counter_limit": "rounded, unsynchronized counter snapshots; shares are approximate"
+  },
+  "bluetooth": {
+    "packets_delta": 1060,
+    "audio_span_delta_ms": 53267,
+    "packet_rate_per_second": 19.899750314453602,
+    "lost_delta": 0,
+    "duplicates_delta": 0,
+    "max_gap_ms_session": 107,
+    "decode_fail_delta": 0,
+    "plc_delta": 0,
+    "overrun_delta": 0,
+    "degraded_end": 0
+  },
+  "storage": {
+    "success": true,
+    "total": 9285632,
+    "used": 942080,
+    "free": 8343552,
+    "usagePercent": 10
+  },
+  "limits": [
+    "no ground-truth audio or WER score",
+    "close-to-done excludes endpointing and display draw",
+    "heap samples miss transient peaks; boot minima are not session-attributed",
+    "no physical flash/cache-read counters or SD I/O timing instrumentation",
+    "speaker timings include preemption; do not add them to caption time"
+  ],
+  "allocation_reference": {
+    "speech_model_bytes": 20112128,
+    "lm_card_bytes": 1599996,
+    "pcm_source_bytes": 1600000,
+    "feature_pool_source_bytes": 651272,
+    "speaker_card_bytes": 1994544,
+    "evidence": "Card listing, pinned speech graph, integrated firmware allocation constants; not a live allocation trace",
+    "source_file": "/Users/morgan/esp/hardwareone-idf/components/hardwareone/System_STT.cpp"
+  },
+  "speaker_observed_wall_ms": [
+    3962.179,
+    920.611,
+    6938.366,
+    1088.522
+  ],
+  "speaker_observed_lag_ms": [
+    3977,
+    1117,
+    6960,
+    2477
+  ],
+  "feature_cached_fraction": 0.9411506368028107
+}

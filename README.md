@@ -19,9 +19,10 @@ microphone-to-serial captions example; the model and language model it needs are
 - `tools/report`: regenerates `docs/index.html` (the version report) from recorded test sessions.
 - `tools/speech_portable`, `tools/translation_p4`: earlier portable speech and translation experiments.
 
-The `stt_*`, `speech_portable` and `translation_p4` folders are the same folders as HardwareOne's
-`experiments/`, kept in step with `tools/sync_to_hardwareone.sh`; `firmware/components/hw1_stt/stt` is a copy of
-HardwareOne's `components/hardwareone/stt`. A few `stt_p4` tools work on the
+The `stt_*`, `speech_portable` and `translation_p4` folders originated in HardwareOne's
+`experiments/`; `tools/sync_to_hardwareone.sh` copies selected tooling. The engine is an older
+HardwareOne snapshot and has confirmed differences from the current integrated project. See
+[standalone parity and reconciliation](docs/STANDALONE_PARITY.md). A few `stt_p4` tools work on the
 HardwareOne firmware tree (they use paths from its repository root) and run from a HardwareOne checkout.
 
 No speech data, recordings, models or checkpoints are kept here. Paths come from the environment:
@@ -33,3 +34,33 @@ No speech data, recordings, models or checkpoints are kept here. Paths come from
 | `HW1_STT_PYTHON` | a Python with the export tooling (esp-ppq) |
 | `HW1_STT_P4` | the `stt_p4` folder holding the private firmware trees (`private/`) |
 | `HW1_STT_SESSIONS` | recorded device sessions (default `tools/device_tests/speaker/sessions`) |
+
+## Standalone transcript features
+
+The minimal P4 app now includes editable SD-card vocabulary, deterministic display formatting,
+structured offline recordings, and persistent startup ordering. An optional localhost USB browser
+viewer provides live final captions, recording review/search, vocabulary editing and annotated export.
+The speech model and speaker algorithms are unchanged.
+
+- [Implementation and HardwareOne handoff](docs/STT_PRODUCT_HANDOFF.md): plan, actual scope, evidence and remaining integration work.
+- [Viewer and device commands](tools/transcript/README.md): run the browser, edit vocabulary, review saved JSONL files and understand recording boundaries.
+- `firmware/components/hw1_transcript`: bounded portable formatter and vocabulary table.
+
+Always inspect a device's actual partition table and back up its installed app before testing this
+standalone example on a HardwareOne device. The example's generated partition table is not proof of
+compatibility with an existing device. Application-only flashing preserves the existing layout.
+
+## Performance investigation (October 2026)
+
+- [Prioritized optimization plan](docs/STT_OPTIMIZATION_PLAN.md): proposed speed, memory and accuracy experiments.
+- [Interactive performance graphs](docs/stt-performance-graphs.html): open locally in a browser; requires internet for the pinned D3 library.
+- [Live glasses profile](docs/GLASSES_LIVE_PROFILE.md) and [numeric dataset](docs/performance-glasses-live.json): integrated firmware 0.99.99, with measurement limits.
+- [Standalone/source audit](docs/PERFORMANCE_AUDIT.md) and [storage incident/settings checks](docs/SYSTEM_LOG_STORAGE_INCIDENT.md).
+
+The live profile measures the integrated HardwareOne app, not this standalone
+app. Proposed optimizations are not implemented. Private logs, recordings,
+settings backups and firmware rollback images are excluded from Git.
+
+The intended direction is to qualify reusable STT performance and features here
+first, then adapt them for HardwareOne. Current source divergence must be
+reconciled before claiming that workflow is established.

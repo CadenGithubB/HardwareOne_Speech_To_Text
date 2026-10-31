@@ -1,0 +1,216 @@
+{
+  "firmware": "0.99.99",
+  "board": "ESP32-P4X-EYE",
+  "collected_date": "2026-10-31",
+  "provenance": "device sttperf show ring buffer; prior audio run, not a new controlled benchmark",
+  "debug_state": "before requested STT/microphone/Bluetooth flags were enabled",
+  "phrases": 16,
+  "min_audio_s": 8.1,
+  "max_audio_s": 9.7,
+  "segments": [
+    {
+      "seq": 110,
+      "audio_s": 8.2,
+      "wait_s": 0.0,
+      "load_ms": 8,
+      "frontend_ms": 40,
+      "inference_ms": 2560,
+      "decode_ms": 58,
+      "decoder": "lm"
+    },
+    {
+      "seq": 111,
+      "audio_s": 8.9,
+      "wait_s": 0.0,
+      "load_ms": 11,
+      "frontend_ms": 41,
+      "inference_ms": 2709,
+      "decode_ms": 77,
+      "decoder": "lm"
+    },
+    {
+      "seq": 112,
+      "audio_s": 8.8,
+      "wait_s": 0.0,
+      "load_ms": 11,
+      "frontend_ms": 46,
+      "inference_ms": 2742,
+      "decode_ms": 64,
+      "decoder": "lm"
+    },
+    {
+      "seq": 113,
+      "audio_s": 9.0,
+      "wait_s": 0.0,
+      "load_ms": 11,
+      "frontend_ms": 50,
+      "inference_ms": 2807,
+      "decode_ms": 64,
+      "decoder": "lm"
+    },
+    {
+      "seq": 114,
+      "audio_s": 8.8,
+      "wait_s": 0.0,
+      "load_ms": 9,
+      "frontend_ms": 49,
+      "inference_ms": 2692,
+      "decode_ms": 65,
+      "decoder": "lm"
+    },
+    {
+      "seq": 115,
+      "audio_s": 8.9,
+      "wait_s": 0.0,
+      "load_ms": 12,
+      "frontend_ms": 58,
+      "inference_ms": 2734,
+      "decode_ms": 56,
+      "decoder": "lm"
+    },
+    {
+      "seq": 116,
+      "audio_s": 8.8,
+      "wait_s": 0.0,
+      "load_ms": 9,
+      "frontend_ms": 44,
+      "inference_ms": 2646,
+      "decode_ms": 50,
+      "decoder": "lm"
+    },
+    {
+      "seq": 117,
+      "audio_s": 9.0,
+      "wait_s": 0.0,
+      "load_ms": 8,
+      "frontend_ms": 45,
+      "inference_ms": 2721,
+      "decode_ms": 66,
+      "decoder": "lm"
+    },
+    {
+      "seq": 118,
+      "audio_s": 9.7,
+      "wait_s": 0.0,
+      "load_ms": 10,
+      "frontend_ms": 69,
+      "inference_ms": 2956,
+      "decode_ms": 65,
+      "decoder": "lm"
+    },
+    {
+      "seq": 119,
+      "audio_s": 8.4,
+      "wait_s": 0.0,
+      "load_ms": 9,
+      "frontend_ms": 42,
+      "inference_ms": 2630,
+      "decode_ms": 65,
+      "decoder": "lm"
+    },
+    {
+      "seq": 120,
+      "audio_s": 9.5,
+      "wait_s": 0.0,
+      "load_ms": 11,
+      "frontend_ms": 52,
+      "inference_ms": 2941,
+      "decode_ms": 58,
+      "decoder": "lm"
+    },
+    {
+      "seq": 121,
+      "audio_s": 8.1,
+      "wait_s": 0.0,
+      "load_ms": 9,
+      "frontend_ms": 40,
+      "inference_ms": 2548,
+      "decode_ms": 47,
+      "decoder": "lm"
+    },
+    {
+      "seq": 122,
+      "audio_s": 8.5,
+      "wait_s": 0.0,
+      "load_ms": 8,
+      "frontend_ms": 45,
+      "inference_ms": 2648,
+      "decode_ms": 102,
+      "decoder": "lm"
+    },
+    {
+      "seq": 123,
+      "audio_s": 8.4,
+      "wait_s": 0.0,
+      "load_ms": 10,
+      "frontend_ms": 43,
+      "inference_ms": 2603,
+      "decode_ms": 90,
+      "decoder": "lm"
+    },
+    {
+      "seq": 124,
+      "audio_s": 9.7,
+      "wait_s": 0.0,
+      "load_ms": 12,
+      "frontend_ms": 42,
+      "inference_ms": 3051,
+      "decode_ms": 96,
+      "decoder": "lm"
+    },
+    {
+      "seq": 125,
+      "audio_s": 9.6,
+      "wait_s": 0.0,
+      "load_ms": 7,
+      "frontend_ms": 78,
+      "inference_ms": 2791,
+      "decode_ms": 84,
+      "decoder": "lm"
+    }
+  ],
+  "mean_load_ms": 9.6875,
+  "mean_frontend_ms": 49,
+  "mean_inference_ms": 2736.1875,
+  "mean_decode_ms": 69.1875,
+  "all_lm": true,
+  "memory_snapshot": {
+    "schema": 1,
+    "dram": {
+      "total": 495203,
+      "used": 257036,
+      "free": 238167,
+      "minFree": 92200,
+      "peakUsed": 403003
+    },
+    "psram": {
+      "available": true,
+      "total": 32851892,
+      "used": 385272,
+      "free": 32466620
+    },
+    "heapCaps": {
+      "internalFree": 238167,
+      "internalLargest": 102400,
+      "dmaFree": 202703,
+      "dmaLargest": 102400
+    },
+    "allocationTraffic": {
+      "semantics": "cumulative_requested_since_reset",
+      "enabled": true,
+      "generation": 1,
+      "tags": 71,
+      "capacity": 512,
+      "attempts": 251614,
+      "successes": 251614,
+      "failures": 0,
+      "fallbacks": 0,
+      "dramBytes": 6360,
+      "psramBytes": 84971162,
+      "contentionDrops": 7,
+      "invalidTagEvents": 0,
+      "overflowEvents": 0
+    }
+  },
+  "memory_snapshot_context": "STT allocations not resident at collection; boot-wide minimum, not phase peak"
+}

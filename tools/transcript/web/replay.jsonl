@@ -1,0 +1,10 @@
+{"schema":1,"type":"start","sessionId":"demo-replay","clockKnown":false,"startedUtc":null,"bootDurable":true,"bootNumber":"142","powerCycleNumber":"90","sessionNumber":"3","source":"fixture-replay"}
+{"schema":1,"type":"draft","sessionId":"demo-replay","sequence":1,"version":1,"text":"i think hardwareone"}
+{"schema":1,"type":"final","sessionId":"demo-replay","sequence":1,"rawText":"i think hardwareone needs a better reader","text":"I think HardwareOne needs a better reader","title":"I think HardwareOne needs a better reader"}
+{"schema":1,"type":"speaker","sessionId":"demo-replay","sequence":1,"speaker":0,"ready":true}
+{"schema":1,"type":"final","sessionId":"demo-replay","sequence":2,"rawText":"and i'd like it to work offline","text":"and I'd like it to work offline"}
+{"schema":1,"type":"speaker","sessionId":"demo-replay","sequence":2,"speaker":0,"ready":true}
+{"schema":1,"type":"final","sessionId":"demo-replay","sequence":3,"rawText":"yes we can keep notes on the card","text":"Yes we can keep notes on the card"}
+{"schema":1,"type":"speaker","sessionId":"demo-replay","sequence":3,"speaker":1,"ready":true}
+{"schema":1,"type":"draft","sessionId":"demo-replay","sequence":4,"version":2,"text":"that's useful"}
+{"schema":1,"type":"end","sessionId":"demo-replay","outcome":"done","durationMs":"134000","phrases":3}

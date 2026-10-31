@@ -1,0 +1,9 @@
+{
+  "speech_model_bytes": 20112128,
+  "lm_card_bytes": 1599996,
+  "pcm_source_bytes": 1600000,
+  "feature_pool_source_bytes": 651272,
+  "speaker_card_bytes": 1994544,
+  "evidence": "Card listing, pinned speech graph, integrated firmware allocation constants; not a live allocation trace",
+  "source_file": "/Users/morgan/esp/hardwareone-idf/components/hardwareone/System_STT.cpp"
+}

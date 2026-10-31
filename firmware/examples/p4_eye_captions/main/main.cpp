@@ -29,6 +29,7 @@
 #include "stt/quartznet_runtime.h"
 #include "stt/stt_lm.h"
 #include "stt/stt_segmenter.h"
+#include "product.h"
 
 namespace {
 constexpr const char* TAG = "captions";
@@ -71,6 +72,7 @@ constexpr int kSlots = 2;  // phrases waiting for the transcriber
 // ---------------------------------------------------------------- microSD
 sdmmc_card_t* gCard = nullptr;
 sd_pwr_ctrl_handle_t gSdPower = nullptr;
+const char* gStorageFailure = "SD initialization failed";
 
 bool mountCard() {
   gpio_config_t pins = {};
@@ -86,11 +88,13 @@ bool mountCard() {
 
   sd_pwr_ctrl_ldo_config_t ldo = {};
   ldo.ldo_chan_id = kSdLdoChannel;
-  if (sd_pwr_ctrl_new_on_chip_ldo(&ldo, &gSdPower) != ESP_OK) return false;
+  const esp_err_t powerError = sd_pwr_ctrl_new_on_chip_ldo(&ldo, &gSdPower);
+  if (powerError != ESP_OK) { gStorageFailure = esp_err_to_name(powerError); return false; }
   vTaskDelay(pdMS_TO_TICKS(20));
   gpio_set_level(kSdPower, 0);
   vTaskDelay(pdMS_TO_TICKS(20));
   if (gpio_get_level(kSdDetect) != 0) {
+    gStorageFailure = "No microSD card detected on GPIO45; insert/reseat the model card and reset";
     ESP_LOGE(TAG, "No microSD card detected");
     return false;
   }
@@ -120,6 +124,7 @@ bool mountCard() {
   mount.allocation_unit_size = 16 * 1024;
   const esp_err_t err = esp_vfs_fat_sdmmc_mount(kMountPoint, &host, &slot, &mount, &gCard);
   if (err != ESP_OK) {
+    gStorageFailure = esp_err_to_name(err);
     ESP_LOGE(TAG, "Card mount failed: %s", esp_err_to_name(err));
     return false;
   }
@@ -296,7 +301,7 @@ hw1::stt::DecodeResult decodeWithLanguageModel(void* context, const int8_t* logi
   }
   if (!m.view.valid()) return hw1::stt::DecodeResult::Fallback;
   const lm::DecodeStatus status =
-      lm::decode(logits, frames, exponent, m.view, nullptr, text, capacity, {control.context, control.cancelled});
+      lm::decode(logits, frames, exponent, m.view, product::customWords(), text, capacity, {control.context, control.cancelled});
   if (status == lm::DecodeStatus::Ok) return hw1::stt::DecodeResult::Decoded;
   if (status == lm::DecodeStatus::Cancelled) return hw1::stt::DecodeResult::Cancelled;
   return hw1::stt::DecodeResult::Fallback;  // e.g. no workspace memory: greedy decides
@@ -338,9 +343,10 @@ bool transcribe(const int16_t* pcm, size_t samples, char* text, size_t capacity,
 }
 
 void halt(const char* why) {
+  product::status("error", why);
   for (;;) {
-    printf("%s\n", why);
-    vTaskDelay(pdMS_TO_TICKS(5000));
+    product::poll();
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
 }  // namespace
@@ -348,9 +354,12 @@ void halt(const char* why) {
 extern "C" void app_main() {
   printf("\nP4X-EYE captions: %s\n", kModelPath);
   printf("PSRAM free: %u KB\n", unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
-  if (!mountCard()) halt("Insert a FAT microSD card with /STT Models/ and reset.");
+  product::platformBegin();
+  if (!mountCard()) halt(gStorageFailure);
   struct stat st = {};
   if (stat(kModelPath, &st) != 0) halt("Model file missing on the card (see kModelPath in main.cpp).");
+
+  product::begin();
 
   for (int i = 0; i < kSlots; ++i) {
     gSlots[i].pcm = static_cast<int16_t*>(heap_caps_malloc(kPhraseSamples * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
@@ -386,10 +395,12 @@ extern "C" void app_main() {
   bool announced = false;
   uint32_t dropped = 0;
   for (;;) {
+    product::poll();
     int slot = -1;
-    if (xQueueReceive(gReady, &slot, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    if (xQueueReceive(gReady, &slot, pdMS_TO_TICKS(100)) != pdTRUE) {
       if (!announced && gCalibrated.load()) {
         announced = true;
+        product::status("listening");
         printf("Listening (noise floor %u, level %u). Speak; a caption follows each pause.\n", unsigned(gNoise.load()),
                unsigned(gLevel.load()));
       }
@@ -410,10 +421,12 @@ extern "C" void app_main() {
     const double at = double(p.startSample) / kSampleRate;
     if (ok && text[0]) {
       printf("[%7.1f s] %s\n", at, text);
+      product::caption(text, p.startSample, p.startSample + p.samples, p.hardLimit, gDropped.load());
     } else if (ok) {
       printf("[%7.1f s] (no speech recognised)\n", at);
     } else {
       printf("[%7.1f s] transcription failed: %s\n", at, error);
+      product::status("error", error);
     }
     printf("           %.1f s of audio in %lld ms: features %u, model %u, decode %u ms%s\n", double(samples) / kSampleRate,
            ms, unsigned(stats.frontendMs), unsigned(stats.inferenceMs), unsigned(stats.decodeMs),

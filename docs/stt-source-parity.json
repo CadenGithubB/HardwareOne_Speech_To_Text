@@ -1,0 +1,176 @@
+{
+  "schema": 1,
+  "compared_date": "2026-10-31",
+  "integrated_head": "aa6508fd288a8693d14150c46575c8d68185b7f6",
+  "integrated_stt_worktree_changes": [
+    " M components/hardwareone/System_STT.cpp"
+  ],
+  "scope": "Current filesystem sources; not proof of installed firmware equivalence",
+  "summary": {
+    "identical": 13,
+    "different": 6,
+    "only_integrated": 7
+  },
+  "files": [
+    {
+      "file": "quartznet.compile_req.yml",
+      "status": "identical",
+      "standalone_sha256": "e5a4dee9fe5377027ed49f901c0e9b82700570a2c8874bd8b75275fac19a07b0",
+      "integrated_sha256": "e5a4dee9fe5377027ed49f901c0e9b82700570a2c8874bd8b75275fac19a07b0"
+    },
+    {
+      "file": "quartznet_constants.h",
+      "status": "identical",
+      "standalone_sha256": "a77794cca23f329cccc5e8bc7176a20aed6e1412190586bf218f1ab46d602239",
+      "integrated_sha256": "a77794cca23f329cccc5e8bc7176a20aed6e1412190586bf218f1ab46d602239"
+    },
+    {
+      "file": "quartznet_frontend.cpp",
+      "status": "identical",
+      "standalone_sha256": "09073499b5b7a6af556c90afbde9bec60c1e46030f512c2f665ef904e1fb649a",
+      "integrated_sha256": "09073499b5b7a6af556c90afbde9bec60c1e46030f512c2f665ef904e1fb649a"
+    },
+    {
+      "file": "quartznet_frontend.h",
+      "status": "identical",
+      "standalone_sha256": "ef1a0870018a6b5a4c8ee48196c56b436c3e3e5407380bdee79e47dcbbd6cb67",
+      "integrated_sha256": "ef1a0870018a6b5a4c8ee48196c56b436c3e3e5407380bdee79e47dcbbd6cb67"
+    },
+    {
+      "file": "quartznet_runtime.cpp",
+      "status": "different",
+      "standalone_sha256": "56f0efe1ffa238033251be77c0f2383dc5f7b71afe8178a1c62b8041b21a070f",
+      "integrated_sha256": "3ecb9582d24a54504999d561f378bffa9d9c59586f8ec5a1a318ca9d14caa1cc"
+    },
+    {
+      "file": "quartznet_runtime.h",
+      "status": "identical",
+      "standalone_sha256": "09e8a6cff80c999fe69a0e977dd62e56acab2eeb609cad9c6b9753e74b84f275",
+      "integrated_sha256": "09e8a6cff80c999fe69a0e977dd62e56acab2eeb609cad9c6b9753e74b84f275"
+    },
+    {
+      "file": "speaker.compile_req.yml",
+      "status": "identical",
+      "standalone_sha256": "7d6a3f94f38778786fe6c8b2f6287787b3b904cd13312d3e53fb553d179d85f6",
+      "integrated_sha256": "7d6a3f94f38778786fe6c8b2f6287787b3b904cd13312d3e53fb553d179d85f6"
+    },
+    {
+      "file": "speaker_cluster.h",
+      "status": "different",
+      "standalone_sha256": "30710ddb50cccc26555e62e6e4eeef1f612d1a1ae7f9f651566ff21f119d6a65",
+      "integrated_sha256": "58a3a5168908a4b4a3e191d6074729a108c491917678e0570dfe5b13554dd69b"
+    },
+    {
+      "file": "speaker_frontend.cpp",
+      "status": "identical",
+      "standalone_sha256": "78b153456e003312f416a77f8ca2aebd112896b27f8afbed5f6f22f9b2865385",
+      "integrated_sha256": "78b153456e003312f416a77f8ca2aebd112896b27f8afbed5f6f22f9b2865385"
+    },
+    {
+      "file": "speaker_frontend.h",
+      "status": "identical",
+      "standalone_sha256": "9c030227f1c7cb37ecd0d8f06441667459ce30555d118ddfd30051b919257938",
+      "integrated_sha256": "9c030227f1c7cb37ecd0d8f06441667459ce30555d118ddfd30051b919257938"
+    },
+    {
+      "file": "speaker_model.cpp",
+      "status": "identical",
+      "standalone_sha256": "0cf7629a7b4fe4d707a1ab10a62f02dde5e1e51c46a685c84664842a9fcefa50",
+      "integrated_sha256": "0cf7629a7b4fe4d707a1ab10a62f02dde5e1e51c46a685c84664842a9fcefa50"
+    },
+    {
+      "file": "speaker_model.h",
+      "status": "identical",
+      "standalone_sha256": "f9aedb016ec8cc78d60a4bcae80a6698d0a8126de571b39d86af81ae0cb59c04",
+      "integrated_sha256": "f9aedb016ec8cc78d60a4bcae80a6698d0a8126de571b39d86af81ae0cb59c04"
+    },
+    {
+      "file": "stt_dl_metadata.cpp",
+      "status": "identical",
+      "standalone_sha256": "3c9b3b48a9f1f2a887468d2de53ca41cb1c0a0edb7fdaf8ef42e979ac02d0297",
+      "integrated_sha256": "3c9b3b48a9f1f2a887468d2de53ca41cb1c0a0edb7fdaf8ef42e979ac02d0297"
+    },
+    {
+      "file": "stt_dl_metadata.h",
+      "status": "identical",
+      "standalone_sha256": "c01ef908e3712d55c8d05ca9b7a9f2755662359174b6707a8369cda94a4f511d",
+      "integrated_sha256": "c01ef908e3712d55c8d05ca9b7a9f2755662359174b6707a8369cda94a4f511d"
+    },
+    {
+      "file": "stt_internal_memory.cpp",
+      "status": "only_integrated",
+      "standalone_sha256": null,
+      "integrated_sha256": "a1f0f8762efa67a182e4f7c776206be653e6c3d0f1a56320862074c3ded93611"
+    },
+    {
+      "file": "stt_internal_memory.h",
+      "status": "only_integrated",
+      "standalone_sha256": null,
+      "integrated_sha256": "2dbb33fa308773c4665cb15567f6c51906ea9c323dd31d0daa4de3c788facb65"
+    },
+    {
+      "file": "stt_internal_memory_core.h",
+      "status": "only_integrated",
+      "standalone_sha256": null,
+      "integrated_sha256": "64606b212fc644ad01b92107f8feea3511f0ff16c6d43caf64c10a5460972901"
+    },
+    {
+      "file": "stt_lm.cpp",
+      "status": "different",
+      "standalone_sha256": "002ab90d1fa0ad76b64346d08c046a71c3090e5e0f282cdb74f59d28d5e71725",
+      "integrated_sha256": "33821bfc9d8e3c6cc509cb308c25c39d327daed5812674a3c5e0ee32145c8e61"
+    },
+    {
+      "file": "stt_lm.h",
+      "status": "different",
+      "standalone_sha256": "1fea85440d6e61cc4e7e4741426b941b646cf51111ae71044643da2106f553ac",
+      "integrated_sha256": "4d1c6bf8cedfd0248cd45844d4afc598fee9891dc9740258604f7aa19d45a687"
+    },
+    {
+      "file": "stt_model_container.h",
+      "status": "different",
+      "standalone_sha256": "2e675f76d70800a5b1628106d7425c5c4e08a9cbacefc8781c232e8bf638462d",
+      "integrated_sha256": "a71f302486c3a58940cac1d0c25bb77249a1698ae2eaf8f8d1b172c21ba046d3"
+    },
+    {
+      "file": "stt_model_identity.h",
+      "status": "different",
+      "standalone_sha256": "183dd6b99638cf33a70e416ab8d600494e110be234f913aa064593d99ec1cf63",
+      "integrated_sha256": "6713ab389149cc6b4ef8dfa8499d2265e49d5ae02365352151562d82449785a7"
+    },
+    {
+      "file": "stt_model_identity_15x5_gen2.h",
+      "status": "only_integrated",
+      "standalone_sha256": null,
+      "integrated_sha256": "183dd6b99638cf33a70e416ab8d600494e110be234f913aa064593d99ec1cf63"
+    },
+    {
+      "file": "stt_model_selection.h",
+      "status": "only_integrated",
+      "standalone_sha256": null,
+      "integrated_sha256": "1aeeda3c83020169ab0dbde5300d0c90087f4dea2016529146059e59b5b1f06b"
+    },
+    {
+      "file": "stt_segmenter.h",
+      "status": "identical",
+      "standalone_sha256": "2b3e4a5c48fec27b3c82770e9fbed51075e098e85431b23ba6e0c984d8d59151",
+      "integrated_sha256": "2b3e4a5c48fec27b3c82770e9fbed51075e098e85431b23ba6e0c984d8d59151"
+    },
+    {
+      "file": "stt_transcript.cpp",
+      "status": "only_integrated",
+      "standalone_sha256": null,
+      "integrated_sha256": "7b93a478640b310b08c7b30035bea6186dcb3596c94f63df125ca42c2bb66f53"
+    },
+    {
+      "file": "stt_transcript.h",
+      "status": "only_integrated",
+      "standalone_sha256": null,
+      "integrated_sha256": "bb918e4f2416f6551a336e7a63a2fa06aafea0837b36f693a8332c9efebecd2a"
+    }
+  ],
+  "esp_dl_patch": {
+    "standalone_sha256": "a8e46fd492c3c474a8ad757cdf2401e1cbd76aaaa7bc915cfa83b6bda4fc6d75",
+    "integrated_sha256": "0dc9782643ce3d2332b2c4a54624fce27150736314d065b48b55d5cf2a54d593"
+  }
+}

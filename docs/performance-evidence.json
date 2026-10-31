@@ -1,0 +1,862 @@
+{
+  "schema": 1,
+  "audit_date": "2026-10-31",
+  "controlled_benchmark_this_audit": false,
+  "historical": {
+    "period": "2026-10-10 through 2026-10-11",
+    "build": "v1.8 / c12, with early final scheduling; not standalone app_main",
+    "latency_seconds": {
+      "short": {
+        "n": 8,
+        "n_mid": 4,
+        "median_L": 0.8615999999999999,
+        "iqm_L": 0.82375,
+        "wait": 0.18274999999999908,
+        "trigger": 0.0,
+        "queue": 0.0,
+        "rebuild": 0.00375,
+        "features": 0.00875,
+        "pw": 0.43720554862206873,
+        "dw": 0.1318018208438634,
+        "other": 0.02749263053406791,
+        "lm": 0.02575,
+        "delivery": 0.00625
+      },
+      "all": {
+        "n": 14,
+        "n_mid": 8,
+        "median_L": 1.0038,
+        "iqm_L": 1.0643375,
+        "wait": 0.112125,
+        "trigger": 0.07133749999999918,
+        "queue": 0.0,
+        "rebuild": 0.0035,
+        "features": 0.012625,
+        "pw": 0.5985902430892185,
+        "dw": 0.19096018385909175,
+        "other": 0.034199573051689774,
+        "lm": 0.033375,
+        "delivery": 0.007625
+      },
+      "longer": {
+        "n": 6,
+        "n_mid": 4,
+        "median_L": 1.7251999999999998,
+        "iqm_L": 1.65025,
+        "wait": 0.0,
+        "trigger": 0.06300000000000364,
+        "queue": 0.00075,
+        "rebuild": 0.0035,
+        "features": 0.02725,
+        "pw": 1.0693388228295886,
+        "dw": 0.36408134482176197,
+        "other": 0.05357983234864954,
+        "lm": 0.05825,
+        "delivery": 0.0105
+      }
+    },
+    "latency_statistic": "interquartile mean; layer split allocated from stage-profile fits",
+    "layers_five_second_audio_seconds": {
+      "pw512": 0.8359163999999998,
+      "pw256": 0.12596975000000002,
+      "pwhead": 0.05216275,
+      "dw75": 0.10281605000000002,
+      "dw63": 0.08724235,
+      "dw51": 0.07635275,
+      "dw87": 0.01341295,
+      "dw39_33": 0.0636892,
+      "addrelu": 0.05138049999999999
+    },
+    "memory_v1_8": {
+      "psram_low_mb": 6.25,
+      "psram_warm_mb": 8.0,
+      "internal_low_kb": 143.1
+    },
+    "memory_units": "decimal MB and kB; divide bytes by 2**20 / 2**10 for MiB / KiB",
+    "sources": [
+      "tools/report/breakdown.json",
+      "tools/report/layers.json",
+      "tools/report/versions.json",
+      "docs/index.html"
+    ]
+  },
+  "current_source": {
+    "psram_physical_bytes": 33554432,
+    "retained_model_bytes": 20112128,
+    "retained_pcm_bytes": 960000,
+    "lm_options": [
+      {
+        "label": "LM not loaded",
+        "bytes": 0,
+        "evidence": "possible fallback"
+      },
+      {
+        "label": "1.6 MB LM (approx.)",
+        "bytes": 1600000,
+        "evidence": "approximate size only; Oct 21 qualification used this class"
+      },
+      {
+        "label": "Archive LM: 2.5 MB",
+        "bytes": 2499996,
+        "evidence": "archive manifest exact asset size; current card unknown"
+      }
+    ],
+    "frontend_bytes_per_frame": 256,
+    "samples_per_frame": 160,
+    "frontend_workspace_bytes_approx": 8200,
+    "model_header_logical_bytes_per_call": 96,
+    "endpoint_silence_seconds": {
+      "long_eligible": 0.6,
+      "short_close": 1.0
+    },
+    "actual_heap_peaks": null,
+    "physical_flash_read_counts": null,
+    "sources": [
+      "firmware/examples/p4_eye_captions/main/main.cpp",
+      "firmware/components/hw1_stt/stt/stt_model_identity.h",
+      "firmware/components/hw1_stt/stt/quartznet_frontend.h",
+      "firmware/components/hw1_stt/stt/stt_model_container.h"
+    ]
+  },
+  "connected_device": {
+    "firmware": "0.99.99",
+    "board": "ESP32-P4X-EYE",
+    "collected_date": "2026-10-31",
+    "provenance": "device sttperf show ring buffer; prior audio run, not a new controlled benchmark",
+    "debug_state": "before requested STT/microphone/Bluetooth flags were enabled",
+    "phrases": 16,
+    "min_audio_s": 8.1,
+    "max_audio_s": 9.7,
+    "segments": [
+      {
+        "seq": 110,
+        "audio_s": 8.2,
+        "wait_s": 0.0,
+        "load_ms": 8,
+        "frontend_ms": 40,
+        "inference_ms": 2560,
+        "decode_ms": 58,
+        "decoder": "lm"
+      },
+      {
+        "seq": 111,
+        "audio_s": 8.9,
+        "wait_s": 0.0,
+        "load_ms": 11,
+        "frontend_ms": 41,
+        "inference_ms": 2709,
+        "decode_ms": 77,
+        "decoder": "lm"
+      },
+      {
+        "seq": 112,
+        "audio_s": 8.8,
+        "wait_s": 0.0,
+        "load_ms": 11,
+        "frontend_ms": 46,
+        "inference_ms": 2742,
+        "decode_ms": 64,
+        "decoder": "lm"
+      },
+      {
+        "seq": 113,
+        "audio_s": 9.0,
+        "wait_s": 0.0,
+        "load_ms": 11,
+        "frontend_ms": 50,
+        "inference_ms": 2807,
+        "decode_ms": 64,
+        "decoder": "lm"
+      },
+      {
+        "seq": 114,
+        "audio_s": 8.8,
+        "wait_s": 0.0,
+        "load_ms": 9,
+        "frontend_ms": 49,
+        "inference_ms": 2692,
+        "decode_ms": 65,
+        "decoder": "lm"
+      },
+      {
+        "seq": 115,
+        "audio_s": 8.9,
+        "wait_s": 0.0,
+        "load_ms": 12,
+        "frontend_ms": 58,
+        "inference_ms": 2734,
+        "decode_ms": 56,
+        "decoder": "lm"
+      },
+      {
+        "seq": 116,
+        "audio_s": 8.8,
+        "wait_s": 0.0,
+        "load_ms": 9,
+        "frontend_ms": 44,
+        "inference_ms": 2646,
+        "decode_ms": 50,
+        "decoder": "lm"
+      },
+      {
+        "seq": 117,
+        "audio_s": 9.0,
+        "wait_s": 0.0,
+        "load_ms": 8,
+        "frontend_ms": 45,
+        "inference_ms": 2721,
+        "decode_ms": 66,
+        "decoder": "lm"
+      },
+      {
+        "seq": 118,
+        "audio_s": 9.7,
+        "wait_s": 0.0,
+        "load_ms": 10,
+        "frontend_ms": 69,
+        "inference_ms": 2956,
+        "decode_ms": 65,
+        "decoder": "lm"
+      },
+      {
+        "seq": 119,
+        "audio_s": 8.4,
+        "wait_s": 0.0,
+        "load_ms": 9,
+        "frontend_ms": 42,
+        "inference_ms": 2630,
+        "decode_ms": 65,
+        "decoder": "lm"
+      },
+      {
+        "seq": 120,
+        "audio_s": 9.5,
+        "wait_s": 0.0,
+        "load_ms": 11,
+        "frontend_ms": 52,
+        "inference_ms": 2941,
+        "decode_ms": 58,
+        "decoder": "lm"
+      },
+      {
+        "seq": 121,
+        "audio_s": 8.1,
+        "wait_s": 0.0,
+        "load_ms": 9,
+        "frontend_ms": 40,
+        "inference_ms": 2548,
+        "decode_ms": 47,
+        "decoder": "lm"
+      },
+      {
+        "seq": 122,
+        "audio_s": 8.5,
+        "wait_s": 0.0,
+        "load_ms": 8,
+        "frontend_ms": 45,
+        "inference_ms": 2648,
+        "decode_ms": 102,
+        "decoder": "lm"
+      },
+      {
+        "seq": 123,
+        "audio_s": 8.4,
+        "wait_s": 0.0,
+        "load_ms": 10,
+        "frontend_ms": 43,
+        "inference_ms": 2603,
+        "decode_ms": 90,
+        "decoder": "lm"
+      },
+      {
+        "seq": 124,
+        "audio_s": 9.7,
+        "wait_s": 0.0,
+        "load_ms": 12,
+        "frontend_ms": 42,
+        "inference_ms": 3051,
+        "decode_ms": 96,
+        "decoder": "lm"
+      },
+      {
+        "seq": 125,
+        "audio_s": 9.6,
+        "wait_s": 0.0,
+        "load_ms": 7,
+        "frontend_ms": 78,
+        "inference_ms": 2791,
+        "decode_ms": 84,
+        "decoder": "lm"
+      }
+    ],
+    "mean_load_ms": 9.6875,
+    "mean_frontend_ms": 49,
+    "mean_inference_ms": 2736.1875,
+    "mean_decode_ms": 69.1875,
+    "all_lm": true,
+    "memory_snapshot": {
+      "schema": 1,
+      "dram": {
+        "total": 495203,
+        "used": 257036,
+        "free": 238167,
+        "minFree": 92200,
+        "peakUsed": 403003
+      },
+      "psram": {
+        "available": true,
+        "total": 32851892,
+        "used": 385272,
+        "free": 32466620
+      },
+      "heapCaps": {
+        "internalFree": 238167,
+        "internalLargest": 102400,
+        "dmaFree": 202703,
+        "dmaLargest": 102400
+      },
+      "allocationTraffic": {
+        "semantics": "cumulative_requested_since_reset",
+        "enabled": true,
+        "generation": 1,
+        "tags": 71,
+        "capacity": 512,
+        "attempts": 251614,
+        "successes": 251614,
+        "failures": 0,
+        "fallbacks": 0,
+        "dramBytes": 6360,
+        "psramBytes": 84971162,
+        "contentionDrops": 7,
+        "invalidTagEvents": 0,
+        "overflowEvents": 0
+      }
+    },
+    "memory_snapshot_context": "STT allocations not resident at collection; boot-wide minimum, not phase peak"
+  },
+  "fresh_glasses_profile": {
+    "schema": 1,
+    "date": "2026-10-31",
+    "firmware": "0.99.99",
+    "source": "G2 native Conversate",
+    "conditions": "live uncontrolled speech; requested debug flags and per-frame logs ON; loglink ON; Showcase paused; no file logging",
+    "session_dir": "private/performance/active-glasses-20261031-104631",
+    "cold_start_captured": false,
+    "window_seconds": 48.26677654101513,
+    "phrases": 6,
+    "segments": [
+      {
+        "seq": 16,
+        "capture_audio_s": 3.26,
+        "inferred_audio_s": 2.76,
+        "load_ms": 8,
+        "frontend_ms": 17,
+        "inference_ms": 907,
+        "decode_ms": 31,
+        "other_ms": 27,
+        "worker_elapsed_ms": 990,
+        "close_to_done_ms": 522,
+        "worker_start_relative_close_ms": -468,
+        "save_hook_ms": 0,
+        "ok": true,
+        "lm": true,
+        "promoted": true,
+        "boot_min_psram_bytes": 2502104,
+        "boot_min_internal_bytes": 92200,
+        "features": {
+          "seg": 16,
+          "frames": 276,
+          "cached": 256
+        },
+        "yield": {
+          "seg": 16,
+          "blocks": 3,
+          "yield_us": 4639
+        },
+        "speaker": {
+          "seq": 16,
+          "spk": -1,
+          "sim": 0.762,
+          "new": 0,
+          "tent": 1,
+          "samples": 44160,
+          "fe_us": 64565,
+          "nn_us": 3846391,
+          "head_us": 44774,
+          "us": 3962179,
+          "lag_ms": 3977
+        },
+        "send_ack_ms": 62
+      },
+      {
+        "seq": 17,
+        "capture_audio_s": 3.61,
+        "inferred_audio_s": 3.11,
+        "load_ms": 7,
+        "frontend_ms": 16,
+        "inference_ms": 1013,
+        "decode_ms": 69,
+        "other_ms": 24,
+        "worker_elapsed_ms": 1129,
+        "close_to_done_ms": 625,
+        "worker_start_relative_close_ms": -504,
+        "save_hook_ms": 0,
+        "ok": true,
+        "lm": true,
+        "promoted": true,
+        "boot_min_psram_bytes": 2502104,
+        "boot_min_internal_bytes": 92200,
+        "features": {
+          "seg": 17,
+          "frames": 311,
+          "cached": 300
+        },
+        "yield": {
+          "seg": 17,
+          "blocks": 3,
+          "yield_us": 4441
+        },
+        "speaker": {
+          "seq": 17,
+          "spk": -1,
+          "sim": 0.768,
+          "new": 0,
+          "tent": 1,
+          "samples": 49760,
+          "fe_us": 64327,
+          "nn_us": 809540,
+          "head_us": 41036,
+          "us": 920611,
+          "lag_ms": 1117
+        },
+        "send_ack_ms": 63
+      },
+      {
+        "seq": 18,
+        "capture_audio_s": 3.51,
+        "inferred_audio_s": 3.51,
+        "load_ms": 7,
+        "frontend_ms": 24,
+        "inference_ms": 1097,
+        "decode_ms": 29,
+        "other_ms": 16,
+        "worker_elapsed_ms": 1173,
+        "close_to_done_ms": 1179,
+        "worker_start_relative_close_ms": 6,
+        "save_hook_ms": 0,
+        "ok": true,
+        "lm": true,
+        "promoted": false,
+        "boot_min_psram_bytes": 2502104,
+        "boot_min_internal_bytes": 92200,
+        "features": {
+          "seg": 18,
+          "frames": 351,
+          "cached": 326
+        },
+        "yield": {
+          "seg": 18,
+          "blocks": 4,
+          "yield_us": 5921
+        },
+        "speaker": null,
+        "send_ack_ms": null
+      },
+      {
+        "seq": 19,
+        "capture_audio_s": 5.66,
+        "inferred_audio_s": 5.57,
+        "load_ms": 7,
+        "frontend_ms": 33,
+        "inference_ms": 1754,
+        "decode_ms": 79,
+        "other_ms": 35,
+        "worker_elapsed_ms": 1908,
+        "close_to_done_ms": 1862,
+        "worker_start_relative_close_ms": -46,
+        "save_hook_ms": 1,
+        "ok": true,
+        "lm": true,
+        "promoted": true,
+        "boot_min_psram_bytes": 2502104,
+        "boot_min_internal_bytes": 92200,
+        "features": {
+          "seg": 19,
+          "frames": 557,
+          "cached": 557
+        },
+        "yield": {
+          "seg": 19,
+          "blocks": 6,
+          "yield_us": 7142
+        },
+        "speaker": {
+          "seq": 19,
+          "spk": -1,
+          "sim": 0.779,
+          "new": 0,
+          "tent": 1,
+          "samples": 89120,
+          "fe_us": 900962,
+          "nn_us": 5210097,
+          "head_us": 663304,
+          "us": 6938366,
+          "lag_ms": 6960
+        },
+        "send_ack_ms": 47
+      },
+      {
+        "seq": 20,
+        "capture_audio_s": 5.37,
+        "inferred_audio_s": 5.37,
+        "load_ms": 9,
+        "frontend_ms": 41,
+        "inference_ms": 1769,
+        "decode_ms": 86,
+        "other_ms": 32,
+        "worker_elapsed_ms": 1937,
+        "close_to_done_ms": 1956,
+        "worker_start_relative_close_ms": 19,
+        "save_hook_ms": 0,
+        "ok": true,
+        "lm": true,
+        "promoted": false,
+        "boot_min_psram_bytes": 2502104,
+        "boot_min_internal_bytes": 92200,
+        "features": {
+          "seg": 20,
+          "frames": 537,
+          "cached": 464
+        },
+        "yield": {
+          "seg": 20,
+          "blocks": 6,
+          "yield_us": 7170
+        },
+        "speaker": {
+          "seq": 20,
+          "spk": 1,
+          "sim": 0.784,
+          "new": 0,
+          "tent": 0,
+          "samples": 85920,
+          "fe_us": 206928,
+          "nn_us": 828078,
+          "head_us": 46437,
+          "us": 1088522,
+          "lag_ms": 2477
+        },
+        "send_ack_ms": 45
+      },
+      {
+        "seq": 21,
+        "capture_audio_s": 2.95,
+        "inferred_audio_s": 2.45,
+        "load_ms": 7,
+        "frontend_ms": 16,
+        "inference_ms": 749,
+        "decode_ms": 38,
+        "other_ms": 21,
+        "worker_elapsed_ms": 831,
+        "close_to_done_ms": 340,
+        "worker_start_relative_close_ms": -491,
+        "save_hook_ms": 0,
+        "ok": true,
+        "lm": true,
+        "promoted": true,
+        "boot_min_psram_bytes": 2502104,
+        "boot_min_internal_bytes": 92200,
+        "features": {
+          "seg": 21,
+          "frames": 245,
+          "cached": 240
+        },
+        "yield": {
+          "seg": 21,
+          "blocks": 2,
+          "yield_us": 2960
+        },
+        "speaker": null,
+        "send_ack_ms": 62
+      }
+    ],
+    "mean": {
+      "load_ms": 7.5,
+      "frontend_ms": 24.5,
+      "inference_ms": 1214.8333333333333,
+      "decode_ms": 55.333333333333336,
+      "other_ms": 25.833333333333332,
+      "worker_elapsed_ms": 1328,
+      "close_to_done_ms": 1080.6666666666667,
+      "inference_share_percent": 91.47841365461846
+    },
+    "previews": {
+      "successful_drafts": 15,
+      "canceled_or_failed_drafts": 6
+    },
+    "memory_samples": [
+      {
+        "t_s": 1.001,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 3.044,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 5.087,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 7.123,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 9.601,
+        "psram_free": 3337076,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 11.763,
+        "psram_free": 3003584,
+        "psram_total": 32851892,
+        "internal_free": 199411,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 14.545,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 16.592,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 18.644,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 20.696,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 22.737,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 24.773,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 26.819,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 28.862,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 30.903,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 32.95,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 35.003,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 199387,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 37.385,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 39.538,
+        "psram_free": 3337468,
+        "psram_total": 32851892,
+        "internal_free": 203907,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 42.147,
+        "psram_free": 2763720,
+        "psram_total": 32851892,
+        "internal_free": 199407,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      },
+      {
+        "t_s": 45.581,
+        "psram_free": 2991008,
+        "psram_total": 32851892,
+        "internal_free": 199347,
+        "internal_total": 495203,
+        "internal_largest": 100352,
+        "internal_boot_min": 92200
+      }
+    ],
+    "memory_sample_interval_seconds_approx": 2,
+    "sampled_min_psram_free": 2763720,
+    "sampled_min_internal_free": 199347,
+    "boot_min_psram_free": 2502104,
+    "boot_min_internal_free": 92200,
+    "layers": {
+      "completed_model_runs": 21,
+      "final_phrases": 6,
+      "stage_time_delta_ms": 17941.185,
+      "groups_ms": {
+        "512\u2192512 pointwise": 10242.047999999999,
+        "Other pointwise": 2533.844,
+        "Depthwise": 4333.839999999999,
+        "Add / ReLU": 831.4529999999999
+      },
+      "group_percent": {
+        "512\u2192512 pointwise": 57.08679777840761,
+        "Other pointwise": 14.123058203792,
+        "Depthwise": 24.155818024283228,
+        "Add / ReLU": 4.63432599351715
+      },
+      "stage_total_quantization_error_bound_ms": 167.835,
+      "scope": "finals, drafts, speculative runs, and partial canceled stage work; stage wall time, not exclusive CPU time",
+      "counter_limit": "rounded, unsynchronized counter snapshots; shares are approximate"
+    },
+    "bluetooth": {
+      "packets_delta": 1060,
+      "audio_span_delta_ms": 53267,
+      "packet_rate_per_second": 19.899750314453602,
+      "lost_delta": 0,
+      "duplicates_delta": 0,
+      "max_gap_ms_session": 107,
+      "decode_fail_delta": 0,
+      "plc_delta": 0,
+      "overrun_delta": 0,
+      "degraded_end": 0
+    },
+    "storage": {
+      "success": true,
+      "total": 9285632,
+      "used": 942080,
+      "free": 8343552,
+      "usagePercent": 10
+    },
+    "limits": [
+      "no ground-truth audio or WER score",
+      "close-to-done excludes endpointing and display draw",
+      "heap samples miss transient peaks; boot minima are not session-attributed",
+      "no physical flash/cache-read counters or SD I/O timing instrumentation",
+      "speaker timings include preemption; do not add them to caption time"
+    ],
+    "allocation_reference": {
+      "speech_model_bytes": 20112128,
+      "lm_card_bytes": 1599996,
+      "pcm_source_bytes": 1600000,
+      "feature_pool_source_bytes": 651272,
+      "speaker_card_bytes": 1994544,
+      "evidence": "Card listing, pinned speech graph, integrated firmware allocation constants; not a live allocation trace",
+      "source_file": "/Users/morgan/esp/hardwareone-idf/components/hardwareone/System_STT.cpp"
+    },
+    "speaker_observed_wall_ms": [
+      3962.179,
+      920.611,
+      6938.366,
+      1088.522
+    ],
+    "speaker_observed_lag_ms": [
+      3977,
+      1117,
+      6960,
+      2477
+    ],
+    "feature_cached_fraction": 0.9411506368028107
+  }
+}

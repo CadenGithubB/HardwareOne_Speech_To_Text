@@ -5,7 +5,7 @@ Everything needed to run the models on an ESP32-P4 without the rest of HardwareO
 | Folder | What |
 |---|---|
 | `components/hw1_stt` | The engine as an ESP-IDF component: log-mel frontend, ESP-DL int8 QuartzNet runtime, phrase segmenter, word-trigram language model with CTC beam search, model container check. `stt/` is HardwareOne's `components/hardwareone/stt` unchanged (branch `stt-speedups`, commit 2e56063); the three headers beside it replace the firmware's own. |
-| `examples/p4_eye_captions` | Microphone to captions on the serial console. About 400 lines, no network, no accounts, no display: the smallest program that uses the engine the way HardwareOne does. |
+| `examples/p4_eye_captions` | Microphone to serial captions with SD vocabulary, offline JSONL recordings and persistent startup ordering. No network, accounts or on-device display; an optional localhost USB viewer runs on the Mac. |
 | `tools/prepare_esp_dl.py` | Stages the patched ESP-DL 3.3.12 the engine needs (see below). `esp-dl-3.3.12-hw1.patch` is the patch. |
 
 ## What you need
@@ -46,8 +46,9 @@ On the console you will see the model load (a few seconds for the 20 MB file), t
 ```
 
 Flashing writes only the app partition at 0x10000 when you use `esptool write_flash 0x10000`;
-the partition table matches HardwareOne's P4X-EYE image, so a HardwareOne device can run this
-example and be flashed back the same way. `idf.py flash` writes the bootloader and partition
+inspect the actual device partition table first and confirm the app fits. Some HardwareOne devices
+have a smaller factory slot than this example declares. Back up the installed application and flash
+only the app; do not replace an existing partition table to match this example. `idf.py flash` writes the bootloader and partition
 table too, which is fine on a board that has never run HardwareOne.
 
 ## Using the engine in your own program
@@ -58,7 +59,7 @@ table too, which is fine on a board that has never run HardwareOne.
    (`stt/stt_segmenter.h`). It returns a `SpeechSegment` when a phrase ends on a pause or at the
    10 s cap. The settings in `captureTask` are the ones HardwareOne uses for this microphone.
 2. **Trim** (optional, off here): cut a pause-ended phrase shortly after its last voiced frame
-   (`voiced_end_samples`) to save inference time. HardwareOne keeps 200 ms; in a test here with a
+   (`voiced_end_samples`) to save inference time. the older HardwareOne policy kept 200 ms (current integrated source keeps 500 ms). With a
    quiet loudspeaker that lost soft final words, so the example sends the whole phrase.
 3. **Transcribe**: `hw1::stt::transcribe(...)` (`stt/quartznet_runtime.h`) with a `ModelReader`
    over the model file, a `ModelCache` kept for the whole run (so the 20 MB weights are read and
@@ -85,7 +86,21 @@ them; HardwareOne's `System_STTLocal.cpp` shows how.
 
 ## Keeping in step with HardwareOne
 
-The engine source is a copy, not a fork: `components/hw1_stt/stt/*` should stay byte-identical to
-`components/hardwareone/stt/*` in HardwareOne except `stt_model_identity.h` (HardwareOne pins its own
-deployed model). The patch and `prepare_esp_dl.py` mirror HardwareOne's `tools/p4/`. When either side
-changes, copy the files across and rebuild the example.
+The engine and ESP-DL patch originated as HardwareOne snapshots. They now have
+[confirmed differences](../docs/STANDALONE_PARITY.md), including runtime memory/watchdog
+changes, LM controls, speaker assignment and newer ESP-DL allocation handling.
+Do not overwrite either tree wholesale. Reconcile portable improvements here,
+qualify the standalone build and behavior, then adapt the qualified components
+for HardwareOne while preserving its platform/session integration.
+
+## Vocabulary and offline recordings
+
+See [the standalone viewer guide](../tools/transcript/README.md) and
+[the implementation handoff](../docs/STT_PRODUCT_HANDOFF.md). The app automatically opens a recording
+after storage initialization. Serial commands edit vocabulary and start/finish saving notes. Startup
+status remains available even when the model card cannot mount. NVS startup counters use only the
+`hw1_stt_demo` namespace and never erase the NVS partition on initialization errors.
+
+The browser supports replay drafts and existing speaker assignments for integration testing. The
+minimal microphone example continues to supply finalized captions only; it does not add a draft or
+speaker worker. Word preferences require a valid optional `meeting.lm`; formatting is independent.
