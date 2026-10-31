@@ -32,6 +32,8 @@ def measurements(pair):
             'sampled_internal_largest_bytes': min((x['internal_largest'] for x in memory), default=None),
             'inference_ms': s['n']['median'], 'decode_ms': s['d']['median'],
             'preview_count': data['tl_counts'].get('draft', 0),
+            'preview_preempted': data['drafts'].get('preempted'),
+            'first_preview_ms': data['drafts'].get('first_text_median_ms'),
             'psram_min_bytes': data['health']['psram_min_min'],
             'audio_overruns': meta.get('audio_overruns')}
 

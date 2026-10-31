@@ -12,8 +12,9 @@ private and are not included here.
 - A complete 7,426,048-byte app-slot rollback image was saved privately before
   testing and verified against the device. The matching rebuilt baseline was
   subsequently flashed at `0x10000` only. The preview-cadence candidate is
-  now installed at the same app address for testing. Both writes verified;
-  the original image is reserved for restoration. No other partition was flashed.
+  was tested at the same app address. The speaker-off candidate is now
+  installed there. All writes verified; the original image is reserved for
+  restoration. No other partition was flashed.
 - A 75% qualification run completed 39 final chunks with zero reported audio
   overruns and no fault markers; LittleFS afterward had 7,507,968 bytes free.
 - One earlier qualification run reported an IDLE1 task-watchdog warning during
@@ -32,7 +33,7 @@ private and are not included here.
 | Comparison | Valid sessions per arm | Outcome |
 | --- | ---: | --- |
 | Debug vs lean logging | 5 / 5 | No clear difference; fault-affected attempts retained separately |
-| Preview cadence | 5 / 0 | Rebuilt baseline complete; candidate sessions in progress |
+| Preview cadence | 5 / 5 | Fewer previews, later first preview; not a qualified win |
 | Speaker labels and conversation accuracy | 0 / 0 | Pending |
 | Pointwise kernels and traffic | 1 profile | Profile captured; traffic and kernel comparison pending |
 | RAM attribution and right-sizing | 1 phase sample | Partial attribution; transient peaks and resizing pending |
@@ -130,3 +131,36 @@ and no watchdog warnings in those complete sessions. Two earlier attempts were
 stopped after watchdog warnings and drained without reboot. After a fresh MAC
 and partition-table check, the preview-cadence candidate was app-only flashed
 and hash-verified for its matched sessions.
+
+
+## Preview-cadence candidate
+
+The prepared `codex/stt-ab-cadence` commit increases the minimum new-audio
+spacing between preview snapshots from 0.6 s to 1.2 s; speculative final
+processing remains enabled. The arm was compared with five full runs of a
+baseline rebuilt from `aa6508fd` with the same prepared toolchain. Both arms
+used the same standard playlist, 75% volume, PDM input, diagnostic settings and
+10-second heap samples. Runs were collected in blocks, not randomized.
+
+| Measure | Rebuilt baseline | Cadence candidate | Difference, 95% CI |
+| --- | --- | --- | --- |
+| WER, % | 15.2, 15.4, 14.8, 16.2, 17.2 | 15.6, 15.6, 16.6, 16.8, 15.6 | +0.28 percentage points [−0.80, +1.20] |
+| Median close-to-final, ms | 1254, 1302, 1461.5, 1341.5, 1313 | 1331, 1476, 1311, 1413, 1408 | +53.4 [−55.9, +134.1] |
+| Median worker, ms | 1299.5, 1358, 1523.5, 1378.5, 1327 | 1341, 1517, 1345, 1419, 1421.5 | +31.4 [−79.9, +112.0] |
+| Median inference, ms | 1114.5, 1216, 1313, 1204, 1119 | 1204, 1251, 1196, 1200, 1229.5 | +22.8 [−49.2, +87.0] |
+| Median decode, ms | 77.5, 90, 86, 87.5, 86.5 | 84, 100, 88, 87, 92 | +4.7 [+1.4, +7.7] |
+| Preview attempts | 140, 153, 149, 151, 154 | 114, 110, 107, 112, 112 | −38.4 [−42.4, −32.0] |
+| First-preview median, ms | 1159.8, 1211.9, 1203.9, 1185.1, 1234.1 | 1467.1, 1426.4, 1462.9, 1408.5, 1447.9 | +243.6 [+216.0, +278.9] |
+| Lowest sampled free PSRAM, B | 1839176, 1811764, 1804252, 1975020, 1808216 | 1811960, 2050752, 1804576, 1808012, 1808208 | +9016 [−100142, +138014] |
+| Lowest sampled largest internal block, B | 147456, 147456, 147456, 147456, 147456 | 147456, 147456, 147456, 147456, 147456 | 0 [0, 0] |
+| Reported audio overruns | 0, 0, 0, 0, 0 | 0, 0, 0, 0, 0 | 0 [0, 0] |
+
+Pooled WER was 394/2505 words (15.73%) versus 401/2505 (16.01%). All 27 clips
+were retained. The candidate reduces preview attempts, but first-preview delay
+increases and the decoder median also increased in this sample. The candidate
+had two assertion reboots in seven attempts and watchdog warnings in two
+complete runs; the rebuilt baseline had no assertion reboot in seven attempts,
+but two earlier partial attempts had watchdog warnings. These small, unrandomized
+bench samples do not prove causation or real-world fault rates. Under the stated
+acceptance rule, this is **not a qualified win**. The boot-wide PSRAM low-water
+mark is not a session-attributable allocation measurement.
