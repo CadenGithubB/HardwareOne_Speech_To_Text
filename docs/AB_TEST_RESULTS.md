@@ -232,6 +232,22 @@ This accounts for most of the score difference under the unknown-is-incorrect
 rule. The cause of the different unknown-label frequency was not established;
 playback, segmentation and speaker-clustering behavior warrant investigation.
 
+Scorer note, added after the campaign: the detected-label column counted `-1`
+as a label, so a run with unknown labels shows one more than its real clusters.
+Conversation 1 therefore created three clusters in the first run and two in the
+repeat; Conversations 2 to 4 are one lower wherever they contain unknowns. With
+24/41 and 39/41 correct, the first run's 17 errors are its 16 unknowns plus one
+phrase in a single-phrase third cluster, and the repeat's 2 errors are its
+unknowns. Labelled phrases were 24/25 and 39/39 correct, and 61% and 95% of
+scored phrases received a label: the difference is coverage, not confusion
+between the two speakers. Phrases refused, failed or lost before a label line
+are not scored. `spkeval.py` now reports real clusters (`speakers_found`) and
+unknowns (`unknown_scored`) separately. `spkdiag.py` reports each unknown's
+clustering reason, the phrase that created each cluster and the clips it covers,
+refused or failed phrases, saved-transcript labels and a clip-by-clip comparison
+of two runs; it has been checked only on synthetic logs
+(`tests/test_spkdiag.py`), not yet on these private sessions.
+
 ## Technical recordings and pending work
 
 The five vocabulary-heavy recordings each ran once on the restored original

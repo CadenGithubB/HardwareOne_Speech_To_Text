@@ -7,6 +7,11 @@ Each labelled phrase is matched to the clip holding the middle of its played spa
 its true speaker is that clip's. Accuracy uses the best one-to-one mapping of labels to speakers (labels
 left over count as wrong). Also: speakers found vs true, tentative share, timing (median ms per phrase:
 features, trunk, pooling, total), and the load line. Numbers only.
+
+The unknown label (-1) is scored as wrong but is not a speaker: speakers_found counts real labels only and
+unknown_scored counts -1 phrases. skipped counts per-phrase skip lines (TL spk ... skipped=1 before
+0.99.99, TL spk_submit ... admitted=0 since); spk_end is the firmware's own end-of-session totals. Phrases
+without a TL spk line (refused, failed or lost) are not scored here; spkdiag.py accounts for them.
 """
 import itertools
 import os
@@ -24,6 +29,8 @@ LOAD = re.compile(r'TL spk_load (.*)$')
 LOAD2 = re.compile(r'TL spk_load2 (.*)$')
 SPKT = re.compile(r'TL spkt seq=(\d+) (.*)$')
 STG = re.compile(r'TL spkstg i=(\d+) name=(\S+) n=(\d+) us_mean=(\d+) pct=([0-9.]+)')
+SPK_END = re.compile(r'TL spk_end submitted=(\d+) labelled=(\d+) skipped=(\d+)')
+SKIP = re.compile(r'TL spk seq=\d+ skipped=1\b|TL spk_submit seq=\d+ admitted=0\b')
 
 
 def kv(text):
@@ -38,21 +45,42 @@ def kv(text):
     return out
 
 
-def best_map(true, pred):
-    """Most phrases right under a one-to-one mapping of labels to speakers (either side may be larger)."""
+def best_mapping(true, pred):
+    """(phrases right, {label: speaker}) under the best one-to-one mapping (either side may be larger)."""
     # -1 denotes unknown; it must not be mapped to a real speaker.
     ts, ps = sorted(set(true)), sorted({p for p in pred if p >= 0})
     pairs = list(zip(true, pred))
-    best = 0
+    best, mapping = 0, {}
     if len(ps) <= len(ts):
         for perm in itertools.permutations(ts, len(ps)):
             m = dict(zip(ps, perm))
-            best = max(best, sum(1 for t, p in pairs if p in m and m[p] == t))
+            n = sum(1 for t, p in pairs if p in m and m[p] == t)
+            if n > best:
+                best, mapping = n, m
     else:
         for perm in itertools.permutations(ps, len(ts)):
             m = dict(zip(ts, perm))
-            best = max(best, sum(1 for t, p in pairs if m[t] == p))
-    return best
+            n = sum(1 for t, p in pairs if m[t] == p)
+            if n > best:
+                best, mapping = n, {p: t for t, p in m.items()}
+    return best, mapping
+
+
+def best_map(true, pred):
+    """Most phrases right under a one-to-one mapping of labels to speakers (either side may be larger)."""
+    return best_mapping(true, pred)[0]
+
+
+def reference_clip(clips, span):
+    """The clip holding the middle of a played span (0.5 s tolerance, first match), or None."""
+    mid = sum(span) / 2
+    return next((c for c in clips if c['start_s'] - 0.5 <= mid <= c['end_s'] + 0.5), None)
+
+
+def spk_end(raw):
+    """The last TL spk_end totals, or None."""
+    m = list(SPK_END.finditer(raw))
+    return dict(zip(('submitted', 'labelled', 'skipped'), map(int, m[-1].groups()))) if m else None
 
 
 def score(sdir):
@@ -75,8 +103,7 @@ def score(sdir):
     for p in a['phrases']:
         if not p.get('span_play_s') or p['seq'] not in labels:
             continue
-        mid = sum(p['span_play_s']) / 2
-        c = next((c for c in clips if c['start_s'] - 0.5 <= mid <= c['end_s'] + 0.5), None)
+        c = reference_clip(clips, p['span_play_s'])
         if c is None:
             continue
         true.append(c['speaker']); pred.append(labels[p['seq']]['spk'])
@@ -104,9 +131,10 @@ def score(sdir):
             'layer_kinds_pct': dict(sorted(by_kind.items(), key=lambda x: -x[1])[:10]),
             'phrases_scored': n, 'labels_logged': len(labels),
             'label_lag_ms': {'median': st.median(lags), 'max': max(lags)} if lags else None,
-            'skipped': raw.count('skipped=1'),
+            'skipped': len(SKIP.findall(raw)), 'spk_end': spk_end(raw),
             'accuracy': round(acc, 1), 'accuracy_2s_plus': round(acc_long, 1), 'short_phrases': len(sh),
-            'speakers_true': len(set(true)), 'speakers_found': len(set(pred)),
+            'speakers_true': len(set(true)), 'speakers_found': len({p for p in pred if p >= 0}),
+            'unknown_scored': sum(1 for p in pred if p < 0),
             'tentative': sum(x['tent'] for x in L), 'ms': {'features': round(med('fe'), 1), 'trunk': round(med('nn'), 1),
                                                            'pooling': round(med('head'), 1), 'total': round(med('us'), 1)}}
 
