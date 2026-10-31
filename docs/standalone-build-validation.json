@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "date": "2026-10-31",
-  "status": "host/build validation passed; new device qualification pending",
+  "status": "host/build validation passed; default profile boot-tested without a model card; device qualification pending",
   "based_on_commit": "b6f25abe9b2edc5b695125e021de10e4d50b1a96",
   "esp_idf": "ESP-IDF v5.5.5-dirty",
   "source_scope": "Standalone working-tree port, built before its publication commit; HardwareOne unchanged",
@@ -66,9 +66,35 @@
     }
   ],
   "limits": [
-    "No standalone firmware flashed for this port",
+    "Standalone captioning not yet exercised on a device (no model card on the test board)",
     "No new latency, WER, speaker accuracy or hardware peak measurements",
     "SDK is locally modified, not pristine upstream",
     "Generated example partition fit is not a device partition check"
-  ]
+  ],
+  "device_smoke_test": {
+    "date": "2026-10-31",
+    "profile": "default",
+    "sha256": "bc4fd61f6f9156b6446286b2394e2b46d3650fb88b052f701488c61b3f39b6ac",
+    "board": "ESP32-P4X-EYE, chip v3.2, MAC e8:f6:0a:e3:a7:68",
+    "flash": "app-only at 0x10000; device partition table identical to partitions.csv",
+    "passed": [
+      "boot",
+      "32 MB PSRAM",
+      "NVS boot counter across reset",
+      "USB status command"
+    ],
+    "stopped_at": "No microSD card detected on GPIO45 (HardwareOne also reported no card)",
+    "not_exercised": [
+      "model load",
+      "listening",
+      "captions",
+      "SD recordings"
+    ],
+    "restored_afterwards": "HardwareOne 0.99.98.5 app"
+  },
+  "fresh_clone_check": {
+    "commit": "25674bb8f2e476a7ff9d2db72344270f8b8bd2c7",
+    "default_build": "passed",
+    "host_suites": "all twelve passed"
+  }
 }

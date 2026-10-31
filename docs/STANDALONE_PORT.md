@@ -2,7 +2,8 @@
 
 31 October 2026. **Source port and host/build validation complete; fresh device
 performance and accuracy qualification remains pending.** No HardwareOne source
-was modified or synchronized back, and no device firmware was flashed.
+was modified or synchronized back. The default profile was later boot-tested on a
+P4 without a model card; see [the device smoke test](#october-31-device-smoke-test).
 
 This work follows the [confirmed divergence](STANDALONE_PARITY.md) and
 [optimization plan](STT_OPTIMIZATION_PLAN.md). It imports existing HardwareOne
@@ -178,10 +179,31 @@ The allocation/cache tests use bounded host fakes and do not emulate device
 allocation timing. None of these checks qualifies model accuracy or kernel
 numerics on the P4.
 
+## October 31 device smoke test
+
+The default profile (`bc4fd61f…`, the hash above) was app-only flashed at 0x10000
+on the throwaway P4X-EYE (MAC `e8:f6:0a:e3:a7:68`, chip v3.2). Its partition table
+read back identical to `partitions.csv`; secure boot and flash encryption are off.
+The previous HardwareOne app slot was backed up privately first.
+
+- Boot, 32 MB PSRAM, NVS boot counters (7 → 8 across a reset) and the USB
+  `status` command worked.
+- Startup stopped, as designed, at `No microSD card detected on GPIO45`. Restored
+  HardwareOne also logged `SDMMC: No card inserted`, so the board had no card;
+  detection uses the same pins and sequence as HardwareOne's `HAL_SDCard.cpp`.
+- Model load, listening, captions and recordings were **not** exercised. That needs
+  a FAT card with `STT Models/quartznet15x5-gen2-25397.p4.stt`.
+- HardwareOne 0.99.98.5 was then restored to the same slot; it booted, mounted
+  LittleFS and resumed Showcase. The standalone app never mounts LittleFS.
+
+A fresh GitHub clone of `25674bb` ran `prepare_esp_dl.py` and built the default
+profile, and all twelve host suites passed on it.
+
 ## Remaining device acceptance
 
-No new standalone image was flashed in this port. The connected 0.99.99 glasses
-measurements remain measurements of integrated firmware, not this build.
+The connected 0.99.99 glasses measurements remain measurements of integrated
+firmware, not this build. First repeat the smoke test with a model card and confirm
+Listening, a final caption and a saved recording.
 Before a device run, inspect its actual partition table and preserve a new private
 rollback image. Application-only flashing must use that verified slot and fit;
 never replace its bootloader, partition table or settings merely to run this app.

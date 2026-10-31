@@ -170,4 +170,9 @@ capture-time feature prefixes, drafts and optional speculative finals. See
 [STANDALONE_PORT.md](STANDALONE_PORT.md) for exact profiles, validation, adapter
 boundaries and remaining device acceptance. This supersedes the earlier
 "not yet reconciled" status; it does not supersede historical hardware results.
-No image was flashed for this port and no speed/accuracy gain is claimed.
+No speed/accuracy gain is claimed.
+
+The default profile was later boot-tested on the throwaway P4X-EYE: it boots, keeps
+NVS counters and answers USB `status`, but that board had no microSD card, so model
+load and captions were not reached. HardwareOne 0.99.98.5 was restored afterwards.
+Details are in [the device smoke test](STANDALONE_PORT.md#october-31-device-smoke-test).
