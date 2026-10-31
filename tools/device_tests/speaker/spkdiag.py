@@ -38,6 +38,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import analyse  # noqa: E402
+from tl_parse import parse_line  # noqa: E402
 from spkeval import best_mapping, reference_clip  # noqa: E402
 
 WORDS = re.compile(r'\b(reason|why|outcome)=(\S+)')
@@ -45,6 +46,8 @@ LABEL_KEYS = ('spk', 'sim', 'new', 'tent', 'samples', 'lag_ms', 'us')
 MATCH_KEYS = ('profiles_before', 'profiles_after', 'best', 'best_sim', 'second', 'second_sim', 'matches',
               'updated', 'phrase_samples')
 NEAR = 0.05   # similarity distance from the threshold reported as a near decision
+# Serial capture can join a prefix to an otherwise complete ESP-IDF log entry.
+EMBEDDED_TL = re.compile(r'[IWEDV] \(\d+\) [^:\r\n]{1,32}: TL (?:spk(?:_[a-z]+)?|tsave|pub|boundary)(?:\s|=)')
 
 
 def words(msg):
@@ -56,6 +59,12 @@ def speaker_lines(records):
     seq = {}
     out = {'seq': seq, 'text': set(), 'boundary': {}, 'load': None, 'drain': None, 'end': None}
     for r in records:
+        if r['tl'] is None:
+            m = EMBEDDED_TL.search(r['msg'])
+            if m:
+                recovered = parse_line(r['msg'][m.start():])
+                if recovered['tl'] is not None:
+                    r = recovered
         tl = r['tl']
         if not tl:
             continue

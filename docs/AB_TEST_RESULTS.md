@@ -245,8 +245,80 @@ are not scored. `spkeval.py` now reports real clusters (`speakers_found`) and
 unknowns (`unknown_scored`) separately. `spkdiag.py` reports each unknown's
 clustering reason, the phrase that created each cluster and the clips it covers,
 refused or failed phrases, saved-transcript labels and a clip-by-clip comparison
-of two runs; it has been checked only on synthetic logs
-(`tests/test_spkdiag.py`), not yet on these private sessions.
+of two runs. The diagnostics below were run on the five private sessions and
+tested with `tests/test_spkdiag.py`.
+
+### Conversation diagnostics
+
+The recorded `TL spk_load` threshold was 0.600 in all five runs. The local
+`export_final/speaker.spk` header specifies 0.6000000238 and a 2,000 ms
+minimum (32,000 samples at 16 kHz); the alternative `export_2s` header specifies
+0.5. The matching threshold does not prove byte identity with the file on the
+unmounted device SD card, so its minimum is an assumption based on the matching
+export. All scored decision reasons below come from `TL spk_match`, not derived
+reasons. Speaker IDs and cluster labels are identifiers, not text.
+
+| Conversation 1 | First | Repeat |
+| --- | --- | --- |
+| Scored accuracy | 58.5% (24/41) | 95.1% (39/41) |
+| Coverage | 61.0% (25/41) | 95.1% (39/41) |
+| Labelled accuracy | 96.0% (24/25) | 100.0% (39/39) |
+| Text accuracy | 58.5% (24/41) | 95.1% (39/41) |
+| Saved accuracy / saved lines | unavailable / 0 | unavailable / 0 |
+| Pipeline labelled / missing / lost | 41 / 0 / 0 | 41 / 0 / 0 |
+| `spk_match` / derived | 41 / 0 | 41 / 0 |
+| Unknown: ambiguous / no_match_short | 15 / 1, speaker 7850 | 0 / 2, speaker 7850 |
+| Ambiguous pairs; first sequence | 0/2: 11, 2/0: 4; 7 | none; unavailable |
+| Near threshold (within 0.05), sequences | 3: 3, 5, 15 | 1: 22 |
+| Submit-to-label median / max, ms | 1860 / 8679 | 1764 / 11893 |
+| Capture-end-to-label median, ms | 2992 | 3072 |
+| `spk_end` submitted / labelled / skipped | 41 / 41 / 0 | 41 / 41 / 0 |
+| Drain outcome / pending / wait ms | complete / 0 / 0 | complete / 0 / 0 |
+| Alignment delta ms / text similarity median | 0 / 0.84 | 240 / 0.89 |
+
+Cluster mapping and phrase counts: first run 0→7850: 7, 1→6241: 17,
+2→unmapped: 1; repeat 0→7850: 22, 1→6241: 17. The additional first-run
+cluster 2 was created at sequence 3, clip 2, speaker 7850, `mixed=false`,
+39,200 samples, best previous similarity 0.558, 0.042 below the 0.600
+threshold. Clip membership is an alignment estimate and `mixed=false` does not
+prove the audio contained only one voice.
+
+The clip comparison covers 32 clips. First outcome divergence: clip 2;
+segmentation-differs clips: none; outcome pairs first/repeat: right/right 20,
+wrong/right 1, unknown/right 11. At clip 2, first sequence 3 created cluster 2
+and scored wrong while repeat sequence 4 matched cluster 0 and scored right;
+at clips 6 and 10, first sequences 8 and 13 were ambiguous while repeat
+sequences 9 and 14 matched cluster 0. The first ambiguous phrase was sequence 7;
+not every phrase is represented as a distinct clip in the clip comparison.
+
+| Conversation | Real scored clusters | Unknown scored | Unknown by reason (reference speaker: count) | Pipeline labelled / missing | Lag median / max / capture-end median, ms |
+| --- | --- | --- | --- | --- | --- |
+| 2 | 3 | 2 | no_match_short 6313: 1; ambiguous 3853: 1 | 39 / 0 | 3717 / 13272 / 5163 |
+| 3 | 5 | 5 | no_match_short MIO036: 1; ambiguous FIE038: 3, MIO036: 1 | 45 / 0 | 5621 / 16590 / 6423 |
+| 4 | 3 | 2 | ambiguous 28132: 2 | 33 / 0 | 22734 / 40659 / 24614 |
+
+For conversation 3 the diagnostic has 45 aligned phrase rows and 44 with a
+reference; the scorer has 46 label records, 44 scored. One speaker sequence (2)
+has no matching analysis phrase and one diagnostic phrase (46) has no reference;
+they are not counted in the reference-specific reason totals. Firmware reports
+46 submitted / 46 labelled / 0 skipped. No loss marker was observed; absence
+of an analysis row is not proof of a device pipeline loss.
+
+The logged decisions support the duplicate-cluster/ambiguity hypothesis for the
+first run: sequence 3 created cluster 2 near cluster 0, and all 15 ambiguous
+unknowns involved that pair. A short no-match accounts for one additional first
+run unknown and both repeat unknowns, rather than most of the first-run gap.
+No observed submission refusal, embedding failure or lost-result marker explains
+the gap; firmware counters report 41/41 and complete drains in both runs. The
+reason that sequence 3 had a borderline similarity, and any effect of physical
+playback or unobserved audio, remains unknown. These observations do not prove
+what would happen on independent real-world recordings.
+
+A diagnostic parser fix recovers intact ESP-IDF events preceded by an extra
+capture prefix. Before this fix it missed 7 and 8 speaker-label records in the
+first and repeat sessions respectively, plus some session totals; a synthetic
+prefixed-decision and end-counter regression case was added. No firmware, model,
+or device contents were changed.
 
 ## Technical recordings and pending work
 

@@ -164,6 +164,17 @@ def main():
         a = write_session(root, '2026-a', man_path, man, run_a_plan(), True, 'submitted=42 labelled=41 skipped=1')
         b = write_session(root, '2026-b', man_path, man, run_b_plan(), False, 'submitted=42 labelled=41 skipped=12')
 
+        # Real captures can prefix an otherwise complete ESP-IDF line. Recover
+        # both a speaker decision and firmware totals, preserving their ticks.
+        lines_path = a / 'lines.tsv'
+        rows = lines_path.read_text().splitlines()
+        for marker in ('TL spk seq=7 ', 'TL spk_end '):
+            i = next(i for i, row in enumerate(rows) if marker in row)
+            parts = rows[i].split('\t', 2)
+            parts[2] = 'capture-prefix ' + parts[2]
+            rows[i] = '\t'.join(parts)
+        lines_path.write_text('\n'.join(rows) + '\n')
+
         # spkeval.py: the published numbers, now with real-cluster counts and parsed totals.
         ea, eb = spkeval.score(a), spkeval.score(b)
         assert (ea['accuracy'], ea['phrases_scored'], ea['labels_logged']) == (58.5, 41, 41), ea
@@ -189,6 +200,8 @@ def main():
         assert third['created']['below_threshold_by'] == round(TH - 0.41, 3), third
         assert sa['phrases']['reason_source'] == {'spk_match': 41} and sa['phrases']['mixed'] == 1
         assert sa['firmware']['drain']['outcome'] == 'complete'
+        assert sa['firmware']['spk_end'] == {'submitted': 42, 'labelled': 41, 'skipped': 1}
+        assert next(r for r in sa['rows'] if r['seq'] == 7)['label_after_capture_end_ms'] is not None
         assert sa['lag_ms']['submit_to_label_median'] == 1800
 
         # Run B: reasons derived from TL spk and the load threshold; the failure is not a decision.
