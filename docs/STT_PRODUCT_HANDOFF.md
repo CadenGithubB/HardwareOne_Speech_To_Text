@@ -209,3 +209,8 @@ and the three-phrase variant substantially reduces coverage. Production firmware
 the model and the device policy remain unchanged. Do not integrate this research
 prototype as a qualified improvement; P4 memory/timing and independent recordings
 were not tested. Voiceprints and per-run artifacts remain private.
+
+The ranked [ten-experiment roadmap](SPEAKER_NEXT_EXPERIMENTS.md) starts with
+an audit of the audio/feature path, voiced-window selection and separate-speaker
+evaluation. Each approach has an evidence basis, a decisive comparison and its
+main system cost; they are proposed experiments, not qualified improvements.
