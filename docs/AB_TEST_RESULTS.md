@@ -726,6 +726,82 @@ Conversation 2 session merge phrase counts by rule: production: 0, production_0.
 No candidate meets the specified criterion in all three of clean, session and pooled corpus.
 All comparisons are offline research results, not changes to device policy. The embedding and comparison artifacts are private and are not committed.
 
+### Deferred speaker confirmation experiment
+
+A new offline prototype holds unmatched phrases pending, confirms a speaker only after two or three mutually similar long phrases, and revisits pending labels after further evidence. Emitted labels never change. Both variants keep threshold 0.6, minimum 32,000 samples and eight speakers; pending state expires after eight further phrase arrivals and retains at most eight pending phrases between calls. Supporting phrases must match no confirmed speaker, and delayed resolved labels do not train the centroid. These choices were fixed before inspecting the experiment results; no additional rule or threshold tuning followed. See [SPEAKER_PROVISIONAL_EXPERIMENT.md](SPEAKER_PROVISIONAL_EXPERIMENT.md) for the exact policy, limits and reproduction command.
+
+The existing 189 sets / 4,654 phrases were reused: four clean sets, five clean-audio-at-device-span sets and 180 synthetic corpus conversations. Production and candidates see identical input orders. Clean/session results include original order plus 200 shared shuffles. Corpus results use synthetic recorded order only. Even/odd corpus indices form development/reserved subsets of 90 conversations each; these are not speaker-disjoint, and the corpus has been used in earlier experiments. Reserved results therefore do not establish unseen-speaker generalization.
+
+Values below use final labels after causal delayed resolution. Coverage at arrival is reported separately. Delay is subsequent phrase arrivals, not seconds; no wall-clock label latency was measured. Runs with a split/merge are percentages; split/merge rates count phrases per 100 scored phrases.
+
+| Group | Rule | Final coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Coverage at arrival % | Label delay p50 / p90 / max arrivals | Runs with split / merge % |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| clean | production | 90.2 | 94.6 | 4.78 | 0.27 | 90.2 | 0 / 0 / 0 | 44.8 / 4.2 |
+| clean | deferred2 | 94.0 | 98.8 | 0.7 | 0.66 | 83.7 | 0 / 1 / 7 | 12.4 / 7.5 |
+| clean | deferred3 | 85.8 | 98.9 | 0.24 | 0.94 | 67.3 | 0 / 3 / 7 | 6.8 / 11.7 |
+| session | production | 87.5 | 96.6 | 2.91 | 0.34 | 87.5 | 0 / 0 / 0 | 42.3 / 10.3 |
+| session | deferred2 | 92.9 | 98.9 | 0.52 | 0.86 | 84.0 | 0 / 0 / 7 | 10.0 / 11.8 |
+| session | deferred3 | 86.2 | 98.3 | 0.36 | 1.44 | 70.7 | 0 / 3 / 7 | 10.1 / 16.3 |
+| corpus | production | 88.8 | 90.6 | 7.43 | 1.67 | 88.8 | 0 / 0 / 0 | 55.0 / 16.1 |
+| corpus | deferred2 | 89.6 | 94.6 | 1.11 | 4.35 | 75.3 | 0 / 2 / 7 | 12.2 / 25.0 |
+| corpus | deferred3 | 75.9 | 94.8 | 0.19 | 3.94 | 54.9 | 0 / 4 / 7 | 4.4 / 23.9 |
+| corpus_development | production | 89.2 | 90.6 | 7.22 | 2.22 | 89.2 | 0 / 0 / 0 | 57.8 / 21.1 |
+| corpus_development | deferred2 | 90.5 | 93.6 | 1.25 | 5.23 | 76.0 | 0 / 2 / 7 | 13.3 / 30.0 |
+| corpus_development | deferred3 | 77.4 | 95.3 | 0.28 | 3.66 | 55.1 | 0 / 5 / 7 | 6.7 / 22.2 |
+| corpus_heldout | production | 88.4 | 90.6 | 7.64 | 1.11 | 88.4 | 0 / 0 / 0 | 52.2 / 11.1 |
+| corpus_heldout | deferred2 | 88.6 | 95.6 | 0.97 | 3.47 | 74.7 | 0 / 2 / 7 | 11.1 / 20.0 |
+| corpus_heldout | deferred3 | 74.4 | 94.3 | 0.09 | 4.21 | 54.7 | 0 / 4 / 7 | 2.2 / 25.6 |
+| corpus:librispeech-dev-clean | production | 91.5 | 94.7 | 2.22 | 3.33 | 91.5 | 0 / 0 / 0 | 36.7 / 16.7 |
+| corpus:librispeech-dev-clean | deferred2 | 97.2 | 93.4 | 0.56 | 6.39 | 84.2 | 0 / 2 / 7 | 3.3 / 23.3 |
+| corpus:librispeech-dev-clean | deferred3 | 87.4 | 92.7 | 0.14 | 6.39 | 65.7 | 0 / 4 / 7 | 3.3 / 30.0 |
+| corpus:librispeech-dev-clean-g2 | production | 90.6 | 95.9 | 2.22 | 1.94 | 90.6 | 0 / 0 / 0 | 40.0 / 16.7 |
+| corpus:librispeech-dev-clean-g2 | deferred2 | 96.1 | 94.4 | 0.42 | 5.42 | 82.6 | 0 / 2 / 7 | 6.7 / 23.3 |
+| corpus:librispeech-dev-clean-g2 | deferred3 | 89.9 | 92.0 | 0.0 | 7.22 | 67.2 | 0 / 4 / 7 | 0.0 / 30.0 |
+| corpus:ami-ihm-validation | production | 82.8 | 78.0 | 18.19 | 1.11 | 82.8 | 0 / 0 / 0 | 96.7 / 20.0 |
+| corpus:ami-ihm-validation | deferred2 | 75.1 | 95.4 | 2.5 | 1.94 | 59.2 | 0 / 4 / 7 | 23.3 / 26.7 |
+| corpus:ami-ihm-validation | deferred3 | 51.0 | 95.4 | 0.14 | 2.36 | 34.3 | 0 / 5 / 7 | 3.3 / 20.0 |
+| corpus:ami-ihm-validation-g2 | production | 81.7 | 76.5 | 18.89 | 1.53 | 81.7 | 0 / 0 / 0 | 100.0 / 23.3 |
+| corpus:ami-ihm-validation-g2 | deferred2 | 74.4 | 92.2 | 2.64 | 4.31 | 58.3 | 0 / 4 / 7 | 30.0 / 36.7 |
+| corpus:ami-ihm-validation-g2 | deferred3 | 48.8 | 95.2 | 0.14 | 2.36 | 32.2 | 0 / 5 / 7 | 3.3 / 20.0 |
+| corpus:voxpopuli-dev | production | 92.9 | 97.3 | 1.53 | 1.39 | 92.9 | 0 / 0 / 0 | 30.0 / 10.0 |
+| corpus:voxpopuli-dev | deferred2 | 97.5 | 95.7 | 0.28 | 4.17 | 84.0 | 0 / 2 / 7 | 6.7 / 23.3 |
+| corpus:voxpopuli-dev | deferred3 | 90.3 | 97.1 | 0.56 | 2.64 | 65.4 | 0 / 4 / 7 | 13.3 / 26.7 |
+| corpus:voxpopuli-dev-g2 | production | 93.5 | 98.4 | 1.53 | 0.69 | 93.5 | 0 / 0 / 0 | 26.7 / 10.0 |
+| corpus:voxpopuli-dev-g2 | deferred2 | 96.9 | 96.0 | 0.28 | 3.89 | 83.8 | 0 / 2 / 7 | 3.3 / 16.7 |
+| corpus:voxpopuli-dev-g2 | deferred3 | 88.1 | 97.0 | 0.14 | 2.64 | 64.6 | 0 / 4 / 7 | 3.3 / 16.7 |
+| all | production | 88.6 | 95.5 | 3.9 | 0.39 | 88.6 | 0 / 0 / 0 | 44.4 / 8.4 |
+| all | deferred2 | 93.1 | 98.6 | 0.62 | 1.0 | 83.4 | 0 / 1 / 7 | 11.2 / 11.3 |
+| all | deferred3 | 85.4 | 98.4 | 0.31 | 1.4 | 68.4 | 0 / 3 / 7 | 8.3 / 15.1 |
+
+Both variants fail the lower-split/no-higher-merge gate in clean, session and pooled corpus. Neither qualifies as a firmware replacement. On reserved corpus indices, the two-phrase variant changes split/merge rates from 7.64/1.11 to 0.97/3.47; three-phrase confirmation changes them to 0.09/4.21 while reducing coverage from 88.4% to 74.4%. Increased labelled accuracy does not negate the additional wrong-speaker merges.
+
+| Corpus subset | Rule | Δ coverage pp, 95% CI | Δ labelled accuracy pp, 95% CI | Δ split / 100, 95% CI | Δ merge / 100, 95% CI |
+| --- | --- | --- | --- | --- | --- |
+| corpus_development | deferred2 | +1.30 [-1.574, +4.676] | +3.00 [+0.614, +5.097] | -5.97 [-7.222, -4.676] | +3.01 [+1.111, +5.417] |
+| corpus_development | deferred3 | -11.80 [-16.667, -7.037] | +4.70 [+2.181, +6.969] | -6.94 [-8.565, -5.324] | +1.44 [-0.185, +3.333] |
+| corpus_heldout | deferred2 | +0.20 [-2.037, +2.593] | +5.00 [+2.664, +7.185] | -6.67 [-7.917, -5.417] | +2.36 [+0.926, +4.028] |
+| corpus_heldout | deferred3 | -14.00 [-19.352, -8.750] | +3.70 [+0.664, +6.575] | -7.55 [-8.843, -6.343] | +3.10 [+1.389, +5.000] |
+
+Intervals use 10,000 paired bootstrap replicates, stratified by source family and resampling conversation indices while keeping clean/g2 pairs together (45 blocks per subset). Speakers can recur across conversations. These are conditional intervals on reused data, not independent speaker-generalization bounds. Shuffles are sensitivity trials, not additional independent recordings.
+
+| Conversation 1 replay set | Rule | Final coverage % | Labelled accuracy % | Split / merge phrases | Label delay p90 / max arrivals |
+| --- | --- | ---: | ---: | --- | --- |
+| Clean clips | production | 100.0 | 100.0 | 0 / 0 | 0 / 0 |
+| Clean clips | deferred2 | 100.0 | 100.0 | 0 / 0 | 0 / 2 |
+| Clean clips | deferred3 | 93.8 | 100.0 | 0 / 0 | 2 / 6 |
+| First session spans | production | 75.6 | 96.8 | 1 / 0 | 0 / 0 |
+| First session spans | deferred2 | 97.6 | 100.0 | 0 / 0 | 0 / 4 |
+| First session spans | deferred3 | 97.6 | 100.0 | 0 / 0 | 2 / 7 |
+| Repeat session spans | production | 61.0 | 96.0 | 1 / 0 | 0 / 0 |
+| Repeat session spans | deferred2 | 97.6 | 100.0 | 0 / 0 | 0 / 4 |
+| Repeat session spans | deferred3 | 97.6 | 100.0 | 0 / 0 | 2 / 7 |
+
+The original duplicate-speaker clean-span replay is recovered: two-phrase confirmation labels 40/41 phrases correctly in both Conversation 1 span sets, without a split or merge. These are float clean-span results, not the original microphone results. The same mechanism merges other voices more often in the broader corpus. Three-phrase confirmation adds delay and abstentions without fixing that issue.
+
+The unchanged Mac model is float and the device trunk quantized. Session sets use clean audio at estimated device spans and do not reproduce Conversation 2's actual device merge. Corpus conversations are synthetic clean/simulated-channel turns; shuffled orders only measure sensitivity. No firmware, model, production clusterer or device policy was changed, and no device was flashed.
+
+`tests/test_spkprovisional.py` checks synthetic recovery, distinguishable nearby speakers, ambiguous bridges, short-phrase exclusion, expiry, immutable emitted labels, invalid embeddings and score/CLI behavior. The actual C++ class passes AddressSanitizer and UndefinedBehaviorSanitizer invariants. Retained pending embedding state is bounded, but the offline output archive is not; P4 runtime, allocation behavior, wall-clock delay and real-world accuracy remain unqualified. Private voiceprints and detailed result artifacts are not committed.
+
 ## Technical recordings and pending work
 
 The five vocabulary-heavy recordings each ran once on the restored original

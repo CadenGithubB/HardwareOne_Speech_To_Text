@@ -197,3 +197,15 @@ Raw audio, logs, transcripts, backups and prepared candidate bundle remain priva
 
 The LM sweep, bit-exact kernel experiments and full RAM attribution remain for a
 future agent; no new firmware improvements or integration were performed here.
+
+## Deferred speaker confirmation follow-up
+
+An offline two/three-phrase confirmation prototype is documented in
+[SPEAKER_PROVISIONAL_EXPERIMENT.md](SPEAKER_PROVISIONAL_EXPERIMENT.md), with
+numeric results in [AB_TEST_RESULTS.md](AB_TEST_RESULTS.md). It recovers the
+original duplicate-speaker clean-span replay but increases corpus merge errors;
+neither variant passes the no-increased-merge gate. It also delays early labels,
+and the three-phrase variant substantially reduces coverage. Production firmware,
+the model and the device policy remain unchanged. Do not integrate this research
+prototype as a qualified improvement; P4 memory/timing and independent recordings
+were not tested. Voiceprints and per-run artifacts remain private.
