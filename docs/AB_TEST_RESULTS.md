@@ -391,6 +391,11 @@ Session replay uses the device phrase spans against clean audio and preserves th
 | 3 | 45 / 3 | 3 | 2, new, 0, 0.4 / 1, new, 0, 0.4544 | 1, -0.054, -0.054, -0.054, -0.054, -0.054, -0.054, -0.054 |
 | 4 | 33 / 30 | 5 | -1, ambiguous, 2, 0.614 / 1, short_match, 1, 0.6912 | 3, 0.03, 0.03, 0.04, 0.04, 0.085, 0.085, 0.085 |
 
+Correction: these quantiles were nearest-rank values rounded up, so with two observations the median column
+shows the larger one. The two-observation deltas are 0.055 and 0.066 (Conversation 1 repeat) and −0.020 and
++0.302 (Conversation 2); interpolated medians are 0.061 and 0.141. `spkdiag.quantiles` now interpolates.
+Larger samples above are affected only within one rank.
+
 Conversation 1 first-run sequence 3: device similarity 0.558, clean session-span replay similarity 0.5648; both created cluster 2. The perfect-clip comparison 0.606 uses different audio boundaries.
 
 The device and clean results both contain same/different overlap, with a substantial threshold tradeoff; the evidence does not establish one universally safe threshold. The clean 3081/6313 first-clip similarity is below 0.6 and the in-order clean replay separates them, but this does not establish that every phrase of the pair separates. Signed session-replay deltas vary and some have only 1–3 comparable observations, so they cannot establish a systematic device similarity reduction or isolate playback/microphone effects from segmentation and float-versus-quantized-model differences.

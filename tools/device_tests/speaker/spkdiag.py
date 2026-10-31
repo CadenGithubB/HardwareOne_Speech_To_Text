@@ -185,7 +185,10 @@ def quantiles(xs):
     xs = sorted(xs)
     if not xs:
         return {'n': 0}
-    q = lambda p: round(xs[min(len(xs) - 1, int(p * (len(xs) - 1) + 0.5))], 3)
+    def q(p):   # linear interpolation between order statistics
+        k = p * (len(xs) - 1)
+        i = int(k)
+        return round(xs[i] + (xs[min(i + 1, len(xs) - 1)] - xs[i]) * (k - i), 3)
     return {'n': len(xs), 'min': q(0), 'p10': q(.1), 'p25': q(.25), 'median': q(.5), 'p75': q(.75), 'p90': q(.9),
             'max': q(1)}
 

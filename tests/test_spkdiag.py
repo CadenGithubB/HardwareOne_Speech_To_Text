@@ -221,6 +221,8 @@ def main():
         assert (pooled['same']['n'], pooled['different']['n'], pooled['auc']) == (38, 23, 1.0), pooled
         assert pooled['at_threshold'] == {'threshold': TH, 'same_below': 0.0, 'different_at_or_above': 0.0}
         assert sim['by_centroid_phrases']['1']['same']['n'] == 2, sim['by_centroid_phrases']
+        assert spkdiag.quantiles([0.302, -0.02])['median'] == 0.141   # interpolated, not the larger value
+        assert spkdiag.quantiles([1, 2, 3, 4, 5])['p25'] == 2 and spkdiag.quantiles([7])['p90'] == 7
 
         # Clip by clip: the runs part at the merged turn, and the creation is located on the playlist.
         cmp = spkdiag.compare(a, b)
