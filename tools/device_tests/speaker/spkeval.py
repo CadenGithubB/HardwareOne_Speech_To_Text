@@ -40,13 +40,14 @@ def kv(text):
 
 def best_map(true, pred):
     """Most phrases right under a one-to-one mapping of labels to speakers (either side may be larger)."""
-    ts, ps = sorted(set(true)), sorted(set(pred))
+    # -1 denotes unknown; it must not be mapped to a real speaker.
+    ts, ps = sorted(set(true)), sorted({p for p in pred if p >= 0})
     pairs = list(zip(true, pred))
     best = 0
     if len(ps) <= len(ts):
         for perm in itertools.permutations(ts, len(ps)):
             m = dict(zip(ps, perm))
-            best = max(best, sum(1 for t, p in pairs if m[p] == t))
+            best = max(best, sum(1 for t, p in pairs if p in m and m[p] == t))
     else:
         for perm in itertools.permutations(ps, len(ts)):
             m = dict(zip(ts, perm))

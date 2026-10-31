@@ -164,3 +164,70 @@ but two earlier partial attempts had watchdog warnings. These small, unrandomize
 bench samples do not prove causation or real-world fault rates. Under the stated
 acceptance rule, this is **not a qualified win**. The boot-wide PSRAM low-water
 mark is not a session-attributable allocation measurement.
+
+## Speaker-off candidate
+
+The prepared `codex/stt-ab-speaker-off` candidate disables speaker labels in
+continuous CLI transcription. Five complete standard-playlist sessions were
+compared against the same five rebuilt-baseline sessions, with the same 75%
+volume, onboard PDM microphone, diagnostics and sampling as the cadence test.
+The runs were collected in blocks and were not randomized. Differences are
+candidate minus baseline, with paired-session bootstrap 95% intervals.
+
+| Measure | Rebuilt baseline | Speaker off | Difference, 95% CI |
+| --- | --- | --- | --- |
+| WER, % | 15.2, 15.4, 14.8, 16.2, 17.2 | 18.0, 14.2, 15.0, 14.8, 16.8 | 0.00 percentage points [−1.12, +1.48] |
+| Median close-to-final, ms | 1254, 1302, 1461.5, 1341.5, 1313 | 1332, 1397.5, 1396, 1424, 1356 | +46.7 [−11.6, +86.8] |
+| Median worker, ms | 1299.5, 1358, 1523.5, 1378.5, 1327 | 1339, 1406.5, 1424.5, 1456.5, 1368 | +21.6 [−41.5, +63.2] |
+| Median inference, ms | 1114.5, 1216, 1313, 1204, 1119 | 1209, 1238, 1289, 1240, 1218 | +45.5 [+6.4, +84.6] |
+| Median decode, ms | 77.5, 90, 86, 87.5, 86.5 | 86, 79, 83, 90.5, 89 | 0 [−5.6, +5.1] |
+| First-preview median, ms | 1159.8, 1211.9, 1203.9, 1185.1, 1234.1 | 1179.55, 1208.4, 1205.3, 1192.6, 1209.05 | +0.02 [−13.25, +12.4] |
+| Lowest sampled free PSRAM, B | 1839176, 1811764, 1804252, 1975020, 1808216 | 5157036, 5156896, 5160872, 5160808, 5155644 | +3310566 [+3246369, +3350646] |
+| Lowest sampled largest internal block, B | 147456, 147456, 147456, 147456, 147456 | 159744, 159744, 159744, 159744, 159744 | +12288 [+12288, +12288] |
+| Reported audio overruns | 0, 0, 0, 0, 0 | 0, 0, 0, 0, 0 | 0 [0, 0] |
+
+Both arms pooled to 394 errors in 2505 reference words (15.73%), with all 27
+clips retained. All five speaker-off attempts completed, with no watchdog
+warnings or assertion reboots; the baseline fault history is above. The
+sampled PSRAM increase is consistent with avoiding the speaker model load,
+but does not measure transient peaks or establish a causal timing effect.
+Speaker identity is removed and inference time was higher in this small sample,
+so this is **not a qualified replacement or win** under the no-regression rule.
+
+The original app image was restored to the verified app slot after the two
+candidate arms, and the entire 7,426,048-byte slot passed digest verification.
+
+On the five rebuilt-baseline standard-playlist runs, the median speaker-label
+lag per run was 1788.5, 2055, 1865, 1693 and 1920 ms. The corresponding
+median of `lag_ms - us/1000` was 16.2, 74.6, 18.5, 15.9 and 20.4 ms;
+this approximates time outside the reported speaker computation, including
+queue wait and overhead, rather than measuring exclusive queue wait. The
+speaker-off arm has no speaker labels or comparable queue-lag measurement.
+
+## Conversation speaker labels
+
+Five runs on four different conversation recordings (the first repeated)
+completed on the restored original app. For each session, the scorer aligns a
+labelled phrase's midpoint with a reference clip and selects the best one-to-one
+mapping between predicted labels and reference speakers within that session;
+unknown labels count as incorrect. These are descriptive phrase scores, not a
+matched A/B comparison or a measure of general diarization accuracy.
+
+| Recording | Phrases scored / labels logged | Accuracy | Reference / detected labels | Median label lag, ms |
+| --- | --- | --- | --- | --- |
+| Conversation 1, first | 41 / 41 | 58.5% | 2 / 4 | 1860 |
+| Conversation 1, repeat | 41 / 41 | 95.1% | 2 / 3 | 1764 |
+| Conversation 2 | 39 / 39 | 71.8% | 4 / 4 | 3717 |
+| Conversation 3 | 44 / 46 | 84.1% | 3 / 6 | 5734.5 |
+| Conversation 4 | 33 / 33 | 93.9% | 3 / 4 | 22734 |
+
+The repeat differed substantially, and the scorer excludes unmatched phrases;
+these numbers should not be extrapolated to live conversations. Conversation 4
+completed with two watchdog warning entries and no assertion or reboot; the
+other three distinct recordings completed without watchdog warnings or crash.
+
+For the repeated first conversation, the first run assigned the unknown label
+(`-1`) to 16 scored phrases from one reference speaker, versus 2 on the repeat.
+This accounts for most of the score difference under the unknown-is-incorrect
+rule. The cause of the different unknown-label frequency was not established;
+playback, segmentation and speaker-clustering behavior warrant investigation.
