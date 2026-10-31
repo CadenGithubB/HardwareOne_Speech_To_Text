@@ -259,6 +259,17 @@ def analyse_session(sdir, write=True, quiet=False):
     pub = {p['tl']['id']: p for p in K.get('pub', [])}
     rd = {p['tl']['id']: p for p in K.get('read', [])}
     txt = {p['tl']['id']: p['tl']['text'] for p in K.get('txt', [])}
+    # HardwareOne delivers final text privately in stt next JSON replies.
+    for record in lines:
+        line = record['msg']
+        start = line.find('{')
+        if start >= 0:
+            try:
+                value = json.loads(line[start:])
+                if value.get('available') and isinstance(value.get('sequence'), int):
+                    txt[value['sequence']] = value.get('sttText', '')
+            except (ValueError, TypeError, AttributeError):
+                pass
     drafts = {}
     for p in K.get('draft', []):
         drafts.setdefault(p['tl']['id'], []).append(p['tl']['f'])
@@ -322,6 +333,7 @@ def analyse_session(sdir, write=True, quiet=False):
         anc = anchors[j]
         mem = members[j]
         r = {'seq': p['seq'], 'ok': p.get('ok'), 'lm': p.get('lm'), 'a0': p.get('a0'), 'a1': p.get('a1'),
+             'worker_ms': p['e'] - p['s'] if p.get('e') is not None and p.get('s') is not None else None,
              'audio_s': round(T, 3) if T is not None else None,
              'span_play_s': [round(spans[j][0], 3), round(spans[j][1], 3)],
              'clips': mem, 'anchor_clip': anc, 'bin': clips[anc]['bin'] if anc is not None else None,

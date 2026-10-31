@@ -9,13 +9,15 @@ left over count as wrong). Also: speakers found vs true, tentative share, timing
 features, trunk, pooling, total), and the load line. Numbers only.
 """
 import itertools
+import os
 import json
 import re
 import statistics as st
 import sys
 from pathlib import Path
+import analyse
 
-ROOT = Path(__file__).parent / 'sessions'
+ROOT = Path(os.environ.get('STT_SESSION_ROOT', Path(__file__).parent / 'sessions'))
 SPK = re.compile(r'TL spk seq=(\d+) spk=(-?\d+) sim=([-0-9.]+) new=(\d) tent=(\d) samples=(\d+) fe_us=(\d+) '
                  r'nn_us=(\d+) head_us=(\d+) us=(\d+)')
 LOAD = re.compile(r'TL spk_load (.*)$')
@@ -54,7 +56,8 @@ def best_map(true, pred):
 
 def score(sdir):
     sdir = Path(sdir)
-    raw = open(sdir / 'raw.log', errors='replace').read().replace('\r', '')
+    _, records = analyse.load_session(sdir)
+    raw = '\n'.join(record['msg'] for record in records)
     a = json.load(open(sdir / 'analysis.json'))
     man = json.load(open(json.load(open(sdir / 'session.json'))['manifest']))
     clips = man['clips']

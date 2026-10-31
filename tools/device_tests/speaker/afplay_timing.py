@@ -37,7 +37,7 @@ sys.path.insert(0, str(HERE))
 import coreaudio_probe as cap  # noqa: E402
 
 
-def play_timed(path, calib=None, extra_args=(), on_line=None):
+def play_timed(path, calib=None, extra_args=(), on_line=None, stop_event=None):
     calib = calib or {}
     watcher = cap.RunWatcher().start()
     info = cap.output_latency_info(watcher.dev)
@@ -49,6 +49,8 @@ def play_timed(path, calib=None, extra_args=(), on_line=None):
     t_spawned = time.monotonic()
     marks, pending = {}, b''
     while True:
+        if stop_event is not None and stop_event.is_set() and proc.poll() is None:
+            proc.terminate()
         r, _, _ = select.select([master], [], [], 0.05)
         if r:
             try:

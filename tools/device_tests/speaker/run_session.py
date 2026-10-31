@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Speaker-to-P4-mic STT timing sessions (needs pyserial: use the IDF python).
 
+--production logs in using STT_TEST_USER / STT_TEST_PASSWORD, checks LittleFS
+and system logging, starts and drains a normal HardwareOne STT session, samples
+memory, and verifies the PDM source. --lean-debug temporarily disables selected
+microphone and Bluetooth debug flags. Private transcripts stay in raw.log.
+
   PY=~/.espressif/python_env/idf5.5_py3.9_env/bin/python
   $PY run_session.py --label base [--sessions K] [--wav playlist/playlist.wav]
   $PY run_session.py --capture-only 30          # boot capture, no audio
@@ -27,14 +32,15 @@ lines.tsv (mono, wall, line) and session.json (all timings + metadata). raw.log
 and lines.tsv hold transcript text (TL txt) and are 0600; this script prints
 only status and counts, never transcript text.
 
-Do not run this while anything else holds the port (esptool, a monitor). It
-never flashes, never sends CLI commands, never changes system settings.
+Do not run this while anything else holds the port (esptool, a monitor). It never flashes. In production mode it sends authenticated CLI commands and
+changes runtime-only diagnostics; it never enables file logging or saves settings.
 """
 import argparse
 import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import threading
@@ -76,12 +82,14 @@ class Reader(threading.Thread):
         self.tsv.write('# mono_s\twall_s\tline (newline arrival time; ANSI codes kept as received)\n')
         self.stop_ev = threading.Event()
         self.lock = threading.Lock()
+        self.history = []
         self.n_lines = 0
         self.n_bytes = 0
         self.first_byte_mono = None
         self.boot_marks = []        # mono of ROM boot banners
         self.small_tick_mono = None  # first ESP log line with tick < 3000 ms (fresh boot)
         self.fatal = []             # (mono, short marker)
+        self.in_previous_crash = False
         self.tl_counts = {}
         self.first_tl = {}          # kind -> mono of first occurrence
         self.last_tick = None
@@ -122,9 +130,14 @@ class Reader(threading.Thread):
         self.tsv.write(f'{mono:.6f}\t{wall:.6f}\t{text.replace(chr(9), " ")}\n')
         with self.lock:
             self.n_lines += 1
+            self.history.append(text)
             if ROM_BOOT.search(text):
                 self.boot_marks.append(mono)
-            if FATAL.search(text):
+            if '=== PREVIOUS CRASH ===' in text:
+                self.in_previous_crash = True
+            elif self.in_previous_crash and text.strip() == '======================':
+                self.in_previous_crash = False
+            elif not self.in_previous_crash and FATAL.search(text):
                 self.fatal.append((mono, FATAL.search(text).group(0)))
             p = parse_line(text)
             if p['tick'] is not None:
@@ -213,6 +226,55 @@ def tick_offset_summary(rd):
             'median_ms': round(d[len(d) // 2], 2), 'spread_p10_minus_min_ms': round(d[len(d) // 10] - d[0], 2)}
 
 
+def production_command(ser, rd, command, pattern, timeout=15):
+    """Send one command, matching only replies received after it was sent."""
+    with rd.lock:
+        start = len(rd.history)
+    ser.write((command + "\n").encode())
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with rd.lock:
+            rows = rd.history[start:]
+        for row in rows:
+            match = re.search(pattern, row)
+            if match:
+                return match
+        time.sleep(.05)
+    raise RuntimeError('command reply timed out: ' + command.split()[0])
+
+
+def production_setup(ser, rd, lean_debug=False):
+    # Account is supplied by environment, never written into metadata or output.
+    user, password = os.environ.get('STT_TEST_USER'), os.environ.get('STT_TEST_PASSWORD')
+    if not user or not password or any(c.isspace() for c in user + password):
+        raise RuntimeError('STT_TEST_USER and STT_TEST_PASSWORD are required')
+    time.sleep(20)  # full application startup
+    production_command(ser, rd, f'login {user} {password}', r'Login successful', 20)
+    production_command(ser, rd, 'loglink on', r'loglink ON', 20)
+    if lean_debug:
+        for flag in ('debugbluetoothcore', 'debugbluetoothgatt', 'debugbluetoothdata',
+                     'debugbluetooth', 'debugmiclifecycle', 'debugmicpolling',
+                     'debugmicvalues', 'debugmicrophone'):
+            production_command(ser, rd, flag + ' 0 temp', r'disabled \(runtime only\)')
+    free = int(production_command(ser, rd, 'fsusage json', r'"freeBytes":(\d+)').group(1))
+    if free < 2097152:
+        raise RuntimeError('LittleFS free space below 2 MiB')
+    production_command(ser, rd, 'log status', r'System logging is INACTIVE')
+    production_command(ser, rd, 'sttperf log ' + ('off' if lean_debug else 'on'),
+                       r'STT perf live log: ' + ('OFF' if lean_debug else 'ON'))
+    token = production_command(ser, rd, 'stt start', r'"accepted":true,"id":"([0-9a-f]{16})"', 20).group(1)
+    return token, free
+
+
+def production_drain_one(ser, rd, token):
+    m = production_command(ser, rd, f'stt next {token}', r'\{[^\r\n]*"available":(?:true|false)[^\r\n]*\}')
+    obj = json.loads(m.group(0))
+    if obj.get('available'):
+        production_command(ser, rd, f'stt ack {token} {obj["sequence"]}', r'STT chunk acknowledged|\[CMD\].*stt ack .* -> OK')
+        return 1
+    return 0
+
+
 def session(a, k, port, outroot, calib):
     stamp = time.strftime('%Y%m%d-%H%M%S')
     sdir = outroot / f'{stamp}_s{k}'
@@ -225,6 +287,7 @@ def session(a, k, port, outroot, calib):
         meta.update(wav=str(a.wav), wav_sha256=sha256(a.wav), wav_seconds=wav_seconds(a.wav),
                     manifest=str(a.manifest), settle_s=a.settle, post_s=a.post)
     ser = rd = None
+    token = None
     try:
         ser, rd, boot = open_and_boot(port, sdir, force_reset=not a.no_force_reset)
         meta['boot'] = boot
@@ -234,6 +297,9 @@ def session(a, k, port, outroot, calib):
             meta['status'] = 'captured'
             return meta, sdir, rd
         t0 = boot['t_open_done']
+        token = None
+        if a.production:
+            token, meta['littlefs_free_before'] = production_setup(ser, rd, a.lean_debug)
         need = [x for x in a.ready.split(',') if x]
         ok = wait_for(lambda: all(x in rd.first_tl for x in need), a.warm_timeout)
         meta['ready_kinds'] = need
@@ -245,6 +311,12 @@ def session(a, k, port, outroot, calib):
             print(f'[s{k}] no TL {"+".join(need)} within {a.warm_timeout:.0f} s; not playing', flush=True)
             time.sleep(1.0)
             return meta, sdir, rd
+        if a.production:
+            status = production_command(ser, rd, f'stt status {token}', r'\{[^\r\n]*"state":[^\r\n]*\}')
+            snapshot = json.loads(status.group(0))
+            if snapshot.get('source') != 'pdm' or snapshot.get('transcriptEnabled'):
+                raise RuntimeError('unexpected audio source or transcript saving enabled')
+            meta['source'] = snapshot['source']
         t_ready = max(rd.first_tl[x] for x in need)
         meta['t_ready'] = t_ready
         print(f'[s{k}] warm at +{t_ready - t0:.2f} s after open; settling {a.settle:.1f} s', flush=True)
@@ -259,22 +331,88 @@ def session(a, k, port, outroot, calib):
         if rd.fatal or len(rd.boot_marks) > allowed_boots(boot):
             meta['status'] = 'fault_before_play'
             return meta, sdir, rd
-        play = afplay_timing.play_timed(a.wav, calib or {})
+        if a.production:
+            result = {}
+            playback_stop = threading.Event()
+            def playback():
+                result['play'] = afplay_timing.play_timed(a.wav, calib or {}, stop_event=playback_stop)
+            thread = threading.Thread(target=playback, daemon=True)
+            thread.start()
+            meta['chunks_acknowledged'] = 0
+            meta['memory_samples'] = []
+            next_memory = time.monotonic()
+            try:
+                while thread.is_alive():
+                    if rd.fatal or len(rd.boot_marks) > allowed_boots(boot):
+                        playback_stop.set()
+                        break
+                    meta['chunks_acknowledged'] += production_drain_one(ser, rd, token)
+                    if time.monotonic() >= next_memory:
+                        reply = production_command(ser, rd, 'memreport json', r'\{[^\r\n]*"heapCaps":[^\r\n]*\}', 20)
+                        mem = json.loads(reply.group(0))
+                        meta['memory_samples'].append({'psram_free': mem['psram']['free'],
+                                                       'internal_free': mem['heapCaps']['internalFree'],
+                                                       'internal_largest': mem['heapCaps']['internalLargest']})
+                        next_memory = time.monotonic() + 10
+                    time.sleep(1)
+            finally:
+                if thread.is_alive():
+                    playback_stop.set()
+                thread.join(timeout=5)
+            if 'play' not in result:
+                raise RuntimeError('playback did not finish cleanly')
+            play = result['play']
+        else:
+            play = afplay_timing.play_timed(a.wav, calib or {})
         meta['afplay'] = play
         meta['afplay_summary'] = afplay_timing.summarize(play)
+        meta['volume_after_playback'] = cap.read_output_volume()
+        if meta['volume_after_playback'].get('output_muted') == 'true' or (a.expect_volume >= 0 and meta['volume_after_playback'].get('output_volume') != str(a.expect_volume)):
+            meta['status'] = 'volume_changed'
         if play.get('returncode') != 0:
             meta['status'] = 'afplay_failed'
         end_play = max(play['t_exit'], (play.get('t_audio_start') or play['t_launch']) + meta['wav_seconds'])
         print(f'[s{k}] played: launch->audio {meta["afplay_summary"]["launch_to_audio_ms"]} ms '
               f'({play["audio_start_method"]}); reading {a.post:.0f} s more', flush=True)
-        time.sleep(max(0.0, end_play + a.post - time.monotonic()))
+        if a.production:
+            production_command(ser, rd, f'stt stop {token}', r'STT request accepted')
+            stopped_token = token
+            deadline = time.monotonic() + max(a.post, 30)
+            while time.monotonic() < deadline:
+                meta['chunks_acknowledged'] += production_drain_one(ser, rd, token)
+                status = production_command(ser, rd, f'stt status {token}', r'\{[^\r\n]*"state":[^\r\n]*\}')
+                snapshot = json.loads(status.group(0))
+                if not snapshot.get('workerActive', True) and snapshot.get('pendingTexts', 1) == 0:
+                    meta['terminal_state'] = snapshot.get('state')
+                    meta['audio_overruns'] = snapshot.get('audioOverruns')
+                    meta['segments_completed'] = snapshot.get('segmentsCompleted')
+                    if snapshot.get('error') or snapshot.get('audioOverruns', 0):
+                        raise RuntimeError('STT reported an error or audio overrun')
+                    break
+                time.sleep(1)
+            else:
+                raise RuntimeError('STT did not drain after stop')
+            meta['littlefs_free_after'] = int(production_command(ser, rd, 'fsusage json', r'"freeBytes":(\d+)').group(1))
+            if meta['littlefs_free_after'] < 2097152:
+                raise RuntimeError('LittleFS free space below 2 MiB')
+        else:
+            time.sleep(max(0.0, end_play + a.post - time.monotonic()))
+        if rd.fatal or len(rd.boot_marks) > allowed_boots(boot):
+            meta['status'] = 'fault'
+        if a.production and not meta.get('chunks_acknowledged'):
+            raise RuntimeError('no final caption chunks acknowledged')
         if meta['status'] == 'running':
             meta['status'] = 'ok'
         return meta, sdir, rd
-    except serial.SerialException as exc:
-        meta['status'] = f'serial_error: {exc}'
+    except (serial.SerialException, RuntimeError, ValueError) as exc:
+        meta['status'] = f'control_error: {exc}'
         return meta, sdir, rd
     finally:
+        if a.production and token and ser is not None and rd is not None and 'stopped_token' not in locals():
+            try:
+                production_command(ser, rd, f'stt stop {token}', r'STT request accepted', 5)
+            except Exception:
+                pass
         if rd is not None:
             rd.stop()
         if ser is not None:
@@ -296,6 +434,8 @@ def session(a, k, port, outroot, calib):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--lean-debug', action='store_true', help='temporarily disable microphone and Bluetooth debug families')
+    ap.add_argument('--production', action='store_true', help='authenticated normal HardwareOne application')
     ap.add_argument('--label', default='unlabelled', help='build name, used as the results sub-folder')
     ap.add_argument('--sessions', type=int, default=1)
     ap.add_argument('--wav', type=Path, default=HERE / 'playlist' / 'playlist.wav')
@@ -316,6 +456,8 @@ def main():
     ap.add_argument('--calibrate-afplay', action='store_true', help='only run the silent afplay latency test')
     ap.add_argument('--calib-trials', type=int, default=3)
     a = ap.parse_args()
+    if a.lean_debug and not a.production:
+        ap.error('--lean-debug requires --production')
     a.mode = 'capture' if a.capture_only is not None else 'session'
 
     if a.calibrate_afplay:
@@ -351,6 +493,8 @@ def main():
                 analyse.analyse_session(sdir)
             except Exception as exc:  # noqa: BLE001
                 print(f'[s{k}] analysis failed: {exc!r} (run analyse.py on {sdir})', flush=True)
+        if 'LittleFS free space below' in meta['status']:
+            break
         if k < a.sessions:
             time.sleep(a.between)
     (outroot / f'run_{time.strftime("%Y%m%d-%H%M%S")}.json').write_text(

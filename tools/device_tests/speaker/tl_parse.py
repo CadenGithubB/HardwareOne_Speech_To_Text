@@ -14,7 +14,7 @@ import re
 ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
 LOG = re.compile(r'^([IWEDV]) \((\d+)\) ([^:]{1,32}): (.*)$')
 KV = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)=(-?\d+(?:\.\d+)?)([A-Za-z%]*)$')
-ROM_BOOT = re.compile(r'rst:0x[0-9a-f]+ \(')  # one ROM reset-reason line per boot
+ROM_BOOT = re.compile(r'^rst:0x[0-9a-f]+ \(')  # one ROM reset-reason line per boot
 FATAL = re.compile(r'Guru Meditation|panic\'ed|abort\(\) was called|Brownout|Task watchdog got triggered|'
                    r'stack overflow|LoadProhibited|StoreProhibited|IllegalInstruction|assert failed')
 
@@ -34,6 +34,8 @@ def parse_line(text):
     """Return a dict: {'tick', 'level', 'tag', 'msg'} for ESP log lines (else
     tick None), plus 'tl' = {'kind', 'id', 'f': {key: number}, 'text'} for TL lines."""
     t = clean(text)
+    # loglink adds its own queue timestamp before the original ESP-IDF line.
+    t = re.sub(r'^\[\d+\] (?=[IWEDV] \()', '', t)
     out = {'tick': None, 'level': None, 'tag': None, 'msg': t, 'tl': None}
     m = LOG.match(t)
     if m:

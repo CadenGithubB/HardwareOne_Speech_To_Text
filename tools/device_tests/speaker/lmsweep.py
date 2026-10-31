@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'stt_train' / 'lm')
 import analyse  # noqa: E402
 import hw1lm  # noqa: E402
 
-ROOT = HERE / 'sessions'
+ROOT = Path(os.environ.get('STT_SESSION_ROOT', HERE / 'sessions'))
 
 
 def load_session(sdir):
