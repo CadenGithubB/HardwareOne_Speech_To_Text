@@ -320,6 +320,81 @@ first and repeat sessions respectively, plus some session totals; a synthetic
 prefixed-decision and end-counter regression case was added. No firmware, model,
 or device contents were changed.
 
+### Similarity and clean-audio replay
+
+The device-log summary pools the logged best and second cluster similarities only; the samples are not independent and are not all possible speaker pairs. At threshold 0.600, the logged same-speaker-below and different-speaker-at-or-above fractions are 0.117 and 0.101. Values are empirical sample proportions, not measured end-to-end error rates.
+
+| Device-log group | n, min, p10, p25, median, p75, p90, max |
+| --- | --- |
+| Pooled same | 205, 0.407, 0.574, 0.689, 0.766, 0.827, 0.861, 0.915 |
+| Pooled different | 168, 0.115, 0.34, 0.389, 0.441, 0.5, 0.594, 0.849 |
+
+Pooled AUC: 0.937; skipped: {"no_reference":1,"unknown_identity":9}. Per-session AUC and skips (first/repeat/2/3/4): 1 first: 0.987, {}; 1 repeat: 0.988, {}; 2: 0.911, {}; 3: 0.839, {"no_reference":1,"unknown_identity":9}; 4: 0.998, {}.
+
+| Threshold | Same below | Different at or above |
+| ---: | ---: | ---: |
+| 0.50 | 0.039 | 0.256 |
+| 0.55 | 0.049 | 0.155 |
+| 0.60 | 0.117 | 0.101 |
+| 0.65 | 0.18 | 0.077 |
+| 0.70 | 0.273 | 0.06 |
+
+Logged split/merge structures by session: 1 first split `7850: {0:7, 2:1}`; 1 repeat none; 2 merged `cluster 1: {3081:11, 6313:9}`; 3 split `MIE085: {0:1, 3:8}` and `MIO036: {2:18, 5:1}`; 4 none.
+
+Centroid groups, n/min/p10/p25/median/p75/p90/max:
+- 1 phrases: same 46, 0.416, 0.464, 0.554, 0.648, 0.713, 0.737, 0.825; different 40, 0.115, 0.31, 0.387, 0.436, 0.504, 0.618, 0.787; AUC 0.859; at 0.6 same below 0.413, different at or above 0.15.
+- 4+ phrases: same 129, 0.407, 0.694, 0.744, 0.808, 0.837, 0.873, 0.915; different 110, 0.167, 0.357, 0.389, 0.446, 0.515, 0.584, 0.849; AUC 0.953; at 0.6 same below 0.031, different at or above 0.091.
+
+The clean clip replay uses perfect clip segmentation, 300 ms pre-roll and 500 ms tail, the float Mac model, and the unchanged firmware clusterer. The device trunk is quantized. Shuffled orders are sensitivity experiments, not realistic turn orders. In the following tables split and merge entries map IDs to phrase counts. Shuffled split/merge values count orders out of 200; coverage columns are percent.
+
+| Conversation | Threshold | Accuracy / coverage / labelled accuracy % | Clusters | Split speakers | Merged clusters | Shuffled split / merge | Shuffled coverage median / min % |
+| --- | ---: | --- | ---: | --- | --- | --- | --- |
+| 1 | 0.5 | 100.0 / 100.0 / 100.0 | 2 | `{}` | `{}` | 0 / 2 | 100.0 / 93.8 |
+| 1 | 0.55 | 100.0 / 100.0 / 100.0 | 2 | `{}` | `{}` | 16 / 0 | 100.0 / 56.2 |
+| 1 | 0.6 | 100.0 / 100.0 / 100.0 | 2 | `{}` | `{}` | 45 / 0 | 100.0 / 56.2 |
+| 1 | 0.65 | 81.2 / 84.4 / 96.3 | 3 | `{"7850":{"0":11,"2":1}}` | `{}` | 118 / 0 | 84.4 / 25.0 |
+| 1 | 0.7 | 68.8 / 87.5 / 78.6 | 8 | `{"7850":{"0":1,"2":1,"3":1,"4":7,"5":1,"6":1,"7":1}}` | `{}` | 188 / 0 | 81.2 / 40.6 |
+| 2 | 0.5 | 84.8 / 84.8 / 100.0 | 4 | `{}` | `{}` | 40 / 67 | 84.8 / 69.7 |
+| 2 | 0.55 | 90.9 / 90.9 / 100.0 | 4 | `{}` | `{}` | 53 / 31 | 90.9 / 81.8 |
+| 2 | 0.6 | 93.9 / 93.9 / 100.0 | 4 | `{}` | `{}` | 113 / 12 | 93.9 / 72.7 |
+| 2 | 0.65 | 97.0 / 100.0 / 97.0 | 5 | `{"3853":{"3":6,"4":1}}` | `{}` | 195 / 12 | 90.9 / 72.7 |
+| 2 | 0.7 | 75.8 / 90.9 / 83.3 | 8 | `{"3853":{"3":2,"6":3,"7":1},"6313":{"2":1,"4":5,"5":1}}` | `{}` | 200 / 0 | 90.9 / 66.7 |
+| 3 | 0.5 | 66.7 / 73.8 / 90.3 | 5 | `{"FIE038":{"1":2,"4":8},"MIE085":{"0":1,"3":8}}` | `{}` | 185 / 121 | 83.3 / 52.4 |
+| 3 | 0.55 | 73.8 / 83.3 / 88.6 | 5 | `{"FIE038":{"1":3,"4":9},"MIE085":{"0":1,"3":8}}` | `{}` | 199 / 60 | 85.7 / 40.5 |
+| 3 | 0.6 | 73.8 / 85.7 / 86.1 | 5 | `{"FIE038":{"1":3,"4":7},"MIE085":{"0":2,"3":8}}` | `{}` | 200 / 18 | 85.7 / 42.9 |
+| 3 | 0.65 | 64.3 / 76.2 / 84.4 | 8 | `{"FIE038":{"1":1,"4":7,"7":1},"MIE085":{"0":2,"3":1,"5":1,"6":1}}` | `{}` | 200 / 1 | 76.2 / 47.6 |
+| 3 | 0.7 | 71.4 / 85.7 / 83.3 | 8 | `{"FIE038":{"1":1,"4":10},"MIE085":{"0":2,"3":4,"5":1,"7":1},"MIO036":{"2":16,"6":1}}` | `{}` | 200 / 0 | 66.7 / 33.3 |
+| 4 | 0.5 | 75.0 / 100.0 / 75.0 | 2 | `{}` | `{"1":{"1289":10,"28132":7}}` | 0 / 72 | 78.6 / 71.4 |
+| 4 | 0.55 | 92.9 / 92.9 / 100.0 | 3 | `{}` | `{}` | 1 / 12 | 89.3 / 82.1 |
+| 4 | 0.6 | 100.0 / 100.0 / 100.0 | 3 | `{}` | `{}` | 14 / 0 | 100.0 / 71.4 |
+| 4 | 0.65 | 100.0 / 100.0 / 100.0 | 3 | `{}` | `{}` | 48 / 0 | 100.0 / 60.7 |
+| 4 | 0.7 | 57.1 / 64.3 / 88.9 | 5 | `{"1289":{"2":2,"4":1},"28132":{"1":3,"3":1}}` | `{}` | 101 / 0 | 89.3 / 53.6 |
+
+Clean pair-similarity results use all eligible clean clip pairs, unlike the device logs. `at_threshold` is 0.50 because it is the first supplied threshold; the 0.60 sweep row is shown as well.
+
+| Conversation | AUC | At 0.50: same below / different at or above | At 0.60: same below / different at or above | Between-first speaker similarities |
+| --- | ---: | --- | --- | --- |
+| 1 | 1.0 | 0.0 / 0.0 | 0.124 / 0.0 | `{"6241/7850":0.341}` |
+| 2 | 0.997 | 0.017 / 0.047 | 0.074 / 0.01 | `{"3081/3853":0.234,"3081/6313":0.37,"3081/652":0.348,"3853/6313":0.208,"3853/652":0.292,"6313/652":0.239}` |
+| 3 | 0.974 | 0.166 / 0.035 | 0.401 / 0.003 | `{"FIE038/MIE085":0.381,"FIE038/MIO036":0.266,"MIE085/MIO036":0.407}` |
+| 4 | 1.0 | 0.0 / 0.07 | 0.017 / 0.0 | `{"1289/28132":0.547,"1289/36208":0.271,"28132/36208":0.252}` |
+
+Conversation 1 speaker 7850 anchor clip 0, to-first clip/similarity: `[{"id":2,"sim":0.606},{"id":4,"sim":0.651},{"id":6,"sim":0.579},{"id":8,"sim":0.618},{"id":10,"sim":0.595},{"id":12,"sim":0.6}]`. Conversation 2’s closest first-clip pair is 3081/6313 at 0.370; those two were merged in the device run.
+
+Session replay uses the device phrase spans against clean audio and preserves the logged phrase sample lengths. Device/replay agreement compares literal cluster IDs and reasons, not a permutation-invariant speaker mapping. Device-minus-replay quantiles include only decisions while prior histories agree and the same best cluster exists. Conversation 3 sequence 2 had no analysis phrase and is not replayed; that omission changes the history and can shift cluster IDs.
+
+| Session | Decisions / agree | First divergence seq | At first divergence: device / replay (label, reason, best, similarity) | Delta: n, min, p10, p25, median, p75, p90, max |
+| --- | --- | ---: | --- | --- |
+| 1 first | 41 / 33 | 13 | -1, ambiguous, 0, 0.75 / 0, match, 0, 0.6983 | 11, -0.026, -0.021, -0.007, 0.012, 0.051, 0.052, 0.078 |
+| 1 repeat | 41 / 26 | 4 | 0, match, 0, 0.654 / 2, new, 0, 0.5885 | 2, 0.055, 0.055, 0.055, 0.066, 0.066, 0.066, 0.066 |
+| 2 | 39 / 23 | 3 | 1, match, 1, 0.674 / 2, new, 1, 0.3723 | 2, -0.02, -0.02, -0.02, 0.302, 0.302, 0.302, 0.302 |
+| 3 | 45 / 3 | 3 | 2, new, 0, 0.4 / 1, new, 0, 0.4544 | 1, -0.054, -0.054, -0.054, -0.054, -0.054, -0.054, -0.054 |
+| 4 | 33 / 30 | 5 | -1, ambiguous, 2, 0.614 / 1, short_match, 1, 0.6912 | 3, 0.03, 0.03, 0.04, 0.04, 0.085, 0.085, 0.085 |
+
+Conversation 1 first-run sequence 3: device similarity 0.558, clean session-span replay similarity 0.5648; both created cluster 2. The perfect-clip comparison 0.606 uses different audio boundaries.
+
+The device and clean results both contain same/different overlap, with a substantial threshold tradeoff; the evidence does not establish one universally safe threshold. The clean 3081/6313 first-clip similarity is below 0.6 and the in-order clean replay separates them, but this does not establish that every phrase of the pair separates. Signed session-replay deltas vary and some have only 1–3 comparable observations, so they cannot establish a systematic device similarity reduction or isolate playback/microphone effects from segmentation and float-versus-quantized-model differences.
+
 ## Technical recordings and pending work
 
 The five vocabulary-heavy recordings each ran once on the restored original
