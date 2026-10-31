@@ -4,6 +4,7 @@
   spkdiag.py SESSION_DIR [...]               one JSON summary per session
   spkdiag.py --phrases SESSION_DIR [...]     the same, plus one row per text phrase
   spkdiag.py --compare RUN_A RUN_B           two runs of one playlist, clip by clip
+  spkdiag.py --similarity SESSION_DIR [...]  logged decision similarities, same vs different speaker
 
 Reads lines.tsv, analysis.json and the manifest as spkeval.py does. Every phrase that produced text (TL
 pub, or any speaker line for its sequence) is joined with its speaker pipeline lines:
@@ -24,8 +25,17 @@ phrases with a reference:
   accuracy_labelled  share of the labelled ones that are right (same best mapping)
   accuracy_text      every text phrase; refused, failed and missing ones count as unknown
   accuracy_saved     the saved transcript's labels (TL tsave; unlabelled lines count as unknown)
+structure lists speakers whose single-speaker phrases carry several real labels (splits) and labels
+carrying several speakers (merges).
 --compare judges each playlist clip by the phrase covering it, against that clip's own speaker, using
-each run's own mapping. Numbers and IDs only: no recognised or reference text is read or printed.
+each run's own mapping.
+--similarity takes every TL spk_match decision of a single-speaker phrase with a reference and turns its
+best and second similarity into a same- or different-speaker sample. A cluster stands for the majority
+speaker of its single-speaker phrases (its creator's on a tie), so a duplicate cluster of one person still
+counts as that person. Samples are grouped by how many phrases the centroid held before the decision. Only
+the two highest similarities are logged, so with three or more clusters the different-speaker samples are
+the closest other clusters, not all of them. Numbers and IDs only: no recognised or reference text is read
+or printed.
 """
 import argparse
 import collections
@@ -136,7 +146,7 @@ def phrase_rows(sdir, min_new):
                     'refused:' + s['refused'] if s.get('refused') else 'missing')
         row = {'seq': n, 'clips': members, 'speakers': sorted({clips[i]['speaker'] for i in members}),
                'ref': ref['speaker'] if ref else None, 'kind': p.get('kind'), 'audio_s': p.get('audio_s'),
-               'pipeline': pipeline, 'spk': lab['spk'] if lab else -1}
+               'span_play_s': p.get('span_play_s'), 'pipeline': pipeline, 'spk': lab['spk'] if lab else -1}
         row['mixed'] = len(row['speakers']) > 1
         if lab:
             row.update(sim=lab['sim'], samples=lab['samples'], created=bool(lab['new']), lag_ms=lab['lag_ms'])
@@ -158,6 +168,112 @@ def phrase_rows(sdir, min_new):
 
 def pct(n, d):
     return round(100 * n / d, 1) if d else None
+
+
+def structure(refs, labels):
+    """Speakers spread over several real labels, and labels shared by several speakers (phrase counts)."""
+    by_ref, by_label = collections.defaultdict(collections.Counter), collections.defaultdict(collections.Counter)
+    for ref, label in zip(refs, labels):
+        if ref is not None and label >= 0:
+            by_ref[ref][label] += 1
+            by_label[label][ref] += 1
+    return {'split_speakers': {k: dict(v) for k, v in by_ref.items() if len(v) > 1},
+            'merged_clusters': {k: dict(v) for k, v in by_label.items() if len(v) > 1}}
+
+
+def quantiles(xs):
+    xs = sorted(xs)
+    if not xs:
+        return {'n': 0}
+    q = lambda p: round(xs[min(len(xs) - 1, int(p * (len(xs) - 1) + 0.5))], 3)
+    return {'n': len(xs), 'min': q(0), 'p10': q(.1), 'p25': q(.25), 'median': q(.5), 'p75': q(.75), 'p90': q(.9),
+            'max': q(1)}
+
+
+def similarity_report(same, different, threshold):
+    """Same- and different-speaker similarity distributions, their separability and threshold trade-off."""
+    pairs = len(same) * len(different)
+    auc = (sum((s > d) + 0.5 * (s == d) for s in same for d in different) / pairs) if pairs else None
+    rate = lambda xs, f: round(sum(1 for x in xs if f(x)) / len(xs), 3) if xs else None
+    sweep = [{'threshold': t, 'same_below': rate(same, lambda x: x < t),
+              'different_at_or_above': rate(different, lambda x: x >= t)}
+             for t in [round(0.30 + 0.05 * k, 2) for k in range(11)]]
+    out = {'same': quantiles(same), 'different': quantiles(different),
+           'auc': round(auc, 3) if auc is not None else None, 'sweep': sweep}
+    if threshold is not None:
+        out['at_threshold'] = {'threshold': threshold, 'same_below': rate(same, lambda x: x < threshold),
+                               'different_at_or_above': rate(different, lambda x: x >= threshold)}
+    return out
+
+
+def cluster_identity(rows):
+    """The speaker each cluster stands for: majority of its single-speaker phrases, else its creator's."""
+    votes, creator = collections.defaultdict(collections.Counter), {}
+    for r in rows:
+        if r['spk'] < 0 or r['ref'] is None or r['mixed']:
+            continue
+        votes[r['spk']][r['ref']] += 1
+        if r.get('created'):
+            creator[r['spk']] = r['ref']
+    out = {}
+    for label, v in votes.items():
+        top = v.most_common(2)
+        out[label] = top[0][0] if len(top) == 1 or top[0][1] > top[1][1] else creator.get(label)
+    return out
+
+
+def similarity_samples(rows):
+    """Logged best/second similarities of each clustering decision, as same- or different-speaker samples.
+
+    Each centroid's size counts the phrases it had accumulated before the decision (created or updated)."""
+    ident, sizes, samples, skipped = cluster_identity(rows), collections.Counter(), [], collections.Counter()
+    for r in sorted(rows, key=lambda r: r['seq']):
+        if r['pipeline'] != 'labelled':
+            continue
+        if r.get('reason_source') != 'spk_match':
+            skipped['derived_reason'] += 1
+        elif r['ref'] is None:
+            skipped['no_reference'] += 1
+        elif r['mixed']:
+            skipped['mixed'] += 1
+        else:
+            for cid, sim in ((r['best'], r['best_sim']), (r['second'], r['second_sim'])):
+                if cid is None or cid < 0:
+                    continue
+                if ident.get(cid) is None:
+                    skipped['unknown_identity'] += 1
+                    continue
+                samples.append({'seq': r['seq'], 'cluster': cid, 'same': ident[cid] == r['ref'], 'sim': sim,
+                                'centroid_phrases': sizes[cid]})
+        if r.get('created'):
+            sizes[r['spk']] = 1
+        elif r['spk'] >= 0 and (r.get('updated') if r.get('reason_source') == 'spk_match' else r.get('reason') == 'match'):
+            sizes[r['spk']] += 1
+    return samples, skipped
+
+
+def similarity(sessions, min_new=32000, with_samples=False):
+    """Pooled same/different-speaker similarity of logged decisions, overall and by centroid size."""
+    per, pooled, skipped, thresholds = {}, [], collections.Counter(), set()
+    for d in sessions:
+        meta, a, man, sp, rows = phrase_rows(d, min_new)
+        th = (sp['load'] or {}).get('th')
+        thresholds.add(th)
+        s, k = similarity_samples(rows)
+        per[str(d)] = similarity_report([x['sim'] for x in s if x['same']], [x['sim'] for x in s if not x['same']], th)
+        per[str(d)]['skipped'] = dict(k)
+        pooled += s
+        skipped += k
+    th = next(iter(thresholds)) if len(thresholds) == 1 else None
+    report = lambda xs: similarity_report([x['sim'] for x in xs if x['same']], [x['sim'] for x in xs if not x['same']], th)
+    buckets = {'1': lambda n: n == 1, '2-3': lambda n: 2 <= n <= 3, '4+': lambda n: n >= 4}
+    out = {'sessions': len(per), 'threshold': th if th is not None else sorted(t for t in thresholds if t is not None),
+           'pooled': report(pooled), 'skipped': dict(skipped),
+           'by_centroid_phrases': {k: report([x for x in pooled if f(x['centroid_phrases'])]) for k, f in buckets.items()},
+           'per_session': per}
+    if with_samples:
+        out['samples'] = pooled
+    return out
 
 
 def med(xs):
@@ -215,6 +331,8 @@ def summarise(sdir, min_new=32000, with_rows=False):
                    'saved_unlabelled': sum(1 for r in saved if r['saved_spk'] < 0)},
         'mapping': mapping,
         'clusters': [clusters[k] for k in sorted(clusters)],
+        'structure': structure([r['ref'] for r in labelled if not r['mixed']],
+                               [r['spk'] for r in labelled if not r['mixed']]),
         'unknown': {'by_reason': {k: dict(v) for k, v in by_reason.items()},
                     'ambiguous_pairs': dict(pairs),
                     'first_seq': min((r['seq'] for r in unknown), default=None),
@@ -286,10 +404,15 @@ def main():
     ap.add_argument('sessions', nargs='+')
     ap.add_argument('--phrases', action='store_true', help='include one row per text phrase')
     ap.add_argument('--compare', action='store_true', help='compare exactly two runs of one playlist')
+    ap.add_argument('--similarity', action='store_true',
+                    help='pool the logged decision similarities of all sessions (with --phrases: every sample)')
     ap.add_argument('--min-new-ms', type=int, default=2000,
                     help='minimum new-speaker phrase (speaker.spk; 2000 for export_final) for derived reasons')
     a = ap.parse_args()
     min_new = a.min_new_ms * 16
+    if a.similarity:
+        print(json.dumps(similarity(a.sessions, min_new, a.phrases)))
+        return
     if a.compare:
         if len(a.sessions) != 2:
             ap.error('--compare takes two session directories')

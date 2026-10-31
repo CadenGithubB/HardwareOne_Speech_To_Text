@@ -210,6 +210,17 @@ def main():
         assert sb['unknown']['by_reason'] == {'no_match_short': {X_SPK: 2}, 'failed': {A_SPK: 1}}, sb['unknown']
         assert sb['phrases']['reason_source'] == {'derived': 41}
         assert [c['created']['clips'] for c in sb['clusters']] == [[0], [1]]
+        assert sb['structure'] == {'split_speakers': {}, 'merged_clusters': {}}, sb['structure']
+
+        # Logged similarities: only run A has spk_match lines. Its duplicate cluster was created by a mixed
+        # phrase, so it stands for no speaker and the ambiguous phrases' second samples are skipped.
+        sim = spkdiag.similarity([a, b])
+        assert sim['threshold'] == TH, sim['threshold']
+        assert sim['skipped'] == {'mixed': 1, 'unknown_identity': 16, 'derived_reason': 41}, sim['skipped']
+        pooled = sim['pooled']
+        assert (pooled['same']['n'], pooled['different']['n'], pooled['auc']) == (38, 23, 1.0), pooled
+        assert pooled['at_threshold'] == {'threshold': TH, 'same_below': 0.0, 'different_at_or_above': 0.0}
+        assert sim['by_centroid_phrases']['1']['same']['n'] == 2, sim['by_centroid_phrases']
 
         # Clip by clip: the runs part at the merged turn, and the creation is located on the playlist.
         cmp = spkdiag.compare(a, b)
