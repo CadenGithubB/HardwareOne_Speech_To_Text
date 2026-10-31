@@ -802,6 +802,79 @@ The unchanged Mac model is float and the device trunk quantized. Session sets us
 
 `tests/test_spkprovisional.py` checks synthetic recovery, distinguishable nearby speakers, ambiguous bridges, short-phrase exclusion, expiry, immutable emitted labels, invalid embeddings and score/CLI behavior. The actual C++ class passes AddressSanitizer and UndefinedBehaviorSanitizer invariants. Retained pending embedding state is bounded, but the offline output archive is not; P4 runtime, allocation behavior, wall-clock delay and real-world accuracy remain unqualified. Private voiceprints and detailed result artifacts are not committed.
 
+### Standalone audio path and window-selection experiment
+
+The first standalone round audited the actual C++ frontend and two fixed, opt-in window selectors. The production frontend, model weights and clustering rule remain unchanged; no production caller enables the new selector. The frontend header comment was corrected to describe the existing PCM-crop-before-feature-extraction order. See [SPEAKER_AUDIO_EXPERIMENT.md](SPEAKER_AUDIO_EXPERIMENT.md) for code, configuration, reproduction and transfer requirements.
+
+The audit used 40 cases: ten synthetic edge cases and 30 speech cases from 15 development speaker IDs (paired channels). On speech, maximum absolute feature error was 4.93526459e-05, maximum RMS feature error 2.08444908e-06, and minimum native/Python float-embedding cosine 0.999999404. This supports close implementation parity on those inputs, not a claim that the representation loses no identity information. Silence/DC embeddings are not meaningful voice-identification evidence. Full quantized-model and actual microphone-input comparisons remain unperformed.
+
+A new frozen partition excludes all 64 reference IDs from prior voiceprint sets. Dataset speaker IDs are globally disjoint between development (37 IDs) and final (36), and paired clean/simulated-channel versions remain together. This does not certify identities across unrelated datasets or pretraining. Final-partition audio has not been embedded or scored.
+
+| Store pair | Development IDs | Final IDs |
+| --- | ---: | ---: |
+| librispeech-test-clean / g2 | 23 | 15 |
+| ami-ihm-test / g2 | 5 | 11 |
+| voxpopuli-validation / g2 | 9 | 10 |
+
+Plan SHA-256: `bcefd8bf917d9b70d4e01a443326c358324da84ba6f259e643125bfc03cbda07`. The development comparison has 189 sets / 4,654 phrases: 180 new synthetic corpus conversations (30 per store, 24 turns), plus the four old clean playlists and five old session-span diagnostics. Clean/session order sensitivity uses 200 shared shuffles; corpus uses its synthetic original order. All nine diagnostic baseline in-order count blocks reproduce the prior production replay exactly.
+
+Policies: `center` is the existing crop; `activity` selects the densest energy-active contiguous window; `trim_activity` additionally trims ends with 100 ms context. Fixed parameters are 20 ms RMS frames/10 ms hop, threshold max(32 int16 RMS units, 0.1*p90), and a 47,840-sample maximum. This is an energy heuristic, not validated speech/turn detection. Original reference IDs, mixed-phrase flags and supplied clustering durations are preserved for all policies, isolating embedding selection.
+
+| Development group | Policy | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| clean | center | 90.2 | 94.6 | 4.78 | 0.27 |
+| clean | activity | 90.8 | 94.8 | 4.74 | 0.15 |
+| clean | trim_activity | 92.4 | 94.9 | 4.73 | 0.0 |
+| session | center | 87.5 | 96.6 | 2.91 | 0.34 |
+| session | activity | 88.5 | 96.6 | 2.92 | 0.23 |
+| session | trim_activity | 88.4 | 96.5 | 3.13 | 0.07 |
+| corpus | center | 88.9 | 90.8 | 7.78 | 0.56 |
+| corpus | activity | 90.0 | 91.4 | 7.57 | 0.44 |
+| corpus | trim_activity | 89.5 | 91.2 | 7.71 | 0.37 |
+| corpus:librispeech-test-clean | center | 96.0 | 96.7 | 2.36 | 0.83 |
+| corpus:librispeech-test-clean | activity | 94.4 | 96.3 | 3.47 | 0.28 |
+| corpus:librispeech-test-clean | trim_activity | 93.9 | 96.2 | 3.61 | 0.14 |
+| corpus:librispeech-test-clean-g2 | center | 94.2 | 96.2 | 2.92 | 0.69 |
+| corpus:librispeech-test-clean-g2 | activity | 93.3 | 96.6 | 3.19 | 0.28 |
+| corpus:librispeech-test-clean-g2 | trim_activity | 92.1 | 96.5 | 3.19 | 0.14 |
+| corpus:ami-ihm-test | center | 76.2 | 75.8 | 18.19 | 0.56 |
+| corpus:ami-ihm-test | activity | 78.6 | 77.6 | 17.36 | 0.83 |
+| corpus:ami-ihm-test | trim_activity | 78.5 | 77.7 | 17.22 | 0.69 |
+| corpus:ami-ihm-test-g2 | center | 78.9 | 76.4 | 18.61 | 0.14 |
+| corpus:ami-ihm-test-g2 | activity | 78.6 | 76.7 | 18.33 | 0.14 |
+| corpus:ami-ihm-test-g2 | trim_activity | 77.5 | 75.4 | 19.03 | 0.14 |
+| corpus:voxpopuli-validation | center | 94.6 | 97.1 | 2.36 | 0.56 |
+| corpus:voxpopuli-validation | activity | 97.8 | 98.2 | 1.39 | 0.56 |
+| corpus:voxpopuli-validation | trim_activity | 98.3 | 98.2 | 1.39 | 0.56 |
+| corpus:voxpopuli-validation-g2 | center | 93.3 | 97.2 | 2.22 | 0.56 |
+| corpus:voxpopuli-validation-g2 | activity | 97.1 | 97.9 | 1.67 | 0.56 |
+| corpus:voxpopuli-validation-g2 | trim_activity | 96.8 | 97.7 | 1.81 | 0.56 |
+
+| Policy vs center, pooled development corpus | Δ coverage pp, CI95 | Δ labelled accuracy pp, CI95 | Δ split / 100, CI95 | Δ merge / 100, CI95 |
+| --- | --- | --- | --- | --- |
+| activity | +1.10 [-0.162, +2.384] | +0.60 [-0.219, +1.595] | -0.21 [-0.741, +0.324] | -0.12 [-0.718, +0.255] |
+| trim_activity | +0.60 [-0.833, +2.153] | +0.40 [-0.497, +1.430] | -0.07 [-0.671, +0.532] | -0.19 [-0.764, +0.139] |
+
+The intervals use 10,000 paired bootstrap replicates, stratified by source family and resampling 90 conversation-index blocks while keeping channel pairs together. Speakers recur among dialogues, so these are conditional reused-development intervals, not independent speaker-generalization bounds. All four intervals include zero for both policies. Pooled direction does not remove per-store regressions: activity selection increases LibriSpeech clean split phrases per 100 from 2.36 to 3.47, for example.
+
+| Conversation 1 original-order diagnostic | Policy | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Clean clips | center | 100.0 | 100.0 | 0.0 | 0.0 |
+| Clean clips | activity | 100.0 | 100.0 | 0.0 | 0.0 |
+| Clean clips | trim_activity | 68.8 | 86.4 | 9.38 | 0.0 |
+| First session spans | center | 75.6 | 96.8 | 2.44 | 0.0 |
+| First session spans | activity | 73.2 | 96.7 | 2.44 | 0.0 |
+| First session spans | trim_activity | 63.4 | 88.5 | 7.32 | 0.0 |
+| Repeat session spans | center | 61.0 | 96.0 | 2.44 | 0.0 |
+| Repeat session spans | activity | 63.4 | 96.2 | 2.44 | 0.0 |
+| Repeat session spans | trim_activity | 63.4 | 88.5 | 7.32 | 0.0 |
+
+In the clean Conversation 1 clip comparison, first/third-clip similarity is 0.6060 for center/activity and 0.5706 after trimming. The first session-span pair is approximately 0.5649 for center/activity and 0.5337 after trimming; the repeat pair is 0.5885 and 0.5230. These are dot products of rounded saved vectors; the prior unrounded C++ best similarity at sequence 3 was 0.5648. Trimming harms these cases and is not a qualified input change.
+
+The final-test speaker partition is being preserved because neither development candidate passes the integration gate. No HardwareOne source, model file, device policy or device flash was changed. The portable selector remains opt-in only. The current evidence favors checking actual speech quality/consistency over blindly removing normalization or silence. Its next comparison should use the frozen partition protocol and must show merge, split, coverage and labelled-accuracy behavior as well as P4 timing/memory before deployment.
+
+Verification: the actual native selector and frontend passed AddressSanitizer/UndefinedBehaviorSanitizer bounds and finite-output cases; synthetic tests cover silence fallback, activity selection, trimming, deterministic disjoint partitions, exact store roots and bootstrap direction. Numerical float parity was measured separately. No real-time P4 or quantized-path qualification is implied. Raw audio, voiceprints, partitions and detailed numeric artifacts remain in ignored private storage.
+
 ## Technical recordings and pending work
 
 The five vocabulary-heavy recordings each ran once on the restored original

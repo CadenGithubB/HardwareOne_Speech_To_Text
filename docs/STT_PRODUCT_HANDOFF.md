@@ -214,3 +214,15 @@ The ranked [ten-experiment roadmap](SPEAKER_NEXT_EXPERIMENTS.md) starts with
 an audit of the audio/feature path, voiced-window selection and separate-speaker
 evaluation. Each approach has an evidence basis, a decisive comparison and its
 main system cost; they are proposed experiments, not qualified improvements.
+
+## Standalone audio-path round
+
+The [audio experiment](SPEAKER_AUDIO_EXPERIMENT.md) adds an unused opt-in portable
+window selector and native/Python audit tools. On 30 speech cases the frontend
+implementations closely agree (minimum float-embedding cosine 0.99999940). A new
+partition excludes prior reference IDs and separates 37 development IDs from
+36 final IDs. Only development has been embedded/scored. Energy-window selection
+has inconclusive pooled gains and domain regressions; aggressive end trimming
+harms the original failure case. Neither qualifies for HardwareOne integration.
+The production model/frontend behavior and clustering are unchanged. Full
+quantized-path parity, actual microphone input and P4 latency/memory remain gaps.

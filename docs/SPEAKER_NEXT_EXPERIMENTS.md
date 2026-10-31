@@ -254,3 +254,12 @@ on this device or the current recordings.
 - [ERes2NetV2 paper](https://arxiv.org/abs/2406.02167) studies short-duration
   speaker embeddings and computational tradeoffs; it motivates checking the
   model ceiling in idea 10, without claiming hardware suitability.
+
+## First standalone round status
+
+The [audio-path/window experiment](SPEAKER_AUDIO_EXPERIMENT.md) implements the
+CPU frontend audit and two fixed energy-based selectors. Native/Python parity
+is close on audited speech; full device quantization parity remains open.
+Neither selector passes development validation, so the newly frozen final
+speaker partition remains unscored and HardwareOne integration has not begun.
+No other roadmap approach is claimed complete by this experiment.

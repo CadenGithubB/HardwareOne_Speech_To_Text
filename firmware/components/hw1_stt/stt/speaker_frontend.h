@@ -5,9 +5,10 @@
 // `hop` samples (frames = 1 + samples/hop, edges reflected: torch.stft
 // center=True), power spectrum, `n_mels` HTK mel triangles over [f_min, f_max]
 // (unnormalised, torchaudio's melscale_fbanks), log(x + log_eps), then each mel
-// band normalised over the phrase (mean, biased variance + norm_eps), and the
-// result cut to a fixed window of `window_frames` frames: centre-cropped when
-// longer, the phrase repeated end to end when shorter.
+// band normalised over the retained frames (mean, biased variance + norm_eps).
+// Before feature extraction, long PCM is centre-cropped to
+// (window_frames-1)*hop samples. Short feature sequences are repeated end to end
+// to fill window_frames; repetition adds no new speech evidence.
 // Output layout: [n_mels][window_frames] (row = mel band), floats.
 // Workspace is caller-provided: workspace_floats(spec, max_samples) floats.
 #include <cstddef>

@@ -175,3 +175,10 @@ instrumented workload, which cannot estimate ordinary-use crash frequency.
 The LM sweep is blocked by absent production controls or replay; bit-exact kernel
 trials and complete memory attribution remain future work. No optimization was
 integrated from these measurements.
+
+The subsequent [standalone audio experiment](SPEAKER_AUDIO_EXPERIMENT.md) found
+close native/Python frontend parity on audited speech. Two fixed energy-window
+selectors did not qualify on development data; a new disjoint final speaker
+partition remains unscored. The selector is opt-in and no production caller
+uses it. Quantized-path parity and actual P4 timing/memory are still required
+before a successful future candidate can be integrated into HardwareOne.
