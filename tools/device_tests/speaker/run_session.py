@@ -89,6 +89,7 @@ class Reader(threading.Thread):
         self.boot_marks = []        # mono of ROM boot banners
         self.small_tick_mono = None  # first ESP log line with tick < 3000 ms (fresh boot)
         self.fatal = []             # (mono, short marker)
+        self.watchdogs = []         # warnings; not necessarily reboots
         self.in_previous_crash = False
         self.tl_counts = {}
         self.first_tl = {}          # kind -> mono of first occurrence
@@ -138,7 +139,11 @@ class Reader(threading.Thread):
             elif self.in_previous_crash and text.strip() == '======================':
                 self.in_previous_crash = False
             elif not self.in_previous_crash and FATAL.search(text):
-                self.fatal.append((mono, FATAL.search(text).group(0)))
+                marker = FATAL.search(text).group(0)
+                if marker == 'Task watchdog got triggered':
+                    self.watchdogs.append(mono)
+                else:
+                    self.fatal.append((mono, marker))
             p = parse_line(text)
             if p['tick'] is not None:
                 self.tick_offsets.append((mono, p['tick']))
@@ -429,7 +434,7 @@ def session(a, k, port, outroot, calib):
         meta['t_end'] = time.monotonic()
         if rd is not None:
             meta['reader'] = {'lines': rd.n_lines, 'bytes': rd.n_bytes, 'boot_banners': rd.boot_marks,
-                              'fatal_markers': rd.fatal, 'tl_counts': rd.tl_counts, 'first_tl_mono': rd.first_tl,
+                              'fatal_markers': rd.fatal, 'watchdog_warnings': rd.watchdogs, 'tl_counts': rd.tl_counts, 'first_tl_mono': rd.first_tl,
                               'reader_error': rd.error, 'tick_offset': tick_offset_summary(rd)}
             if (len(rd.boot_marks) > allowed_boots(meta.get('boot') or {}) or rd.fatal) \
                     and meta['status'] in ('ok', 'running', 'captured'):
@@ -492,7 +497,7 @@ def main():
         meta, sdir, rd = session(a, k, port, outroot, calib)
         r = meta.get('reader', {})
         print(f'[s{k}] {meta["status"]}: {r.get("lines")} lines, TL {r.get("tl_counts")}, '
-              f'fatal={len(r.get("fatal_markers") or [])}, boots={len(r.get("boot_banners") or [])}, '
+              f'fatal={len(r.get("fatal_markers") or [])}, watchdogs={len(r.get("watchdog_warnings") or [])}, boots={len(r.get("boot_banners") or [])}, '
               f'tick offset {r.get("tick_offset")} -> {sdir}', flush=True)
         results.append({'dir': str(sdir), 'status': meta['status']})
         if meta['status'] == 'ok' and not a.no_analyse:

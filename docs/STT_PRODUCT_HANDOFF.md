@@ -176,3 +176,20 @@ The default profile was later boot-tested on the throwaway P4X-EYE: it boots, ke
 NVS counters and answers USB `status`, but that board had no microSD card, so model
 load and captions were not reached. HardwareOne 0.99.98.5 was restored afterwards.
 Details are in [the device smoke test](STANDALONE_PORT.md#october-31-device-smoke-test).
+
+## October 31 HardwareOne A/B testing in progress
+
+See [AB_TEST_RESULTS.md](AB_TEST_RESULTS.md) for the bench conditions, numeric
+logging control, stage profile, fault history and remaining checks. Five
+complete runs per logging condition did not establish a clear WER or latency
+improvement. Watchdog warnings and assertion reboots also occurred under this
+serial-polling stress workload; their cause and ordinary-use frequency remain
+unknown. The user reports crashes are uncommon in ordinary transcription use.
+
+The fixed model and onboard PDM mic remain in use. A matched rebuilt HardwareOne
+baseline and two already-prepared single-change candidates are being tested;
+the original app-slot image is privately backed up and must be restored after
+testing. The installed and rebuilt baseline binaries differ, so the earlier
+logging data is not used as a candidate A/B baseline. Do not integrate a
+candidate or claim a win without the completed comparison, fault counts and
+requested confidence intervals. Raw captures and images remain private.

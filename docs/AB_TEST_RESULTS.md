@@ -11,8 +11,9 @@ private and are not included here.
   app at `0x10000`, length `0x715000`, and LittleFS at `0x725000`.
 - A complete 7,426,048-byte app-slot rollback image was saved privately before
   testing and verified against the device. The matching rebuilt baseline was
-  subsequently flashed at `0x10000` only; the original image is reserved for
-  restoration after candidate testing. No other partition was flashed.
+  subsequently flashed at `0x10000` only. The preview-cadence candidate is
+  now installed at the same app address for testing. Both writes verified;
+  the original image is reserved for restoration. No other partition was flashed.
 - A 75% qualification run completed 39 final chunks with zero reported audio
   overruns and no fault markers; LittleFS afterward had 7,507,968 bytes free.
 - One earlier qualification run reported an IDLE1 task-watchdog warning during
@@ -31,7 +32,7 @@ private and are not included here.
 | Comparison | Valid sessions per arm | Outcome |
 | --- | ---: | --- |
 | Debug vs lean logging | 5 / 5 | No clear difference; fault-affected attempts retained separately |
-| Preview cadence | 0 / 0 | Rebuilt-baseline sessions in progress |
+| Preview cadence | 5 / 0 | Rebuilt baseline complete; candidate sessions in progress |
 | Speaker labels and conversation accuracy | 0 / 0 | Pending |
 | Pointwise kernels and traffic | 1 profile | Profile captured; traffic and kernel comparison pending |
 | RAM attribution and right-sizing | 1 phase sample | Partial attribution; transient peaks and resizing pending |
@@ -110,3 +111,22 @@ complete non-overlapping allocation ledger. The pinned speech graph is
 all runtime allocations. The five complete sessions' sampled lows and largest
 internal blocks are above. Attribution and transient peak measurement remain
 incomplete; no RAM resizing has been implemented or qualified.
+
+### Subsequent baseline protocol
+
+The locally rebuilt baseline differs from the original installed app in
+257,973 of the first 6,025,664 bytes. Source and build inputs were prepared
+from `aa6508fd`, but byte identity to the original was not established. A
+separate rebuilt-baseline arm is therefore used for candidate comparisons.
+After two rebuilt-baseline attempts stopped on task-watchdog warnings and
+successfully drained, the harness was adjusted to record a watchdog warning
+while allowing a responsive session to finish. Assertions, unexpected reboots
+and unresponsive commands still terminate the run. Warning-affected complete
+runs and warnings are identified separately in the final statistics; this
+protocol change does not retroactively change the logging comparison above.
+
+The rebuilt baseline completed five full sessions with zero reported overruns
+and no watchdog warnings in those complete sessions. Two earlier attempts were
+stopped after watchdog warnings and drained without reboot. After a fresh MAC
+and partition-table check, the preview-cadence candidate was app-only flashed
+and hash-verified for its matched sessions.

@@ -160,3 +160,14 @@ Keep one change per comparison and report distributions over repeated runs,
 not a speedup inferred by comparing these short phrases against older, longer
 phrases. No firmware optimization, model change or new device test was performed
 in writing this plan.
+
+## October 31 A/B progress
+
+[AB_TEST_RESULTS.md](AB_TEST_RESULTS.md) records five complete sessions per
+logging condition and the separate fault-affected attempts. That comparison
+found no clear WER or latency improvement. A further 201-stage profile again
+identified 512→512 pointwise layers as a major share of accumulated stage time;
+it did not measure cache misses or PSRAM traffic. Candidate testing and memory
+attribution remain in progress. The user reports ordinary transcription use is
+more stable than this instrumented bench workload; the test cannot estimate
+ordinary-use crash frequency or determine the cause of the bench assertions.
