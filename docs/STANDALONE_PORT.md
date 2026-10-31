@@ -174,6 +174,7 @@ python3 tests/test_stt_stream.py --thread-sanitize
 python3 tests/test_speaker_adapter.py
 python3 tests/test_spkdiag.py
 python3 tests/test_spkreplay.py
+python3 tests/test_spkrules.py
 ```
 
 The bridge test binds localhost; Conv scratch checks require the staged SDK.

@@ -53,6 +53,10 @@ DRIVER = HERE / 'cluster_replay.cpp'
 SPEAKER_TOOLS = ROOT / 'tools/stt_p4/speaker'
 
 
+def playlist_wav(manifest, man, wav=None):
+    return Path(wav or man.get('wav') or Path(manifest).with_name('playlist.wav'))
+
+
 def read_wav(path):
     with wave.open(str(path), 'rb') as w:
         if w.getnchannels() != 1 or w.getsampwidth() != 2:
@@ -228,7 +232,7 @@ def shuffled(segs, embs, clusterer, threshold, min_new, n, seed):
 def replay(manifest, session=None, wav=None, thresholds=None, min_new=32000, pre=0.3, tail=0.5, shuffles=0, seed=1,
            embed=None, with_rows=False):
     man = json.loads(Path(manifest).read_text())
-    wav = Path(wav or man.get('wav') or Path(manifest).with_name('playlist.wav'))
+    wav = playlist_wav(manifest, man, wav)
     warnings = []
     if man.get('wav_sha256') and hashlib.sha256(wav.read_bytes()).hexdigest() != man['wav_sha256']:
         warnings.append('wav sha256 differs from manifest')
