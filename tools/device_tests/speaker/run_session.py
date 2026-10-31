@@ -317,6 +317,8 @@ def session(a, k, port, outroot, calib):
             if snapshot.get('source') != 'pdm' or snapshot.get('transcriptEnabled'):
                 raise RuntimeError('unexpected audio source or transcript saving enabled')
             meta['source'] = snapshot['source']
+        if a.production and a.stage_profile:
+            production_command(ser, rd, 'sttperf stages clear', r'STT stage profile cleared')
         t_ready = max(rd.first_tl[x] for x in need)
         meta['t_ready'] = t_ready
         print(f'[s{k}] warm at +{t_ready - t0:.2f} s after open; settling {a.settle:.1f} s', flush=True)
@@ -392,6 +394,9 @@ def session(a, k, port, outroot, calib):
                 time.sleep(1)
             else:
                 raise RuntimeError('STT did not drain after stop')
+            if a.stage_profile:
+                profile = production_command(ser, rd, 'sttperf stages all', r'stages \d+ segments \d+ us:[0-9,]+', 30)
+                meta['stage_profile'] = profile.group(0)
             meta['littlefs_free_after'] = int(production_command(ser, rd, 'fsusage json', r'"freeBytes":(\d+)').group(1))
             if meta['littlefs_free_after'] < 2097152:
                 raise RuntimeError('LittleFS free space below 2 MiB')
@@ -434,6 +439,7 @@ def session(a, k, port, outroot, calib):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--stage-profile', action='store_true', help='capture per-stage counters during playback')
     ap.add_argument('--lean-debug', action='store_true', help='temporarily disable microphone and Bluetooth debug families')
     ap.add_argument('--production', action='store_true', help='authenticated normal HardwareOne application')
     ap.add_argument('--label', default='unlabelled', help='build name, used as the results sub-folder')
@@ -456,6 +462,8 @@ def main():
     ap.add_argument('--calibrate-afplay', action='store_true', help='only run the silent afplay latency test')
     ap.add_argument('--calib-trials', type=int, default=3)
     a = ap.parse_args()
+    if a.stage_profile and not a.production:
+        ap.error('--stage-profile requires --production')
     if a.lean_debug and not a.production:
         ap.error('--lean-debug requires --production')
     a.mode = 'capture' if a.capture_only is not None else 'session'

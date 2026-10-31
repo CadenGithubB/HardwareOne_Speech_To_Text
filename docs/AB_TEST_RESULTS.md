@@ -10,7 +10,9 @@ private and are not included here.
 - USB MAC matched the designated P4. The read-back partition table places the
   app at `0x10000`, length `0x715000`, and LittleFS at `0x725000`.
 - A complete 7,426,048-byte app-slot rollback image was saved privately before
-  testing. No firmware has been flashed.
+  testing and verified against the device. The matching rebuilt baseline was
+  subsequently flashed at `0x10000` only; the original image is reserved for
+  restoration after candidate testing. No other partition was flashed.
 - A 75% qualification run completed 39 final chunks with zero reported audio
   overruns and no fault markers; LittleFS afterward had 7,507,968 bytes free.
 - One earlier qualification run reported an IDLE1 task-watchdog warning during
@@ -29,10 +31,10 @@ private and are not included here.
 | Comparison | Valid sessions per arm | Outcome |
 | --- | ---: | --- |
 | Debug vs lean logging | 5 / 5 | No clear difference; fault-affected attempts retained separately |
-| Preview cadence | 0 / 0 | Pending |
+| Preview cadence | 0 / 0 | Rebuilt-baseline sessions in progress |
 | Speaker labels and conversation accuracy | 0 / 0 | Pending |
-| Pointwise kernels and traffic | 0 / 0 | Pending |
-| RAM attribution and right-sizing | 0 / 0 | Pending |
+| Pointwise kernels and traffic | 1 profile | Profile captured; traffic and kernel comparison pending |
+| RAM attribution and right-sizing | 1 phase sample | Partial attribution; transient peaks and resizing pending |
 | LM strength and technical vocabulary | 0 / 0 | Pending |
 
 No win is claimed without the requested matched runs and confidence intervals.
@@ -44,8 +46,10 @@ crash frequency or isolate the cause of an assertion.
 
 ## Logging control
 
-Five complete standard-playlist sessions per arm at 75%; debug and control
-runs were collected in blocks, not randomized. The control disabled the
+Five complete standard-playlist sessions per arm at 75% on the original
+installed app; debug and control runs were collected in blocks, not randomized.
+The installed image differed in bytes from the later local rebuild, so these
+measurements are not reused as a matched baseline for the candidate images. The control disabled the
 microphone and Bluetooth debug families and live STT performance logging at
 runtime. Timeline logging, private caption polling and 10-second memory
 sampling remained enabled in both conditions. Each row below reports the mean
@@ -84,3 +88,25 @@ control had one assertion reboot and one watchdog-affected attempt among seven.
 The separate qualification run had one additional watchdog warning. The
 sample is small, the conditions were not randomized, and these events do not
 establish ordinary-use crash frequency or causation. No win is claimed.
+
+## Existing-firmware stage and memory observations
+
+One additional complete standard-playlist run collected all 201 stage counters
+across 158 completed model passes, including previews. Reconstructing from the
+reported integer mean microseconds gives about 940.82 ms of accumulated stage
+wall time per completed pass. The 53 pointwise 512→512 layers account for
+approximately 549.0 ms, or 58.3%; other pointwise layers, depthwise layers and
+Add/ReLU account for the remainder. Canceled partial work may contribute
+without incrementing the completed-pass count; averages are rounded and are
+not exclusive CPU time. Neither PSRAM traffic nor cache misses were measured.
+No kernel or memory-layout change has been tested by this profile.
+
+One debug-baseline warm-up reported 6,820,936 B free PSRAM and a 6,684,672 B
+largest PSRAM block. The speaker load then reported 3,348,240 B of PSRAM used
+for its load, including a reported 600,000 B arena and 185,616 B work area;
+the feature pool reported 651,272 B. These are phase observations, not a
+complete non-overlapping allocation ledger. The pinned speech graph is
+20,112,128 B and the LM file is 1,599,996 B; file sizes alone do not establish
+all runtime allocations. The five complete sessions' sampled lows and largest
+internal blocks are above. Attribution and transient peak measurement remain
+incomplete; no RAM resizing has been implemented or qualified.
