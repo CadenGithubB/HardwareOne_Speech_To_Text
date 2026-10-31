@@ -400,6 +400,332 @@ Conversation 1 first-run sequence 3: device similarity 0.558, clean session-span
 
 The device and clean results both contain same/different overlap, with a substantial threshold tradeoff; the evidence does not establish one universally safe threshold. The clean 3081/6313 first-clip similarity is below 0.6 and the in-order clean replay separates them, but this does not establish that every phrase of the pair separates. Signed session-replay deltas vary and some have only 1–3 comparable observations, so they cannot establish a systematic device similarity reduction or isolate playback/microphone effects from segmentation and float-versus-quantized-model differences.
 
+### Offline rule comparison
+
+The offline comparison embedded four clean manifests, five session-span sets and 30 synthetic conversations of 24 turns from each of six stores. The manifests are `playlist-conv1`, `playlist-conv2`, `playlist-conv3`, `playlist-conv4`; the stores are `librispeech-dev-clean`, `librispeech-dev-clean-g2`, `ami-ihm-validation`, `ami-ihm-validation-g2`, `voxpopuli-dev`, and `voxpopuli-dev-g2`. Total: 189 sets, 4,654 phrases.
+
+| Input group | Sets | Phrases |
+| --- | ---: | ---: |
+| clean | 4 | 135 |
+| session | 5 | 199 |
+| corpus:librispeech-dev-clean | 30 | 720 |
+| corpus:librispeech-dev-clean-g2 | 30 | 720 |
+| corpus:ami-ihm-validation | 30 | 720 |
+| corpus:ami-ihm-validation-g2 | 30 | 720 |
+| corpus:voxpopuli-dev | 30 | 720 |
+| corpus:voxpopuli-dev-g2 | 30 | 720 |
+
+The Mac model is float while the device trunk is quantized. Corpus conversations are synthetic, from clean or simulated `-g2` channel stores; shuffled orders measure sensitivity only. Session sets use clean source audio at device phrase spans, so they cannot reproduce Conversation 2’s actual on-device merge. Clean and session sets each use their in-order sequence and 200 seeded shuffles; corpus sets use their synthetic recorded order only. `all` pools all these runs and therefore reflects that unequal order count.
+
+Coverage, labelled accuracy, and runs with split/merge are percentages. Split and merge are phrase counts per 100 scored phrases, with clusters assessed within each run; these are not counts of affected speakers. Rule deltas are versus production for the same group, in percentage points or phrases per 100 respectively. The criterion is lower split per 100 and no higher merge per 100, both over all orders; it does not require non-regression in coverage or accuracy. Hold/merge columns count decision reasons over all orders.
+
+#### clean
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 90.2 | 94.6 | 4.78 | 0.27 | 44.8 | 4.2 |
+| production_0.55 | 90.2 | 95.3 | 3.25 | 1.35 | 33.6 | 12.9 |
+| production_0.65 | 85.5 | 91.6 | 7.14 | 0.03 | 67.4 | 1.0 |
+| hold_0.50 | 92.4 | 98.0 | 1.4 | 0.52 | 22.3 | 4.7 |
+| hold_0.45 | 89.3 | 98.5 | 0.7 | 0.71 | 12.3 | 6.8 |
+| hold_0.50_young4 | 93.7 | 96.8 | 2.71 | 0.4 | 31.5 | 4.6 |
+| merge_young3 | 98.3 | 93.7 | 5.13 | 1.4 | 47.9 | 9.5 |
+| merge_young3_sim0.45 | 98.2 | 94.0 | 5.05 | 1.21 | 47.5 | 8.2 |
+| hold_0.50+merge_young3 | 93.5 | 97.0 | 1.68 | 1.45 | 26.7 | 10.1 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | 0.0 | 0.7 | -1.53 | 1.08 | false | 0 | 0 |
+| production_0.65 | -4.7 | -3.0 | 2.36 | -0.24 | false | 0 | 0 |
+| hold_0.50 | 2.2 | 3.4 | -3.38 | 0.25 | false | 1241 | 0 |
+| hold_0.45 | -0.9 | 3.9 | -4.08 | 0.44 | false | 2327 | 0 |
+| hold_0.50_young4 | 3.5 | 2.2 | -2.07 | 0.13 | false | 806 | 0 |
+| merge_young3 | 8.1 | -0.9 | 0.35 | 1.13 | false | 0 | 686 |
+| merge_young3_sim0.45 | 8.0 | -0.6 | 0.27 | 0.94 | false | 0 | 668 |
+| hold_0.50+merge_young3 | 3.3 | 2.4 | -3.1 | 1.18 | false | 1297 | 204 |
+
+#### session
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 87.5 | 96.6 | 2.91 | 0.34 | 42.3 | 10.3 |
+| production_0.55 | 88.8 | 96.5 | 2.18 | 1.6 | 37.3 | 23.6 |
+| production_0.65 | 83.9 | 93.2 | 5.72 | 0.35 | 68.2 | 12.9 |
+| hold_0.50 | 90.8 | 99.0 | 0.6 | 0.48 | 16.5 | 7.4 |
+| hold_0.45 | 90.0 | 98.9 | 0.28 | 0.88 | 8.5 | 10.7 |
+| hold_0.50_young4 | 91.3 | 98.4 | 1.34 | 0.35 | 25.5 | 7.0 |
+| merge_young3 | 95.2 | 95.2 | 3.1 | 2.01 | 47.2 | 14.9 |
+| merge_young3_sim0.45 | 95.1 | 95.4 | 3.06 | 1.82 | 46.6 | 13.9 |
+| hold_0.50+merge_young3 | 92.2 | 97.3 | 0.92 | 1.98 | 24.3 | 14.8 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | 1.3 | -0.1 | -0.73 | 1.26 | false | 0 | 0 |
+| production_0.65 | -3.6 | -3.4 | 2.81 | 0.01 | false | 0 | 0 |
+| hold_0.50 | 3.3 | 2.4 | -2.31 | 0.14 | false | 1246 | 0 |
+| hold_0.45 | 2.5 | 2.3 | -2.63 | 0.54 | false | 1998 | 0 |
+| hold_0.50_young4 | 3.8 | 1.8 | -1.57 | 0.01 | false | 847 | 0 |
+| merge_young3 | 7.7 | -1.4 | 0.19 | 1.67 | false | 0 | 777 |
+| merge_young3_sim0.45 | 7.6 | -1.2 | 0.15 | 1.48 | false | 0 | 764 |
+| hold_0.50+merge_young3 | 4.7 | 0.7 | -1.99 | 1.64 | false | 1292 | 220 |
+
+#### corpus
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 88.8 | 90.6 | 7.43 | 1.67 | 55.0 | 16.1 |
+| production_0.55 | 90.0 | 91.6 | 5.19 | 3.29 | 41.1 | 22.8 |
+| production_0.65 | 84.3 | 87.9 | 10.12 | 0.46 | 80.0 | 7.8 |
+| hold_0.50 | 88.9 | 92.6 | 3.43 | 3.84 | 32.2 | 22.2 |
+| hold_0.45 | 86.3 | 93.3 | 1.97 | 4.47 | 23.3 | 25.0 |
+| hold_0.50_young4 | 89.4 | 92.7 | 4.51 | 3.03 | 41.7 | 21.1 |
+| merge_young3 | 96.0 | 88.1 | 8.33 | 4.49 | 58.3 | 26.1 |
+| merge_young3_sim0.45 | 95.9 | 88.1 | 8.29 | 4.44 | 58.3 | 25.6 |
+| hold_0.50+merge_young3 | 90.2 | 91.5 | 3.75 | 4.86 | 35.6 | 27.2 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | 1.2 | 1.0 | -2.24 | 1.62 | false | 0 | 0 |
+| production_0.65 | -4.5 | -2.7 | 2.69 | -1.21 | false | 0 | 0 |
+| hold_0.50 | 0.1 | 2.0 | -4.0 | 2.17 | false | 291 | 0 |
+| hold_0.45 | -2.5 | 2.7 | -5.46 | 2.8 | false | 449 | 0 |
+| hold_0.50_young4 | 0.6 | 2.1 | -2.92 | 1.36 | false | 234 | 0 |
+| merge_young3 | 7.2 | -2.5 | 0.9 | 2.82 | false | 0 | 120 |
+| merge_young3_sim0.45 | 7.1 | -2.5 | 0.86 | 2.77 | false | 0 | 118 |
+| hold_0.50+merge_young3 | 1.4 | 0.9 | -3.68 | 3.19 | false | 294 | 24 |
+
+#### corpus:librispeech-dev-clean
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 91.5 | 94.7 | 2.22 | 3.33 | 36.7 | 16.7 |
+| production_0.55 | 91.4 | 95.3 | 0.69 | 3.89 | 10.0 | 20.0 |
+| production_0.65 | 91.1 | 94.7 | 4.44 | 0.69 | 76.7 | 6.7 |
+| hold_0.50 | 94.2 | 93.7 | 0.56 | 5.97 | 3.3 | 23.3 |
+| hold_0.45 | 93.9 | 93.2 | 0.69 | 6.39 | 6.7 | 26.7 |
+| hold_0.50_young4 | 94.4 | 94.0 | 0.97 | 5.42 | 13.3 | 23.3 |
+| merge_young3 | 97.5 | 92.2 | 3.19 | 5.97 | 43.3 | 30.0 |
+| merge_young3_sim0.45 | 97.5 | 92.2 | 3.19 | 5.97 | 43.3 | 30.0 |
+| hold_0.50+merge_young3 | 95.7 | 91.6 | 1.39 | 7.64 | 13.3 | 33.3 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | -0.1 | 0.6 | -1.53 | 0.56 | false | 0 | 0 |
+| production_0.65 | -0.4 | 0.0 | 2.22 | -2.64 | false | 0 | 0 |
+| hold_0.50 | 2.7 | -1.0 | -1.66 | 2.64 | false | 26 | 0 |
+| hold_0.45 | 2.4 | -1.5 | -1.53 | 3.06 | false | 33 | 0 |
+| hold_0.50_young4 | 2.9 | -0.7 | -1.25 | 2.09 | false | 20 | 0 |
+| merge_young3 | 6.0 | -2.5 | 0.97 | 2.64 | false | 0 | 14 |
+| merge_young3_sim0.45 | 6.0 | -2.5 | 0.97 | 2.64 | false | 0 | 14 |
+| hold_0.50+merge_young3 | 4.2 | -3.1 | -0.83 | 4.31 | false | 25 | 3 |
+
+#### corpus:librispeech-dev-clean-g2
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 90.6 | 95.9 | 2.22 | 1.94 | 40.0 | 16.7 |
+| production_0.55 | 93.5 | 95.1 | 0.83 | 4.44 | 10.0 | 23.3 |
+| production_0.65 | 87.5 | 93.2 | 5.97 | 0.56 | 73.3 | 10.0 |
+| hold_0.50 | 93.6 | 94.8 | 0.69 | 4.86 | 6.7 | 23.3 |
+| hold_0.45 | 93.6 | 94.1 | 0.42 | 5.56 | 3.3 | 23.3 |
+| hold_0.50_young4 | 93.8 | 95.1 | 1.53 | 4.17 | 23.3 | 23.3 |
+| merge_young3 | 98.2 | 91.8 | 3.47 | 6.11 | 46.7 | 26.7 |
+| merge_young3_sim0.45 | 98.2 | 91.8 | 3.47 | 6.11 | 46.7 | 26.7 |
+| hold_0.50+merge_young3 | 95.1 | 93.3 | 0.69 | 6.25 | 10.0 | 26.7 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | 2.9 | -0.8 | -1.39 | 2.5 | false | 0 | 0 |
+| production_0.65 | -3.1 | -2.7 | 3.75 | -1.38 | false | 0 | 0 |
+| hold_0.50 | 3.0 | -1.1 | -1.53 | 2.92 | false | 31 | 0 |
+| hold_0.45 | 3.0 | -1.8 | -1.8 | 3.62 | false | 37 | 0 |
+| hold_0.50_young4 | 3.2 | -0.8 | -0.69 | 2.23 | false | 24 | 0 |
+| merge_young3 | 7.6 | -4.1 | 1.25 | 4.17 | false | 0 | 17 |
+| merge_young3_sim0.45 | 7.6 | -4.1 | 1.25 | 4.17 | false | 0 | 17 |
+| hold_0.50+merge_young3 | 4.5 | -2.6 | -1.53 | 4.31 | false | 31 | 2 |
+
+#### corpus:ami-ihm-validation
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 82.8 | 78.0 | 18.19 | 1.11 | 96.7 | 20.0 |
+| production_0.55 | 84.7 | 80.8 | 14.44 | 3.75 | 93.3 | 33.3 |
+| production_0.65 | 76.4 | 73.3 | 20.28 | 0.69 | 100.0 | 13.3 |
+| hold_0.50 | 78.9 | 86.6 | 9.58 | 2.08 | 90.0 | 20.0 |
+| hold_0.45 | 74.4 | 91.4 | 5.28 | 2.5 | 60.0 | 26.7 |
+| hold_0.50_young4 | 79.7 | 85.9 | 11.11 | 1.25 | 93.3 | 16.7 |
+| merge_young3 | 92.1 | 78.1 | 19.44 | 2.36 | 96.7 | 26.7 |
+| merge_young3_sim0.45 | 91.9 | 78.4 | 19.17 | 2.08 | 96.7 | 23.3 |
+| hold_0.50+merge_young3 | 80.8 | 86.1 | 10.28 | 2.78 | 90.0 | 26.7 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | 1.9 | 2.8 | -3.75 | 2.64 | false | 0 | 0 |
+| production_0.65 | -6.4 | -4.7 | 2.09 | -0.42 | false | 0 | 0 |
+| hold_0.50 | -3.9 | 8.6 | -8.61 | 0.97 | false | 91 | 0 |
+| hold_0.45 | -8.4 | 13.4 | -12.91 | 1.39 | false | 134 | 0 |
+| hold_0.50_young4 | -3.1 | 7.9 | -7.08 | 0.14 | false | 77 | 0 |
+| merge_young3 | 9.3 | 0.1 | 1.25 | 1.25 | false | 0 | 32 |
+| merge_young3_sim0.45 | 9.1 | 0.4 | 0.98 | 0.97 | false | 0 | 31 |
+| hold_0.50+merge_young3 | -2.0 | 8.1 | -7.91 | 1.67 | false | 93 | 7 |
+
+#### corpus:ami-ihm-validation-g2
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 81.7 | 76.5 | 18.89 | 1.53 | 100.0 | 23.3 |
+| production_0.55 | 85.7 | 82.3 | 13.47 | 3.61 | 96.7 | 30.0 |
+| production_0.65 | 74.7 | 73.6 | 19.72 | 0.56 | 100.0 | 10.0 |
+| hold_0.50 | 76.5 | 84.8 | 9.44 | 3.75 | 86.7 | 33.3 |
+| hold_0.45 | 72.1 | 88.6 | 5.42 | 4.17 | 70.0 | 33.3 |
+| hold_0.50_young4 | 78.9 | 82.9 | 12.08 | 3.06 | 93.3 | 30.0 |
+| merge_young3 | 91.7 | 75.9 | 20.28 | 3.61 | 100.0 | 33.3 |
+| merge_young3_sim0.45 | 91.1 | 75.8 | 20.28 | 3.61 | 100.0 | 33.3 |
+| hold_0.50+merge_young3 | 79.0 | 84.7 | 9.58 | 4.31 | 86.7 | 36.7 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | 4.0 | 5.8 | -5.42 | 2.08 | false | 0 | 0 |
+| production_0.65 | -7.0 | -2.9 | 0.83 | -0.97 | false | 0 | 0 |
+| hold_0.50 | -5.2 | 8.3 | -9.45 | 2.22 | false | 103 | 0 |
+| hold_0.45 | -9.6 | 12.1 | -13.47 | 2.64 | false | 146 | 0 |
+| hold_0.50_young4 | -2.8 | 6.4 | -6.81 | 1.53 | false | 83 | 0 |
+| merge_young3 | 10.0 | -0.6 | 1.39 | 2.08 | false | 0 | 32 |
+| merge_young3_sim0.45 | 9.4 | -0.7 | 1.39 | 2.08 | false | 0 | 31 |
+| hold_0.50+merge_young3 | -2.7 | 8.2 | -9.31 | 2.78 | false | 100 | 8 |
+
+#### corpus:voxpopuli-dev
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 92.9 | 97.3 | 1.53 | 1.39 | 30.0 | 10.0 |
+| production_0.55 | 93.2 | 97.5 | 0.56 | 2.08 | 13.3 | 13.3 |
+| production_0.65 | 88.9 | 95.3 | 4.17 | 0.28 | 60.0 | 6.7 |
+| hold_0.50 | 95.1 | 96.6 | 0.14 | 3.19 | 3.3 | 16.7 |
+| hold_0.45 | 93.2 | 95.5 | 0.0 | 4.17 | 0.0 | 20.0 |
+| hold_0.50_young4 | 95.0 | 97.4 | 0.69 | 2.36 | 13.3 | 16.7 |
+| merge_young3 | 98.6 | 93.5 | 2.22 | 5.14 | 33.3 | 23.3 |
+| merge_young3_sim0.45 | 98.6 | 93.5 | 2.22 | 5.14 | 33.3 | 23.3 |
+| hold_0.50+merge_young3 | 95.4 | 95.1 | 0.42 | 4.72 | 10.0 | 23.3 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | 0.3 | 0.2 | -0.97 | 0.69 | false | 0 | 0 |
+| production_0.65 | -4.0 | -2.0 | 2.64 | -1.11 | false | 0 | 0 |
+| hold_0.50 | 2.2 | -0.7 | -1.39 | 1.8 | false | 18 | 0 |
+| hold_0.45 | 0.3 | -1.8 | -1.53 | 2.78 | false | 39 | 0 |
+| hold_0.50_young4 | 2.1 | 0.1 | -0.84 | 0.97 | false | 14 | 0 |
+| merge_young3 | 5.7 | -3.8 | 0.69 | 3.75 | false | 0 | 15 |
+| merge_young3_sim0.45 | 5.7 | -3.8 | 0.69 | 3.75 | false | 0 | 15 |
+| hold_0.50+merge_young3 | 2.5 | -2.2 | -1.11 | 3.33 | false | 23 | 3 |
+
+#### corpus:voxpopuli-dev-g2
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 93.5 | 98.4 | 1.53 | 0.69 | 26.7 | 10.0 |
+| production_0.55 | 91.8 | 97.3 | 1.11 | 1.94 | 23.3 | 16.7 |
+| production_0.65 | 87.4 | 93.0 | 6.11 | 0.0 | 70.0 | 0.0 |
+| hold_0.50 | 94.9 | 96.6 | 0.14 | 3.19 | 3.3 | 16.7 |
+| hold_0.45 | 90.4 | 95.5 | 0.0 | 4.03 | 0.0 | 20.0 |
+| hold_0.50_young4 | 94.9 | 98.0 | 0.69 | 1.94 | 13.3 | 16.7 |
+| merge_young3 | 97.9 | 95.5 | 1.39 | 3.75 | 30.0 | 16.7 |
+| merge_young3_sim0.45 | 97.9 | 95.5 | 1.39 | 3.75 | 30.0 | 16.7 |
+| hold_0.50+merge_young3 | 95.1 | 96.4 | 0.14 | 3.47 | 3.3 | 16.7 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | -1.7 | -1.1 | -0.42 | 1.25 | false | 0 | 0 |
+| production_0.65 | -6.1 | -5.4 | 4.58 | -0.69 | false | 0 | 0 |
+| hold_0.50 | 1.4 | -1.8 | -1.39 | 2.5 | false | 22 | 0 |
+| hold_0.45 | -3.1 | -2.9 | -1.53 | 3.34 | false | 60 | 0 |
+| hold_0.50_young4 | 1.4 | -0.4 | -0.84 | 1.25 | false | 16 | 0 |
+| merge_young3 | 4.4 | -2.9 | -0.14 | 3.06 | false | 0 | 10 |
+| merge_young3_sim0.45 | 4.4 | -2.9 | -0.14 | 3.06 | false | 0 | 10 |
+| hold_0.50+merge_young3 | 1.6 | -2.0 | -1.39 | 2.78 | false | 22 | 1 |
+
+#### all
+
+| Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| production | 88.6 | 95.5 | 3.9 | 0.39 | 44.4 | 8.4 |
+| production_0.55 | 89.4 | 95.7 | 2.77 | 1.61 | 36.1 | 19.2 |
+| production_0.65 | 84.5 | 92.3 | 6.53 | 0.24 | 68.9 | 7.6 |
+| hold_0.50 | 91.3 | 98.2 | 1.08 | 0.7 | 20.3 | 7.6 |
+| hold_0.45 | 89.5 | 98.4 | 0.54 | 1.03 | 11.4 | 10.5 |
+| hold_0.50_young4 | 92.1 | 97.4 | 2.05 | 0.53 | 29.4 | 7.3 |
+| merge_young3 | 96.4 | 94.2 | 4.19 | 1.93 | 48.5 | 13.7 |
+| merge_young3_sim0.45 | 96.3 | 94.4 | 4.13 | 1.75 | 48.0 | 12.7 |
+| hold_0.50+merge_young3 | 92.6 | 96.9 | 1.38 | 1.95 | 26.3 | 14.0 |
+
+| Rule | Δ coverage | Δ labelled accuracy | Δ split / 100 | Δ merge / 100 | Criterion | Hold reasons | Merge reasons |
+| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |
+| production | — | — | — | — | baseline | 0 | 0 |
+| production_0.55 | 0.8 | 0.2 | -1.13 | 1.22 | false | 0 | 0 |
+| production_0.65 | -4.1 | -3.2 | 2.63 | -0.15 | false | 0 | 0 |
+| hold_0.50 | 2.7 | 2.7 | -2.82 | 0.31 | false | 2778 | 0 |
+| hold_0.45 | 0.9 | 2.9 | -3.36 | 0.64 | false | 4774 | 0 |
+| hold_0.50_young4 | 3.5 | 1.9 | -1.85 | 0.14 | false | 1887 | 0 |
+| merge_young3 | 7.8 | -1.3 | 0.29 | 1.54 | false | 0 | 1583 |
+| merge_young3_sim0.45 | 7.7 | -1.1 | 0.23 | 1.36 | false | 0 | 1550 |
+| hold_0.50+merge_young3 | 4.0 | 1.4 | -2.52 | 1.56 | false | 2883 | 448 |
+
+#### In-order clean and session totals
+
+| Group | Rule | Coverage % | Labelled accuracy % | Split / 100 | Merge / 100 | Runs with split % | Runs with merge % |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| clean | production | 94.1 | 96.1 | 3.7 | 0.0 | 25.0 | 0.0 |
+| clean | production_0.55 | 91.1 | 96.7 | 2.96 | 0.0 | 25.0 | 0.0 |
+| clean | production_0.65 | 88.9 | 94.2 | 5.19 | 0.0 | 75.0 | 0.0 |
+| clean | hold_0.50 | 92.6 | 96.0 | 3.7 | 0.0 | 25.0 | 0.0 |
+| clean | hold_0.45 | 91.9 | 96.0 | 3.7 | 0.0 | 25.0 | 0.0 |
+| clean | hold_0.50_young4 | 92.6 | 96.0 | 3.7 | 0.0 | 25.0 | 0.0 |
+| clean | merge_young3 | 94.8 | 96.1 | 3.7 | 0.0 | 25.0 | 0.0 |
+| clean | merge_young3_sim0.45 | 94.8 | 96.1 | 3.7 | 0.0 | 25.0 | 0.0 |
+| clean | hold_0.50+merge_young3 | 93.3 | 96.0 | 3.7 | 0.0 | 25.0 | 0.0 |
+| session | production | 82.3 | 96.9 | 2.53 | 0.51 | 60.0 | 20.0 |
+| session | production_0.55 | 91.9 | 98.9 | 1.01 | 0.0 | 20.0 | 0.0 |
+| session | production_0.65 | 91.4 | 95.0 | 4.55 | 0.51 | 80.0 | 20.0 |
+| session | hold_0.50 | 92.9 | 98.9 | 1.01 | 0.51 | 20.0 | 20.0 |
+| session | hold_0.45 | 90.9 | 98.9 | 1.01 | 0.51 | 20.0 | 20.0 |
+| session | hold_0.50_young4 | 92.9 | 98.9 | 1.01 | 0.51 | 20.0 | 20.0 |
+| session | merge_young3 | 96.5 | 97.4 | 2.53 | 0.0 | 60.0 | 0.0 |
+| session | merge_young3_sim0.45 | 96.5 | 97.4 | 2.53 | 0.0 | 60.0 | 0.0 |
+| session | hold_0.50+merge_young3 | 94.4 | 99.5 | 0.51 | 0.0 | 20.0 | 0.0 |
+
+#### Selected in-order sets
+
+Values are `scored / labelled / right / split / merge` phrase counts.
+
+| Set | Rule | Counts |
+| --- | --- | --- |
+| Conversation 1 clean | production | 32 / 32 / 32 / 0 / 0 |
+| Conversation 1 clean | hold_0.50 | 32 / 32 / 32 / 0 / 0 |
+| Conversation 1 clean | merge_young3 | 32 / 32 / 32 / 0 / 0 |
+| Conversation 1 clean | hold_0.50+merge_young3 | 32 / 32 / 32 / 0 / 0 |
+| Conversation 1 first | production | 41 / 31 / 30 / 1 / 0 |
+| Conversation 1 first | hold_0.50 | 41 / 39 / 39 / 0 / 0 |
+| Conversation 1 first | merge_young3 | 41 / 40 / 39 / 1 / 0 |
+| Conversation 1 first | hold_0.50+merge_young3 | 41 / 39 / 39 / 0 / 0 |
+| Conversation 1 repeat | production | 41 / 25 / 24 / 1 / 0 |
+| Conversation 1 repeat | hold_0.50 | 41 / 39 / 39 / 0 / 0 |
+| Conversation 1 repeat | merge_young3 | 41 / 40 / 39 / 1 / 0 |
+| Conversation 1 repeat | hold_0.50+merge_young3 | 41 / 39 / 39 / 0 / 0 |
+
+Conversation 2 session merge phrase counts by rule: production: 0, production_0.55: 0, production_0.65: 0, hold_0.50: 0, hold_0.45: 0, hold_0.50_young4: 0, merge_young3: 0, merge_young3_sim0.45: 0, hold_0.50+merge_young3: 0.
+
+No candidate meets the specified criterion in all three of clean, session and pooled corpus.
+All comparisons are offline research results, not changes to device policy. The embedding and comparison artifacts are private and are not committed.
+
 ## Technical recordings and pending work
 
 The five vocabulary-heavy recordings each ran once on the restored original
