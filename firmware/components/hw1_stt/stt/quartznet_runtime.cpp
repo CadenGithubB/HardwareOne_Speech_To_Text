@@ -1,4 +1,5 @@
 #include "quartznet_runtime.h"
+#include "stt_internal_memory.h"
 #include "quartznet_frontend.h"
 #include "stt_model_identity.h"
 #include "stt_model_container.h"
@@ -11,8 +12,13 @@
 #endif
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "esp_task_wdt.h"
 #include "sdkconfig.h"
+#if defined(ESP_PLATFORM) && CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+#include "esp_attr.h"
+#define STT_PROFILE_BSS EXT_RAM_BSS_ATTR
+#else
+#define STT_PROFILE_BSS
+#endif
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -35,7 +41,7 @@ extern "C" uint32_t hw1_dl_prepare_gen;
 namespace hw1::stt {
 // Per-stage inference time accumulated across segments (sttperf stages).
 static constexpr int kStageProfileMax = 256;
-static uint32_t gStageTotalUs[kStageProfileMax];
+STT_PROFILE_BSS static uint32_t gStageTotalUs[kStageProfileMax];
 static uint32_t gStageSegments = 0;
 size_t stageProfile(uint32_t* totalUs, size_t cap, uint32_t* segments) {
     const size_t n = std::min<size_t>(cap, std::min<int>(identity::kNodeCount, kStageProfileMax));
@@ -50,48 +56,9 @@ void stageProfileReset() {
 namespace {
 static_assert(kSampleRate==identity::kSampleRate && kMaxSamples==identity::kMaxSamples);
 uint32_t millis() { return uint32_t(esp_timer_get_time()/1000); }
-// Inference is deliberately CPU-bound on both cores: ESP-DL runs each layer
-// on two workers at this task's priority, so core 0's idle task can go
-// unscheduled for several seconds on a long 15x5 segment and the task
-// watchdog reports it (a false alarm; nothing is stuck). For the duration
-// of one inference only, stop watching IDLE0; everything else keeps the
-// sdkconfig watchdog settings, which are restored exactly afterwards.
-// Lowering the workers' priority instead halved inference speed while BLE
-// was busy on core 0 (measured 2026-09-30), so priority is left unchanged.
-class InferenceWatchdogScope {
- public:
-    InferenceWatchdogScope() {
-#if CONFIG_ESP_TASK_WDT_INIT && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
-        active_ = esp_task_wdt_reconfigure(&config(false)) == ESP_OK;
-#endif
-    }
-    ~InferenceWatchdogScope() {
-#if CONFIG_ESP_TASK_WDT_INIT && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
-        if(active_) esp_task_wdt_reconfigure(&config(true));
-#endif
-    }
-    InferenceWatchdogScope(const InferenceWatchdogScope&)=delete;
-    InferenceWatchdogScope& operator=(const InferenceWatchdogScope&)=delete;
- private:
-#if CONFIG_ESP_TASK_WDT_INIT && CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0
-    static const esp_task_wdt_config_t& config(bool watchCore0) {
-        static esp_task_wdt_config_t c;
-        c.timeout_ms = CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000;
-        c.idle_core_mask = (watchCore0 ? 1u : 0u)
-#if CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1
-                         | 2u
-#endif
-                         ;
-#if CONFIG_ESP_TASK_WDT_PANIC
-        c.trigger_panic = true;
-#else
-        c.trigger_panic = false;
-#endif
-        return c;
-    }
-#endif
-    bool active_ = false;
-};
+// Do not reconfigure the global watchdog around inference. Both cores retain
+// their subscriptions; the bounded stage loop blocks periodically after the
+// multicore kernel has joined, letting idle tasks run without unsubscribe races.
 bool cancelled(const STTLocalControl& c) { return c.cancelled && c.cancelled(c.context); }
 void progress(const STTLocalControl& c, STTLocalPhase phase) { if(c.progress)c.progress(c.context,phase); }
 struct Buffer {
@@ -180,7 +147,12 @@ bool tensor(dl::TensorBase* t, size_t frames, size_t channels, int exponent) {
 // arena: same kernels, same arithmetic, no per-call load()/build().
 constexpr size_t kResidentMaxSamples=10*kSampleRate;  // the broker's continuous phrases are capped at 10 s
 constexpr size_t kResidentCallMargin=256*1024;    // per-call PSRAM beyond the frontend
-constexpr size_t kResidentInternalFloor=48*1024;   // never admit a call below this
+// Reusing the pinned resident graph does not rebuild model/arena metadata.
+// Keep a separate 128 KiB admission reserve for kernel scratch, small SDK
+// allocations and concurrent system work. Cold construction still requires
+// 150 KiB below. This policy needs hardware peak qualification; it is not a
+// measured scratch bound or a credit from another task's heap delta.
+
 constexpr size_t kResidentKeepFree=2u<<20;         // PSRAM left free after the build
 // Everything the resident model keeps between phrases is requested
 // explicitly from PSRAM where it is allocated. The vendor model's own objects
@@ -197,7 +169,6 @@ struct ModelCache::Resident {
     std::vector<Entry,PsramStlAllocator<Entry>> tensors;  // every activation tensor, once
     dl::TensorBase* input=nullptr;
     dl::TensorBase* output=nullptr;
-    size_t internalBytes=0;      // internal RAM the resident model holds
     size_t frames=0;             // feature frames of the current shapes
     // Only new(std::nothrow): a plain new Resident does not compile.
     static void* operator new(size_t n,const std::nothrow_t&) noexcept {
@@ -211,8 +182,8 @@ namespace {
 // Lists every activation tensor with the rate it runs at: feature frames for
 // the graph input, output frames after the stride-2 first layer. Any tensor
 // whose shape cannot be re-derived that way refuses the resident model.
-// The caller measures the internal RAM it keeps, after this function's locals
-// (the name lists) are gone.
+// Heap snapshots around construction are diagnostic only; other tasks may
+// allocate or free memory during the build.
 ModelCache::Resident* buildResident(const void* raw,const char*& why) {
     const size_t maxFrames=feature_frames(kResidentMaxSamples), maxOutputs=(maxFrames+1)/2;
     std::unique_ptr<ModelCache::Resident> r(new(std::nothrow) ModelCache::Resident);
@@ -306,6 +277,7 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
                 STTLocalStats& stats, char* error, size_t errorCapacity,
                 Diagnostics* diagnostics, ModelCache* cache, const Decoder* decoder,
                 const STTFeaturePrefix* prefix) {
+    InternalMemoryScope internalMemory;
     stats={}; if(text && capacity)text[0]=0;if(error && errorCapacity)error[0]=0;
 #if HW1_STT_RUNTIME_DIAGNOSTICS
     if(diagnostics)*diagnostics={};
@@ -332,7 +304,7 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
     // kernel-scratch margins: vendor constructors do not report every OOM.
     const size_t arenaBudget=2048*outputs+64*1024;
     const size_t frontendBytes=frames*kMelBins*sizeof(float)+sizeof(FrontendWorkspace);
-    constexpr size_t metadataMargin=1024*1024, internalMinimum=150*1024;
+    constexpr size_t metadataMargin=1024*1024;
     const size_t remainingBudget=arenaBudget+frontendBytes+metadataMargin;
     // A null cache keeps one-shot calls self-contained. Continuous sessions
     // retain this allocation only until their worker has joined/closed.
@@ -341,35 +313,53 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
     const bool reused=weights.raw_!=nullptr;
     const size_t newWeights=reused ? 0 : identity::kRawBytes;
 #if HW1_STT_RESIDENT_MODEL
-    // A resident model already holds its arena and metadata, so a call
-    // needs only the frontend buffers. Its internal floor drops by exactly what
-    // the resident model holds: free internal RAM during inference is bounded
-    // as for a per-call build (150 KB before the build, minus the build).
+    // The resident path already owns its arena and metadata. Its remaining
+    // allocation budget is independent of cold construction and of allocations
+    // made by unrelated HTTP/Bluetooth tasks while that model was built.
     ModelCache::Resident* const resident=reused && weights.resident_ && samples<=kResidentMaxSamples
         ? weights.resident_ : nullptr;
     const size_t callBudget=resident ? frontendBytes+kResidentCallMargin : remainingBudget;
     const size_t callLargest=resident ? frames*kMelBins*sizeof(float)+kResidentCallMargin : arenaBudget+metadataMargin;
-    const size_t callInternal=resident
-        ? std::max(kResidentInternalFloor,internalMinimum>resident->internalBytes ? internalMinimum-resident->internalBytes : size_t(0))
-        : internalMinimum;
+    const auto internalBudget=internalMemoryBudget(resident!=nullptr);
+    const size_t callInternal=internalBudget.total;
     // Optional decoder memory (a cached LM) yields before any refusal.
     auto shed=[&] { return decoder && decoder->release && decoder->release(decoder->context); };
-    auto admitted=[&] {
+    auto psramAdmitted=[&] {
         return heap_caps_get_free_size(MALLOC_CAP_SPIRAM)>=newWeights+callBudget
-            && (reused || heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=identity::kRawBytes)
-            && heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>=callInternal;
+            && (reused || heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=identity::kRawBytes);
     };
 #else
     // Optional decoder memory (a cached LM) yields before any refusal.
     auto shed=[&] { return decoder && decoder->release && decoder->release(decoder->context); };
-    auto admitted=[&] {
+    auto psramAdmitted=[&] {
         return heap_caps_get_free_size(MALLOC_CAP_SPIRAM)>=newWeights+remainingBudget
-            && (reused || heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=identity::kRawBytes)
-            && heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>=internalMinimum;
+            && (reused || heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=identity::kRawBytes);
     };
+    const auto internalBudget=internalMemoryBudget(false);
+    const size_t callInternal=internalBudget.total;
 #endif
-    if(!admitted() && (!shed() || !admitted()))
-        return fail("Not enough free memory; stop camera, speech and other large models");
+    // Releasing a PSRAM language model cannot satisfy an internal SRAM floor.
+    // Do not churn that cache or degrade decoding for unrelated SRAM pressure.
+    if(!psramAdmitted()) (void)shed();
+    if(!psramAdmitted() || heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)<callInternal ||
+       heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)<internalBudget.contiguous) {
+#if HW1_STT_RESIDENT_MODEL
+        const size_t requiredInternal=callInternal, requiredPsram=newWeights+callBudget;
+#else
+        const size_t requiredInternal=callInternal, requiredPsram=newWeights+remainingBudget;
+#endif
+        const size_t internalFree=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+        const size_t internalLargest=heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+        const size_t psramFree=heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        const size_t largest=heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+        ESP_LOGW("STT","admission refused: internal=%u need=%u psram=%u need=%u largest=%u weights=%u internal_largest=%u block_need=%u",
+                 unsigned(internalFree),unsigned(requiredInternal),unsigned(psramFree),
+                 unsigned(requiredPsram),unsigned(largest),unsigned(newWeights),unsigned(internalLargest),unsigned(internalBudget.contiguous));
+        return fail(internalFree<requiredInternal ? "Not enough internal SRAM for speech" :
+                    internalLargest<internalBudget.contiguous ? "No contiguous internal SRAM block for speech" :
+                    psramFree<requiredPsram ? "Not enough PSRAM for speech" :
+                    "No contiguous PSRAM block for speech model");
+    }
     if(!reused) {
         Buffer candidate(identity::kRawBytes);
         if(!candidate.p)return fail("Cannot allocate STT model");
@@ -414,10 +404,14 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
 #if HW1_STT_RESIDENT_MODEL
     auto contiguous=[&] {
         return heap_caps_get_free_size(MALLOC_CAP_SPIRAM)>=callBudget
-            && heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=callLargest
-            && heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>=callInternal;
+            && heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=callLargest;
     };
-    if(!contiguous() && (!shed() || !contiguous()))
+    if(!contiguous()) (void)shed();
+    if(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)<callInternal)
+        return fail("Not enough internal SRAM for speech");
+    if(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)<internalBudget.contiguous)
+        return fail("No contiguous internal SRAM block for speech");
+    if(!contiguous())
         return fail("Not enough contiguous memory for STT activations");
     // A fresh model per utterance avoids Model::build's resize allocation leak.
     // Aligned EDL2+ in PSRAM allows zero-copy parameters; weights outlive model.
@@ -442,10 +436,14 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
 #else
     auto contiguous=[&] {
         return heap_caps_get_free_size(MALLOC_CAP_SPIRAM)>=remainingBudget
-            && heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=arenaBudget+metadataMargin
-            && heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>=internalMinimum;
+            && heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=arenaBudget+metadataMargin;
     };
-    if(!contiguous() && (!shed() || !contiguous()))
+    if(!contiguous()) (void)shed();
+    if(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)<callInternal)
+        return fail("Not enough internal SRAM for speech");
+    if(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)<internalBudget.contiguous)
+        return fail("No contiguous internal SRAM block for speech");
+    if(!contiguous())
         return fail("Not enough contiguous memory for STT activations");
     // A fresh model per utterance avoids Model::build's resize allocation leak.
     // Aligned EDL2+ in PSRAM allows zero-copy parameters; weights outlive model.
@@ -521,15 +519,14 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
 #endif
     if(cancelled(control))return fail("Cancelled");
     progress(control,STTLocalPhase::Inference);start=millis();
-    InferenceWatchdogScope watchdogScope;
     // Blocking with vTaskDelay(1) every 5 stages cost 41 ticks per 15x5 run
     // (each up to 1 ms: 32-54 ms per phrase). The 5-stage points now only
     // taskYIELD() (round-robin with other priority-2 tasks; the capture task
     // and anything above priority 2 preempt at any time anyway), and one
     // blocking vTaskDelay(1) is kept on an esp_timer clock: at the first
     // 5-stage point at least kYieldBlockUs after the last block. That still
-    // runs IDLE1 (task watchdog 5 s; IDLE0 is unwatched only inside this
-    // scope) and the priority-1 loop task several times a second. Drafts stay
+    // lets both idle tasks (watchdog 5 s) and the priority-1 loop run
+    // several times a second after the multicore workers have joined. Drafts stay
     // preemptible: the cancel check still runs before every stage.
 #if HW1_STT_RESIDENT_MODEL
     // On the resident model, first build every Conv layer's args in one pass
@@ -615,18 +612,16 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
         const DlMetadataStats meta0=dlMetadataStats();
         const dl::tool::MetadataForeignStats foreign0=dl::tool::metadata_foreign_stats();
         if(psram0>=need+kResidentKeepFree && heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)>=need
-           && internal0>=internalMinimum)
+           && internal0>=internalMemoryBudget(false).total
+           && heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>=internalMemoryBudget(false).contiguous)
             cache->resident_=buildResident(cache->raw_,why);
-        // Measured after buildResident's locals are gone, so it is what
-        // the resident model keeps in internal RAM (the net change, so other
-        // tasks' activity during the build shows in it too). It lowers the
-        // per-call internal floor by exactly that much.
+        // Global heap delta is diagnostic, not model-owned memory. Network
+        // tasks can change it in either direction; it never changes admission.
         const size_t internal1=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
-        if(cache->resident_)cache->resident_->internalBytes=internal0>internal1 ? internal0-internal1 : 0;
         const DlMetadataStats meta=dlMetadataDelta(meta0,dlMetadataStats());
         const dl::tool::MetadataForeignStats foreign1=dl::tool::metadata_foreign_stats();
-        // int_used is the internal RAM the resident model keeps (near 0
-        // by design); psram_used is arena + metadata + this bookkeeping;
+        // int_used/psram_used are process-wide positive heap deltas, not
+        // ownership attribution. Kept as diagnostic fields for existing tools;
         // meta_n / meta_bytes are the blocks (and bytes) ESP-DL requested
         // through the metadata allocator during the build (growth copies
         // included; meta_frees of them were returned), fallback /
@@ -643,7 +638,7 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
                      " arena=%u arena_int=%u meta_n=%u meta_bytes=%u meta_frees=%u fallback=%u fallback_bytes=%u"
                      " meta_failed=%u param_objs=%u param_int=%u",
                      (unsigned long)millis(),(unsigned long)(millis()-buildStart),unsigned(cache->resident_->tensors.size()),
-                     unsigned(cache->resident_->internalBytes),
+                     unsigned(internal0>internal1 ? internal0-internal1 : 0),
                      unsigned(psram0-std::min(psram0,heap_caps_get_free_size(MALLOC_CAP_SPIRAM))),
                      unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)),
                      unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
@@ -665,6 +660,11 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
                      unsigned(meta.allocs),unsigned(meta.internal));
         }
     }
+#endif
+#if HW1_STT_RESIDENT_MODEL
+    internalMemory.success(resident!=nullptr);
+#else
+    internalMemory.success(false);
 #endif
     // Model destructor releases its arena before temporary weights are freed.
     // Session weights remain immutable and are rechecked on the next call.

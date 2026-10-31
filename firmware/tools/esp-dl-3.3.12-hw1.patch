@@ -1,8 +1,7 @@
 diff --git a/dl/base/dl_base_conv_args.hpp b/dl/base/dl_base_conv_args.hpp
-index 75f7d57..8b8c020 100644
 --- a/dl/base/dl_base_conv_args.hpp
 +++ b/dl/base/dl_base_conv_args.hpp
-@@ -237,12 +237,15 @@ inline void conv_1x1_body_view(const ConvArgsType &args,
+@@ -237,19 +237,23 @@
   */
  class ConvOpArgs {
  public:
@@ -21,7 +20,39 @@ index 75f7d57..8b8c020 100644
                 const int group,
                 TensorBase *bias,
                 const activation_type_t activate,
-@@ -441,6 +444,30 @@ public:
+                TensorBase *activation_alpha,
+                const runtime_mode_t runtime_mode,
+                quant_type_t quant,
+-               bool malloc_debug_memory = false)
++               bool malloc_debug_memory = false,
++               void *factor_scratch = nullptr, size_t factor_scratch_bytes = 0)
+     {
+         const int act_bytes = conv_feature_bytes(quant);
+         const int filter_bytes = conv_filter_bytes(quant);
+@@ -352,8 +356,20 @@
+ #if CONFIG_PIE_V2_BOOST
+             // per-channel quantization
+             args.mac_shift = INT_MIN;
+-            args.tie_filter_channel_factor = tool::calloc_aligned(
+-                dl::tool::get_aligned_size(args.output_channel * act_bytes), 1, MALLOC_CAP_DEFAULT);
++            const size_t factor_bytes = tool::get_aligned_size(args.output_channel * act_bytes);
++            // Prepared Conv storage is model-owned and 16-byte aligned. Borrow it
++            // for this setup/run; other callers retain their allocation lifetime.
++            if (factor_scratch && factor_scratch_bytes >= factor_bytes &&
++                (reinterpret_cast<uintptr_t>(factor_scratch) & 15) == 0) {
++                args.tie_filter_channel_factor = factor_scratch;
++                memset(factor_scratch, 0, factor_bytes);
++            } else {
++                args.tie_filter_channel_factor = tool::metadata_alloc(factor_bytes, 16, tool::MetadataKind::Module);
++                m_owns_factors = true;
++                if (args.tie_filter_channel_factor) memset(args.tie_filter_channel_factor, 0, factor_bytes);
++            }
++            // Match metadata-container OOM handling rather than dereferencing null.
++            if (!args.tie_filter_channel_factor) tool::metadata_bad_alloc(factor_bytes, tool::MetadataKind::Module);
+             if (act_bytes == 1) {
+                 int8_t *p = (int8_t *)args.tie_filter_channel_factor;
+                 for (int i = 0; i < args.output_channel; i++) {
+@@ -441,6 +457,30 @@
              args.debug_value = tool::calloc_aligned(16, 1, MALLOC_CAP_DEFAULT);
          }
          m_args.assign(1, args);
@@ -52,6 +83,27 @@ index 75f7d57..8b8c020 100644
          if (args.input_height > 4 * args.dilation_h * args.filter_height) {
              if (runtime_mode == RUNTIME_MODE_MULTI_CORE ||
                  (runtime_mode == RUNTIME_MODE_AUTO && args.input_height >= 100 && args.input_width >= 50)) {
+@@ -481,8 +521,8 @@
+         if (m_args.empty())
+             return;
+         // tie_filter_channel_factor is allocated only on the per-channel path (mac_shift == INT_MIN).
+-        if (m_args[0].mac_shift == INT_MIN)
+-            heap_caps_free(m_args[0].tie_filter_channel_factor);
++        if (m_owns_factors)
++            tool::metadata_free(m_args[0].tie_filter_channel_factor);
+         // debug_value defaults to nullptr (see ConvArgsType); free is a no-op when not allocated.
+         heap_caps_free(m_args[0].debug_value);
+     }
+@@ -496,7 +536,8 @@
+     ConvOpArgs &operator=(const ConvOpArgs &) = delete;
+
+ private:
+-    std::vector<ConvArgsType> m_args;
++    bool m_owns_factors = false;
++    tool::meta_vector<ConvArgsType, tool::MetadataKind::Module> m_args;
+ };
+
+ } // namespace base
 diff --git a/dl/base/dl_base_conv_loop.cpp b/dl/base/dl_base_conv_loop.cpp
 index 96c5377..55ad503 100644
 --- a/dl/base/dl_base_conv_loop.cpp
@@ -689,10 +741,9 @@ index 485b2f5..c9ebfc8 100644
  } // namespace module
  } // namespace dl
 diff --git a/dl/module/include/dl_module_conv.hpp b/dl/module/include/dl_module_conv.hpp
-index 18cc659..175d7a4 100644
 --- a/dl/module/include/dl_module_conv.hpp
 +++ b/dl/module/include/dl_module_conv.hpp
-@@ -5,11 +5,17 @@
+@@ -5,10 +5,16 @@
  #include "dl_base_conv_select.hpp"
  #include "dl_base_depthwise_conv2d.hpp"
  #include "dl_module_base.hpp"
@@ -701,16 +752,15 @@ index 18cc659..175d7a4 100644
  #include <typeinfo>
  #include "freertos/FreeRTOS.h"
  #include "freertos/task.h"
- 
++
 +// HardwareOne: prepared-args pass (defined in dl_module_base.cpp). While hw1_dl_prepare_mode is set,
 +// Conv layers only build and keep their args and Add, LUT and Relu return; hw1_dl_prepare_gen tags one pass.
 +extern "C" int hw1_dl_prepare_mode;
 +extern "C" uint32_t hw1_dl_prepare_gen;
-+
+
  namespace dl {
  namespace module {
- 
-@@ -19,13 +25,27 @@ namespace module {
+@@ -19,13 +25,27 @@
   */
  class Conv : public Module {
  private:
@@ -730,7 +780,7 @@ index 18cc659..175d7a4 100644
 +    // not after every layer's weights flushed them). One metadata block (MetadataKind::Module; PSRAM under
 +    // the STT runtime's hook): the args of one or two tasks, then a copy of the per-channel shifts they
 +    // point into. Valid for one inference (gen), used once.
-+    struct Prepared {
++    struct alignas(16) Prepared {
 +        uint32_t gen;
 +        int tasks;
 +        void *input, *output;
@@ -738,22 +788,22 @@ index 18cc659..175d7a4 100644
 +    };
 +    Prepared *m_prepared = nullptr;
 +    size_t m_prepared_bytes = 0;
- 
+
      void reset_bias(ModelContext *context)
      {
-@@ -73,7 +93,7 @@ public:
+@@ -73,7 +93,7 @@
       * @brief Destroy the Conv object.
       *
       */
 -    ~Conv() {}
 +    ~Conv() { tool::metadata_free(m_prepared); }
- 
+
      /**
       * @brief Calculate the output shape
-@@ -114,8 +134,70 @@ public:
+@@ -114,8 +134,87 @@
          }
      }
- 
+
 +    void run_tasks(base::ConvArgsType *args, int task_size)
 +    {
 +        if (task_size == 1) { // single task
@@ -763,6 +813,30 @@ index 18cc659..175d7a4 100644
 +        } else {
 +            ESP_LOGE("Conv", "Only support task size is 1 or 2, currently task size is %d", task_size);
 +        }
++    }
++
++    bool reserve_prepared(size_t need)
++    {
++        if (m_prepared_bytes >= need) return true;
++        auto *next = static_cast<Prepared *>(tool::metadata_alloc(need, 16, tool::MetadataKind::Module));
++        if (!next) return false; // preserve the old allocation for destruction/retry
++        tool::metadata_free(m_prepared);
++        m_prepared = next;
++        m_prepared_bytes = need;
++        m_prepared->gen = 0;
++        return true;
++    }
++
++    // Reuse the existing prepared block for the setup pass's channel factors.
++    // Each Conv owns its block; split-core args borrow disjoint/shared read-only
++    // slices only until run_tasks joins. There is no global scratch pool.
++    void *prepare_factor_scratch(TensorBase *output, TensorBase *filter)
++    {
++        if (!hw1_dl_prepare_mode || !filter->exponent.is_per_channel() || output->shape.empty()) return nullptr;
++        const size_t bytes = tool::get_aligned_size(size_t(output->shape.back()) * base::conv_feature_bytes(quant_type));
++        if (!reserve_prepared(sizeof(Prepared) + bytes)) return nullptr;
++        m_prepared->gen = 0;
++        return reinterpret_cast<uint8_t *>(m_prepared) + sizeof(Prepared);
 +    }
 +
 +    // HardwareOne: keep a prepared copy of these args; the per-channel shifts move into the block (the
@@ -777,21 +851,14 @@ index 18cc659..175d7a4 100644
 +        const size_t factor_bytes =
 +            per_channel ? tool::get_aligned_size((size_t)a0.output_channel * base::conv_feature_bytes(quant_type)) : 0;
 +        const size_t need = sizeof(Prepared) + factor_bytes;
-+        if (m_prepared_bytes < need) {
-+            tool::metadata_free(m_prepared);
-+            m_prepared = static_cast<Prepared *>(tool::metadata_alloc(need, 16, tool::MetadataKind::Module));
-+            m_prepared_bytes = m_prepared ? need : 0;
-+            if (!m_prepared) {
-+                return false;
-+            }
-+        }
++        if (!reserve_prepared(need)) return false;
 +        Prepared *p = m_prepared;
 +        p->gen = 0;
 +        p->tasks = task_size;
 +        p->input = input->get_element_ptr();
 +        p->output = output->get_element_ptr();
 +        uint8_t *factors = reinterpret_cast<uint8_t *>(p) + sizeof(Prepared);
-+        if (factor_bytes) {
++        if (factor_bytes && factors != a0.tie_filter_channel_factor) {
 +            memcpy(factors, a0.tie_filter_channel_factor, factor_bytes);
 +        }
 +        const uint8_t *base_factor = static_cast<const uint8_t *>(a0.tie_filter_channel_factor);
@@ -819,9 +886,25 @@ index 18cc659..175d7a4 100644
 +            }
 +        }
          reset_bias(context);
- 
+
          TensorBase *input = context->get_tensor(m_inputs_index[0]);
-@@ -143,13 +225,13 @@ public:
+@@ -126,6 +225,7 @@
+         }
+         TensorBase *output = context->get_tensor(m_outputs_index[0]);
+
++        void *factor_scratch = prepare_factor_scratch(output, filter);
+         base::ConvOpArgs m_args(output,
+                                 input,
+                                 m_pads,
+@@ -137,19 +237,20 @@
+                                 this->activation,
+                                 nullptr,
+                                 mode,
+-                                quant_type); // do not support RReLU and Leaky RelU
++                                quant_type, false, factor_scratch,
++                                factor_scratch ? m_prepared_bytes - sizeof(Prepared) : 0); // no RReLU/Leaky RelU
+         int task_size = m_args.size();
+         if (task_size < 1 ||
              !base::dl_conv_ensure_kernels(m_fn, m_args.get_args(0), m_group != 1, quant_type, "Conv")) {
              return;
          }
@@ -831,15 +914,16 @@ index 18cc659..175d7a4 100644
 -            module_forward_dual_core(this, (void *)&m_args.get_args(0), (void *)&m_args.get_args(1));
 -        } else {
 -            ESP_LOGE("Conv", "Only support task size is 1 or 2, currently task size is %d", task_size);
+-        }
 +        if (hw1_dl_prepare_mode) {
 +            if (!keep_prepared(m_args, task_size, input, output) && m_prepared) {
 +                m_prepared->gen = 0;  // no memory: this layer builds its args when it runs
 +            }
 +            return;
-         }
++        }
 +        run_tasks(&m_args.get_args(0), task_size);
      }
- 
+
      /**
 diff --git a/dl/module/include/dl_module_gemm.hpp b/dl/module/include/dl_module_gemm.hpp
 index 00c34a8..18bb87f 100644

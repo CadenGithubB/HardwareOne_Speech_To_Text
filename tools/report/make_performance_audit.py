@@ -39,7 +39,12 @@ def build():
         'current_source': {
             'psram_physical_bytes': 32 * 1024**2,
             'retained_model_bytes': raw_bytes,
-            'retained_pcm_bytes': 3 * 10 * 16000 * 2,
+            'retained_pcm_bytes': 5 * 10 * 16000 * 2,
+            'pcm_scope': 'default standalone: capture, three queued slots, optional draft/spec snapshot',
+            'optional_feature_pool_bytes': 651272,
+            'default_stream_features': {'capture_features': True, 'drafts': True, 'trim_tail_ms': 0,
+                                        'speculative_finals': False, 'speaker_labels': False},
+            'qualification': 'ported source and host/build checks; no new device benchmark',
             'lm_options': [
                 {'label': 'LM not loaded', 'bytes': 0, 'evidence': 'possible fallback'},
                 {'label': '1.6 MB LM (approx.)', 'bytes': 1600000,

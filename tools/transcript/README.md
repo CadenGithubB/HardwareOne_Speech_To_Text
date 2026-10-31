@@ -74,3 +74,15 @@ python3 tests/test_product_storage.py
 ```
 
 See `docs/STT_PRODUCT_HANDOFF.md` for actual build/device evidence, changes from the original plan and the HardwareOne integration checklist.
+
+## Standalone streaming port (31 October)
+
+The P4 example now publishes real provisional `draft` events and, with the optional
+speaker build/model, late `speaker` events. Replay files remain synthetic fixtures.
+Drafts are not saved as final recording lines. Blank/error finals clear previews.
+Late speaker labels are discarded after a note boundary instead of attaching to a
+new recording. See [the port and validation report](../../docs/STANDALONE_PORT.md).
+
+`lm strength 0..1` changes weighting for the next inference; `status` reports it.
+Strength defaults to 1, is validated as finite, and is not persisted. Changes to
+strength or the latency profile require reference-audio accuracy qualification.

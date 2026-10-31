@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "date": "2026-10-31",
+  "status": "host/build validation passed; new device qualification pending",
+  "based_on_commit": "b6f25abe9b2edc5b695125e021de10e4d50b1a96",
+  "esp_idf": "ESP-IDF v5.5.5-dirty",
+  "source_scope": "Standalone working-tree port, built before its publication commit; HardwareOne unchanged",
+  "acoustic_model_identity_changed": false,
+  "esp_dl_patch_sha256": "0dc9782643ce3d2332b2c4a54624fce27150736314d065b48b55d5cf2a54d593",
+  "host_suites_passed": [
+    "test_transcript.py",
+    "test_product_storage.py",
+    "test_viewer.mjs",
+    "test_bridge.py",
+    "test_stt_internal_memory.py --sanitize",
+    "test_stt_speaker_cluster.py --sanitize",
+    "test_quartznet_cache.py --sanitize",
+    "test_stt_conv_scratch.py",
+    "test_stt_lm.py",
+    "test_stt_stream.py",
+    "test_stt_stream.py --thread-sanitize",
+    "test_speaker_adapter.py"
+  ],
+  "profiles": [
+    {
+      "profile": "default",
+      "bytes": 646512,
+      "sha256": "bc4fd61f6f9156b6446286b2394e2b46d3650fb88b052f701488c61b3f39b6ac",
+      "sdkconfig_sha256": "e4e6c4fea85c47abde459af64bc6fbb3846dbe11662c1487d3324eee181d60c1",
+      "speaker_labels_compiled": false,
+      "settings": {
+        "CONFIG_CAPTIONS_CAPTURE_FEATURES": true,
+        "CONFIG_CAPTIONS_DRAFTS": true,
+        "CONFIG_CAPTIONS_TRIM_SILENCE": false,
+        "CONFIG_CAPTIONS_SPECULATIVE_FINAL": false,
+        "CONFIG_HEAP_USE_HOOKS": true
+      }
+    },
+    {
+      "profile": "latency-with-speakers",
+      "bytes": 777344,
+      "sha256": "0a6330e64068a42832403bb293efd9e4406652d30fb1aeb7a5389e053eca5e15",
+      "sdkconfig_sha256": "546aece5bbcb9b9c92b07edb3923b60cda2160d6274ac4d9712fbb6067d02a9a",
+      "speaker_labels_compiled": true,
+      "settings": {
+        "CONFIG_CAPTIONS_CAPTURE_FEATURES": true,
+        "CONFIG_CAPTIONS_DRAFTS": true,
+        "CONFIG_CAPTIONS_TRIM_SILENCE": true,
+        "CONFIG_CAPTIONS_SPECULATIVE_FINAL": true,
+        "CONFIG_HEAP_USE_HOOKS": true
+      }
+    },
+    {
+      "profile": "lean",
+      "bytes": 643680,
+      "sha256": "d2714e0d8bd256ca1664c3f74f16e5be5d0dc3040322c96d928b0d9e671d010b",
+      "sdkconfig_sha256": "54a8ee56956d64f758bb933a9d504a51e1d701dc4ba4b47e9270a9485223a568",
+      "speaker_labels_compiled": false,
+      "settings": {
+        "CONFIG_CAPTIONS_CAPTURE_FEATURES": false,
+        "CONFIG_CAPTIONS_DRAFTS": false,
+        "CONFIG_CAPTIONS_TRIM_SILENCE": false,
+        "CONFIG_CAPTIONS_SPECULATIVE_FINAL": false,
+        "CONFIG_HEAP_USE_HOOKS": false
+      }
+    }
+  ],
+  "limits": [
+    "No standalone firmware flashed for this port",
+    "No new latency, WER, speaker accuracy or hardware peak measurements",
+    "SDK is locally modified, not pristine upstream",
+    "Generated example partition fit is not a device partition check"
+  ]
+}

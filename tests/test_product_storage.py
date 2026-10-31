@@ -48,3 +48,15 @@ with tempfile.TemporaryDirectory(prefix='hw1-storage-') as tmp:
     failed=run(FAIL_NVS='1')
     assert not failed[-1]['bootDurable'] and failed[-1]['bootNumber']=='0'
     print('product storage/commands: raw preservation, LM words, failed validation, finalization, unsaved isolation, backup recovery and counter failure passed')
+
+    stream=run(STREAM_EVENTS='1')
+    drafts=[e for e in stream if e['type']=='draft']
+    labels=[e for e in stream if e['type']=='speaker']
+    finals=[e for e in stream if e['type']=='final']
+    assert len(drafts)==2 and drafts[0]['sequence']==1 and drafts[0]['text']=='preview words'
+    assert drafts[1]['text']=='' and drafts[1]['version']>drafts[0]['version']
+    assert len(labels)==1 and labels[0]['speaker']==3
+    assert labels[0]['sessionId']==finals[-1]['sessionId']!=finals[0]['sessionId']
+    assert stream[-1]['lmStrength']==0.75
+    assert sum(e['type']=='message' and not e['ok'] for e in stream)>=6
+    print('production streaming events: LM validation, draft identity and late-speaker recording isolation passed')

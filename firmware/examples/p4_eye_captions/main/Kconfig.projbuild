@@ -1,0 +1,15 @@
+menu "Standalone captions streaming"
+config CAPTIONS_CAPTURE_FEATURES
+    bool "Compute reusable features during capture"
+    default y
+config CAPTIONS_DRAFTS
+    bool "Publish preemptible live drafts"
+    default y
+config CAPTIONS_TRIM_SILENCE
+    bool "Retain 500 ms of trailing silence (requires audio qualification)"
+    default n
+config CAPTIONS_SPECULATIVE_FINAL
+    bool "Compute exact speculative finals before segment closure"
+    depends on CAPTIONS_TRIM_SILENCE
+    default y
+endmenu

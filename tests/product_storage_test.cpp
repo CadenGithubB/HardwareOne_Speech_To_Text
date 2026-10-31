@@ -30,6 +30,21 @@ void command(const char* text) {
 }
 int main() {
  product::platformBegin(); product::begin();
+ if (std::getenv("STREAM_EVENTS")) {
+   assert(product::lmStrength()==1.0f);
+   command("lm strength 0.75");assert(product::lmStrength()==0.75f);
+   for(const char* bad:{"nan","inf","-0.1","1.1","0.5junk",""}) {
+     command((std::string("lm strength ")+bad).c_str());assert(product::lmStrength()==0.75f);
+   }
+   product::draft("preview words");
+   product::caption("final words",0,16000,false,0);
+   const auto old=product::receipt();command("note stop");
+   product::speaker(old,2); // must never label a phrase in the replacement note
+   product::caption("new words",16000,32000,false,0);
+   product::speaker(product::receipt(),3);
+   product::speaker(product::receipt(),8); // outside the configured eight speakers
+   product::status("listening");return 0;
+ }
  if (std::getenv("FAIL_NVS")) { product::status("error","NVS test");return 0; }
  if (std::getenv("LARGE_RECORD")) {
    const std::string alias(63, '"');

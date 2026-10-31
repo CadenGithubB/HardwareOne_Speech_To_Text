@@ -1,5 +1,9 @@
 # Standalone STT versus HardwareOne: confirmed gaps
 
+**Update:** the [standalone port](STANDALONE_PORT.md) now implements the identified
+reusable improvements and passes host/build checks. Fresh standalone device
+qualification is pending. The comparison below is the preserved pre-port inventory.
+
 Compared 31 October 2026. **Confirmed: STT development in HardwareOne has not all
 returned to this standalone repository.** The standalone is a functional older
 baseline, not feature/performance parity with the integrated application.

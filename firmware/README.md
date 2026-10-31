@@ -4,7 +4,7 @@ Everything needed to run the models on an ESP32-P4 without the rest of HardwareO
 
 | Folder | What |
 |---|---|
-| `components/hw1_stt` | The engine as an ESP-IDF component: log-mel frontend, ESP-DL int8 QuartzNet runtime, phrase segmenter, word-trigram language model with CTC beam search, model container check. `stt/` is HardwareOne's `components/hardwareone/stt` unchanged (branch `stt-speedups`, commit 2e56063); the three headers beside it replace the firmware's own. |
+| `components/hw1_stt` | The engine as an ESP-IDF component: log-mel frontend, ESP-DL int8 QuartzNet runtime, phrase segmenter, word-trigram language model with CTC beam search, model container check. HardwareOne runtime/memory/LM/speaker improvements are ported into standalone adapters; model identity remains pinned independently. See the port report below. |
 | `examples/p4_eye_captions` | Microphone to serial captions with SD vocabulary, offline JSONL recordings and persistent startup ordering. No network, accounts or on-device display; an optional localhost USB viewer runs on the Mac. |
 | `tools/prepare_esp_dl.py` | Stages the patched ESP-DL 3.3.12 the engine needs (see below). `esp-dl-3.3.12-hw1.patch` is the patch. |
 
@@ -37,6 +37,9 @@ run about twice as fast on the P4 (conv tiling for its cache, prepared conv argu
 tables as a vector max) and adds an allocator hook so the model's metadata lives in PSRAM. Every
 change is bit-exact with upstream; the script checks digests before and after patching.
 
+The [standalone port report](../docs/STANDALONE_PORT.md) describes selectable
+default, lean and latency/speaker profiles and the completed validation.
+
 On the console you will see the model load (a few seconds for the 20 MB file), then
 `Listening`, then a caption after each pause in speech, with the time each stage took:
 
@@ -57,19 +60,19 @@ table too, which is fine on a board that has never run HardwareOne.
 
 1. **Audio in**: 16 kHz mono int16 PCM, pushed in any block size into `hw1::stt::Segmenter`
    (`stt/stt_segmenter.h`). It returns a `SpeechSegment` when a phrase ends on a pause or at the
-   10 s cap. The settings in `captureTask` are the ones HardwareOne uses for this microphone.
+   10 s cap. The example passes the microphone policy into the portable streaming scheduler.
 2. **Trim** (optional, off here): cut a pause-ended phrase shortly after its last voiced frame
-   (`voiced_end_samples`) to save inference time. the older HardwareOne policy kept 200 ms (current integrated source keeps 500 ms). With a
-   quiet loudspeaker that lost soft final words, so the example sends the whole phrase.
+   (`voiced_end_samples`) to save inference time. The opt-in latency profile keeps 500 ms;
+   default full-audio mode preserves quiet endings pending device qualification.
 3. **Transcribe**: `hw1::stt::transcribe(...)` (`stt/quartznet_runtime.h`) with a `ModelReader`
    over the model file, a `ModelCache` kept for the whole run (so the 20 MB weights are read and
    verified once), and an optional `Decoder`.
 4. **Decode**: the `Decoder` wraps `hw1::stt::lm::decode` (`stt/stt_lm.h`) over a `.lm` blob held
    in PSRAM; return `Fallback` and the engine decodes greedily instead.
 
-The component needs CONFIG_SPIRAM (hex mode, 200 MHz on the P4X-EYE) and leaves the task watchdog
-alone except for one thing: while the model runs it stops watching core 0's idle task, because
-inference deliberately keeps both cores busy (`quartznet_runtime.cpp`, top).
+The component needs CONFIG_SPIRAM (hex mode, 200 MHz on the P4X-EYE). Inference
+periodically blocks after joined model stages so both idle tasks can run; it does
+not reconfigure or unsubscribe from the global watchdog.
 
 ### Another model
 
@@ -81,14 +84,17 @@ size, SHA-256 or frontend contract does not match the header it was built with.
 ### Speaker labels
 
 `stt/speaker_*.{cpp,h}` (a small speaker-embedding model that labels who is talking) are included
-but not compiled by default: configure with `-DHW1_STT_SPEAKER_LABELS=ON`. The example does not use
-them; HardwareOne's `System_STTLocal.cpp` shows how.
+but not compiled by default: configure with `-DHW1_STT_SPEAKER_LABELS=ON`. Enabling that option compiles the standalone background
+adapter, which loads `/sd/STT Models/speaker.spk` if the file and caption memory
+reserves permit. The model runs single-core below caption inference; a full job
+queue produces an unknown label without blocking captions.
 
 ## Keeping in step with HardwareOne
 
-The engine and ESP-DL patch originated as HardwareOne snapshots. They now have
-[confirmed differences](../docs/STANDALONE_PARITY.md), including runtime memory/watchdog
-changes, LM controls, speaker assignment and newer ESP-DL allocation handling.
+The engine and ESP-DL patch originated as HardwareOne snapshots. The
+[October 31 port](../docs/STANDALONE_PORT.md) reconciles the identified runtime,
+LM, speaker-policy and SDK fixes, and extracts a portable streaming scheduler.
+Fresh standalone device performance/accuracy qualification is still pending.
 Do not overwrite either tree wholesale. Reconcile portable improvements here,
 qualify the standalone build and behavior, then adapt the qualified components
 for HardwareOne while preserving its platform/session integration.
@@ -101,6 +107,8 @@ after storage initialization. Serial commands edit vocabulary and start/finish s
 status remains available even when the model card cannot mount. NVS startup counters use only the
 `hw1_stt_demo` namespace and never erase the NVS partition on initialization errors.
 
-The browser supports replay drafts and existing speaker assignments for integration testing. The
-minimal microphone example continues to supply finalized captions only; it does not add a draft or
-speaker worker. Word preferences require a valid optional `meeting.lm`; formatting is independent.
+The browser now receives real provisional drafts and optional background speaker
+assignments, alongside explicitly simulated replay fixtures. Word preferences
+require a valid optional `meeting.lm`; formatting is independent. `lm strength
+0..1` changes the next inference's LM weighting; `status` reports the selected
+strength. The default value 1 preserves the existing decoder behavior.

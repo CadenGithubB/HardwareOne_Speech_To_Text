@@ -519,8 +519,10 @@ struct Cursor { uint32_t node; int extra; }; // extra>=0: one virtual child char
 //   above instead of libgcc calls, and std::log through its fdlibm sequence.
 class Search {
  public:
-    Search(const Lm& lm, const CustomWords* words, uint8_t* w, const Layout& l, size_t beam)
-        : lm_(lm), words_(words && words->size() ? words : nullptr), alphaLn_(double(lm.alpha())*kLn10),
+    Search(const Lm& lm, const CustomWords* words, uint8_t* w, const Layout& l, size_t beam, float strength)
+        : lm_(lm), words_(words && words->size() ? words : nullptr),
+          alphaLn_(double(lm.alpha())*kLn10*double(strength)),
+          beta_(double(lm.beta())*double(strength)), bonus_(double(lm.hotwordBonus())*double(strength)),
           nodes_(reinterpret_cast<Node*>(w+l.nodes)), table_(reinterpret_cast<uint32_t*>(w+l.table)),
           beams_(reinterpret_cast<Beam*>(w+l.beams)), cands_(reinterpret_cast<Cand*>(w+l.cands)),
           heap_(reinterpret_cast<HeapSlot*>(w+l.heap)), local_(reinterpret_cast<uint32_t*>(w+l.local)),
@@ -542,9 +544,9 @@ class Search {
         // without a fused multiply-add in the bounded expression.
         const double hiNgram=lm.log10Max(), loNgram=lm.log10Min(), unk=double(lm.unkLog10());
         const double termHi=alphaLn_>=0 ? alphaLn_*std::max(hiNgram,unk) : alphaLn_*std::min(loNgram,unk);
-        const double bonus=words_ ? std::max(0.0,double(lm.hotwordBonus())) : 0.0;
-        const double delta=termHi+double(lm.beta())+bonus;
-        deltaUb_=delta+slack(std::fabs(termHi)+std::fabs(double(lm.beta()))+bonus);
+        const double bonus=words_ ? std::max(0.0,bonus_) : 0.0;
+        const double delta=termHi+beta_+bonus;
+        deltaUb_=delta+slack(std::fabs(termHi)+std::fabs(beta_)+bonus);
         const double eos=alphaLn_>=0 ? alphaLn_*hiNgram : alphaLn_*loNgram;
         eosUb_=eos+slack(eos);
         float f=float(deltaUb_);
@@ -554,6 +556,10 @@ class Search {
     DecodeStatus run(const int8_t* logits, size_t frames, int exponent, const DecodeControl& control,
                      char* text, size_t capacity, DecodeStats* stats);
  private:
+    uint8_t historyWords(uint16_t w2, uint16_t w1) const {
+        auto completed=[&](uint16_t id) { return id!=kNoWord && id!=lm_.bos() && id!=lm_.eos(); };
+        return uint8_t(completed(w2)+completed(w1));
+    }
     uint8_t byte(const Cursor& c) const { return uint8_t(kVocab[c.extra>=0 ? c.extra : nodes_[c.node].ch]); }
     size_t depth(const Cursor& c) const { return nodes_[c.node].depth+(c.extra>=0); }
     // Ancestor of c (inclusive) with the given length, via jump pointers.
@@ -605,9 +611,9 @@ class Search {
         // the same bits; elsewhere the expression is kept as written.)
         const double log10p=found<0 ? double(lm_.unkLog10()) : gram(n.ctx2,n.ctx1,uint16_t(found));
 #if HW1_LM_SOFT_DOUBLE
-        const double delta=dAddOut(dAddOut(dMulOut(alphaLn_,log10p),double(lm_.beta())),listed ? double(lm_.hotwordBonus()) : 0.0);
+        const double delta=dAddOut(dAddOut(dMulOut(alphaLn_,log10p),beta_),listed ? bonus_ : 0.0);
 #else
-        const double delta=alphaLn_*log10p+double(lm_.beta())+(listed ? double(lm_.hotwordBonus()) : 0.0);
+        const double delta=alphaLn_*log10p+beta_+(listed ? bonus_ : 0.0);
 #endif
         n.spaceLm=dAddOut(n.lm,delta);
         n.spaceWord=found<0 ? lm_.unk() : uint16_t(found); n.spaceReady=1; ++completions_;
@@ -711,7 +717,7 @@ class Search {
     void admit(uint32_t parent, uint8_t c, double base);
     const Lm& lm_;
     const CustomWords* words_;
-    const double alphaLn_;
+    const double alphaLn_, beta_, bonus_;
     double deltaUb_=0, eosUb_=0;
     float deltaUbF_=0;
     Node* nodes_; uint32_t* table_; Beam* beams_; Cand* cands_; HeapSlot* heap_;
@@ -841,6 +847,10 @@ void Search::step(const uint8_t* active, size_t count) {
 }
 DecodeStatus Search::run(const int8_t* logits, size_t frames, int exponent, const DecodeControl& control,
                          char* text, size_t capacity, DecodeStats* stats) {
+    if(stats) {
+        const Node& initial=nodes_[beams_[0].node];
+        stats->startHistoryWords=historyWords(initial.ctx2,initial.ctx1);
+    }
     const ExpTable& table=expTable(exponent,*fallback_);
     const double* exps=table.exps;
     steps_=table.steps;
@@ -929,6 +939,9 @@ DecodeStatus Search::run(const int8_t* logits, size_t frames, int exponent, cons
     if(stats) {
         stats->frames=uint32_t(frames); stats->beam=uint32_t(width_); stats->nodes=uint32_t(count_);
         stats->candidates=uint32_t(std::min<size_t>(considered_,UINT32_MAX)); stats->completions=uint32_t(completions_);
+        const Node& winner=nodes_[beams_[best].node];
+        stats->endHistoryWords=winner.wordLen ? historyWords(winner.ctx1,winner.spaceWord)
+                                             : historyWords(winner.ctx2,winner.ctx1);
     }
     uint32_t at=beams_[best].node;
     size_t length=nodes_[at].depth;
@@ -1167,19 +1180,20 @@ size_t workspace_bytes(size_t frames, size_t beam) {
 }
 DecodeStatus decode(const int8_t* logits, size_t frames, int exponent, const Lm& lm,
                     const CustomWords* words, char* text, size_t capacity,
-                    const DecodeControl& control, size_t beam, DecodeStats* stats) {
+                    const DecodeControl& control, size_t beam, DecodeStats* stats, float strength) {
     if(text && capacity)text[0]=0;
     if(stats)*stats=DecodeStats{};
     if(!beam)beam=lm.beamWidth();
     Layout l;
     if(!text || !capacity || (!logits && frames) || !lm.valid() || exponent<-30 || exponent>30
+       || !std::isfinite(strength) || strength<0.0f || strength>1.0f
        || !layout(frames,beam,l))return DecodeStatus::InvalidArgument;
     if(control.cancelled && control.cancelled(control.context))return DecodeStatus::Cancelled;
     auto workspace=static_cast<uint8_t*>(allocate(l.bytes));
     if(!workspace)return DecodeStatus::OutOfMemory;
     DecodeStatus status;
     {
-        Search search(lm,words,workspace,l,beam);
+        Search search(lm,words,workspace,l,beam,strength);
         status=search.run(logits,frames,exponent,control,text,capacity,stats);
     }
     release(workspace);

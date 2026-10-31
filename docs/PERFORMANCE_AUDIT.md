@@ -233,3 +233,11 @@ and debug configuration above were performed on firmware 0.99.99.
   `stt_model_identity.h`: exact raw model size.
 - `tools/report/breakdown.py`, `layers.py`, `versions.py`: aggregate derivation.
 - `docs/STT_PRODUCT_HANDOFF.md`: October 21 hardware qualification and integration limits.
+
+## Source update after this audit
+
+The source observations above describe the pre-port standalone baseline.
+[STANDALONE_PORT.md](STANDALONE_PORT.md) records the subsequent runtime/SDK and
+streaming port. Regenerated public evidence now marks the default five PCM
+buffers and optional feature pool; historical/device timing rows remain unchanged.
+No new device performance result follows from the source port alone.

@@ -1,5 +1,5 @@
-// One event contract for real standalone final captions and explicitly marked
-// future-interface fixture drafts/labels. It never changes speaker decisions.
+// One event contract for real standalone drafts/finals/optional speaker labels
+// and explicitly simulated replay fixtures. It never changes speaker decisions.
 export class TranscriptStore {
   constructor() { this.sessions = new Map(); }
   apply(input) {

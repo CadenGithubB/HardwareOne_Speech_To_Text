@@ -1,7 +1,8 @@
 # HardwareOne's on-device speech-to-text engine as an ESP-IDF component (ESP32-P4 only).
 #
-# stt/ is HardwareOne's components/hardwareone/stt, unchanged (branch stt-speedups,
-# commit 2e56063), with the model identity header of the model this repo ships.
+# stt/ began as HardwareOne's components/hardwareone/stt (stt-speedups, 2e56063).
+# Runtime/memory/LM/speaker and SDK improvements were reconciled on October 31;
+# the pinned model and platform adapters remain standalone. See docs/STANDALONE_PORT.md.
 # The three headers at this level stand in for the firmware's own:
 #   System_STTLocal.h   the engine-facing control/stats types
 #   Audio_VadPolicy.h   the adaptive VAD gate the segmenter uses (copied as is)
@@ -20,6 +21,8 @@ set(hw1_stt_srcs
     stt/quartznet_frontend.cpp
     stt/stt_lm.cpp
     stt/stt_dl_metadata.cpp
+    stt/stt_internal_memory.cpp
+    stt/stt_stream.cpp
     System_MemUtil.cpp)
 if(HW1_STT_SPEAKER_LABELS)
     list(APPEND hw1_stt_srcs stt/speaker_frontend.cpp stt/speaker_model.cpp)
@@ -56,4 +59,8 @@ include("${_hw1_dl_dir}/cmake/compile_register.cmake")
 esp_dl_compile_add_yml("${CMAKE_CURRENT_LIST_DIR}/stt/quartznet.compile_req.yml")
 if(HW1_STT_SPEAKER_LABELS)
     esp_dl_compile_add_yml("${CMAKE_CURRENT_LIST_DIR}/stt/speaker.compile_req.yml")
+endif()
+
+if(HW1_STT_SPEAKER_LABELS)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC HW1_STT_SPEAKER_LABELS=1)
 endif()

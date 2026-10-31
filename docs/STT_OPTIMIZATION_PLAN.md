@@ -21,8 +21,9 @@ performance in the standalone app.
 ## Source parity comes first
 
 [Direct source comparison](STANDALONE_PARITY.md) confirms that HardwareOne has
-changes not present in the standalone. Reconcile and qualify those portable
-changes before treating integrated timings as a standalone baseline. The intended
+changes not present in the standalone. The [source port](STANDALONE_PORT.md) now reconciles those portable changes and
+passes host/build checks. Fresh device qualification is still required before
+treating integrated timings as a standalone baseline. The intended
 workflow is standalone development/qualification followed by HardwareOne adaptation.
 
 ## Main conclusion

@@ -20,9 +20,10 @@ microphone-to-serial captions example; the model and language model it needs are
 - `tools/speech_portable`, `tools/translation_p4`: earlier portable speech and translation experiments.
 
 The `stt_*`, `speech_portable` and `translation_p4` folders originated in HardwareOne's
-`experiments/`; `tools/sync_to_hardwareone.sh` copies selected tooling. The engine is an older
-HardwareOne snapshot and has confirmed differences from the current integrated project. See
-[standalone parity and reconciliation](docs/STANDALONE_PARITY.md). A few `stt_p4` tools work on the
+`experiments/`; `tools/sync_to_hardwareone.sh` copies selected tooling. The engine began as a
+HardwareOne snapshot. The [standalone port](docs/STANDALONE_PORT.md) reconciles
+identified runtime/SDK fixes and adds a reusable streaming pipeline; fresh device
+performance and accuracy qualification remains pending. A few `stt_p4` tools work on the
 HardwareOne firmware tree (they use paths from its repository root) and run from a HardwareOne checkout.
 
 No speech data, recordings, models or checkpoints are kept here. Paths come from the environment:
@@ -61,6 +62,10 @@ The live profile measures the integrated HardwareOne app, not this standalone
 app. Proposed optimizations are not implemented. Private logs, recordings,
 settings backups and firmware rollback images are excluded from Git.
 
-The intended direction is to qualify reusable STT performance and features here
-first, then adapt them for HardwareOne. Current source divergence must be
-reconciled before claiming that workflow is established.
+Reusable STT performance and features are developed and qualified here first,
+then adapted for HardwareOne. The source port and host/build checks are complete;
+fresh standalone device qualification is the next acceptance step.
+
+- [Ported features, profiles and validation](docs/STANDALONE_PORT.md).
+- `firmware/components/hw1_stt/stt/stt_stream.*`: portable feature caches, drafts,
+  cancellation and speculative-final ownership, with platform adapters in the example.

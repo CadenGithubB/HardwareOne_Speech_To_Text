@@ -5,6 +5,7 @@
 #include <cerrno>
 #include <cinttypes>
 #include <cstdlib>
+#include <cmath>
 #include <sys/time.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -43,6 +44,9 @@ char currentDetail[128]{};
 char command[256]{};
 size_t commandBytes = 0;
 bool commandOverflow = false;
+float languageStrength = 1.0f;
+uint32_t draftVersion = 0;
+bool draftActive = false;
 
 uint64_t nowMs() { return uint64_t(esp_timer_get_time()) / 1000; }
 void number(cJSON* obj, const char* name, uint64_t value) {
@@ -169,7 +173,7 @@ void finish() {
 void start(bool save = true) {
   finish();
   if (noteNumber == UINT32_MAX) { message("Per-boot session number exhausted", false); return; }
-  ++noteNumber; phrase = 0; title[0] = 0; paragraphStart = true; noteStarted = nowMs();
+  ++noteNumber; draftActive = false; phrase = 0; title[0] = 0; paragraphStart = true; noteStarted = nowMs();
   std::snprintf(noteId, sizeof(noteId), "b%020" PRIu64 "-%08" PRIx32 "-n%010" PRIu32, boot.boot, nonce, noteNumber);
   std::snprintf(notePath, sizeof(notePath), "%s/%s.jsonl", kFolder, noteId);
   cJSON* obj = event("start"); if (!obj) return;
@@ -215,7 +219,7 @@ void readNote(char* name) {
   cJSON_AddNumberToObject(page, "nextOffset", next); emit(page);
 }
 void run(char* cmd) {
-  if (!std::strcmp(cmd, "help")) message("vocab list | vocab add DISPLAY[|spoken] | vocab remove spoken | vocab reload | note start | note stop | notes | note read FILENAME [OFFSET] | clock set EPOCH | status. Stop saves accepted results through this command; microphone/captions continue.");
+  if (!std::strcmp(cmd, "help")) message("vocab list | vocab add DISPLAY[|spoken] | vocab remove spoken | vocab reload | note start | note stop | notes | note read FILENAME [OFFSET] | clock set EPOCH | lm strength 0..1 | status. Stop saves accepted results through this command; microphone/captions continue.");
   else if (!std::strcmp(cmd, "vocab list")) {
     cJSON* obj = event("vocabulary"); if (!obj) return; cJSON* rows = cJSON_AddArrayToObject(obj, "words");
     for (size_t i = 0; i < vocabulary.count(); ++i) { cJSON* row = cJSON_CreateObject(); cJSON_AddStringToObject(row, "display", vocabulary.at(i).display); cJSON_AddStringToObject(row, "spoken", vocabulary.at(i).spoken); cJSON_AddItemToArray(rows, row); }
@@ -242,6 +246,11 @@ void run(char* cmd) {
     char* end = nullptr; errno = 0; const long long epoch = std::strtoll(cmd + 10, &end, 10);
     if (errno || end == cmd + 10 || *end || epoch < 1577836800LL || epoch >= 4102444800LL) message("Invalid UTC epoch", false);
     else { struct timeval time = {static_cast<time_t>(epoch), 0}; const bool ok = settimeofday(&time, nullptr) == 0; message(ok ? "Clock set; applies to the next recording" : "Clock set failed", ok); }
+  }
+  else if (!std::strncmp(cmd, "lm strength ", 12)) {
+    char* end=nullptr; errno=0;const float value=std::strtof(cmd+12,&end);
+    if(errno||end==cmd+12||*end||!std::isfinite(value)||value<0||value>1)message("LM strength must be finite in [0,1]",false);
+    else {languageStrength=value;message("LM strength updated for the next inference");}
   }
   else if (!std::strcmp(cmd, "status")) status(currentState, currentDetail);
   else if (*cmd) message("Unknown command; type help", false);
@@ -278,6 +287,7 @@ void poll() {
 }
 const hw1::stt::lm::CustomWords* customWords() { return hotwords.size() ? &hotwords : nullptr; }
 void caption(const char* raw, uint64_t startSample, uint64_t endSample, bool forced, uint32_t dropped) {
+  clearDraft();
   static char shown[4096];
   const bool formatted = hw1::transcript::format(raw, vocabulary, paragraphStart, shown, sizeof(shown));
   if (!formatted) std::snprintf(shown, sizeof(shown), "%s", raw);
@@ -297,6 +307,24 @@ void caption(const char* raw, uint64_t startSample, uint64_t endSample, bool for
   const bool saved = saving && saveEvent(obj);
   cJSON_AddBoolToObject(obj, "saved", saved); emit(obj);
 }
+Receipt receipt(){return {noteNumber,phrase};}
+void speaker(Receipt receipt,int8_t label){
+  // A delayed label never attaches to a different recording after note start/stop.
+  if(receipt.note!=noteNumber||!receipt.sequence||receipt.sequence>phrase||label< -1||label>7)return;
+  cJSON* obj=event("speaker");if(!obj)return;identity(obj);
+  cJSON_AddNumberToObject(obj,"sequence",receipt.sequence);cJSON_AddNumberToObject(obj,"speaker",label);
+  cJSON_AddBoolToObject(obj,"ready",true);
+  if(saving)saveEvent(obj);
+  emit(obj);
+}
+float lmStrength() { return languageStrength; }
+void draft(const char* raw) {
+  draftActive=raw&&*raw;
+  cJSON* obj=event("draft");if(!obj)return;identity(obj);
+  cJSON_AddNumberToObject(obj,"sequence",phrase+1);cJSON_AddNumberToObject(obj,"version",++draftVersion);
+  cJSON_AddStringToObject(obj,"text",raw);emit(obj); // previews are never saved as final records
+}
+void clearDraft(){if(draftActive)draft("");}
 void status(const char* state, const char* detail) {
   currentState = state;
   if (detail != currentDetail) std::snprintf(currentDetail, sizeof(currentDetail), "%s", detail);
@@ -304,6 +332,7 @@ void status(const char* state, const char* detail) {
   cJSON_AddStringToObject(obj, "state", state); cJSON_AddStringToObject(obj, "detail", currentDetail);
   cJSON_AddBoolToObject(obj, "saving", saving); cJSON_AddNumberToObject(obj, "customWords", hotwords.size());
   cJSON_AddBoolToObject(obj, "clockKnown", clockKnown);
+  cJSON_AddNumberToObject(obj,"lmStrength",languageStrength);
   if (clockKnown) cJSON_AddStringToObject(obj, "startedUtc", startedUtc); else cJSON_AddNullToObject(obj, "startedUtc");
   cJSON_AddStringToObject(obj, "title", title); cJSON_AddStringToObject(obj, "source", "local-pdm");
   number(obj, "startedUptimeMs", noteStarted); emit(obj);

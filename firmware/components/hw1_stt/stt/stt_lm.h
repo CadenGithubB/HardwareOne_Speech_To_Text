@@ -90,6 +90,11 @@ struct DecodeStats {
     uint32_t candidates=0;   // scored candidates, all frames
     uint32_t completions=0;  // word LM evaluations (per prefix, only where the result can matter)
     size_t workspaceBytes=0;
+    // Completed words in the actual initial/final context, excluding BOS/EOS.
+    // 0..2 words; UINT8_MAX means that stage was not reached. The end context
+    // includes a final partial word, before EOS and output-buffer truncation.
+    // Each decode currently starts at BOS; no context is retained in Lm.
+    uint8_t startHistoryWords=UINT8_MAX, endHistoryWords=UINT8_MAX;
 };
 // Bytes of the single workspace allocation decode() makes for this shape:
 // 40*(frames*beam+1) nodes + 4*pow2(2*(frames*beam+1)) prefix index
@@ -102,8 +107,12 @@ size_t workspace_bytes(size_t frames, size_t beam);
 // skips non-blank tokens below it except the repeat of the prefix's last
 // symbol, matching hw1lm.py (FORMAT.md leaves that case implicit). Text is the
 // best prefix without a trailing space, NUL-terminated even on failure
-// (OutputTooSmall keeps the leading capacity-1 bytes).
+// (OutputTooSmall keeps the leading capacity-1 bytes). strength must be finite
+// in [0,1]: scale alpha, beta and the custom-word bonus together, preserving
+// their balance. 1 preserves file/reference behavior; 0 is acoustic-only CTC
+// beam search (not greedy). The checked blob and Lm view are never modified.
 DecodeStatus decode(const int8_t* logits, size_t frames, int exponent, const Lm& lm,
                     const CustomWords* words, char* text, size_t capacity,
-                    const DecodeControl& control={}, size_t beam=0, DecodeStats* stats=nullptr);
+                    const DecodeControl& control={}, size_t beam=0, DecodeStats* stats=nullptr,
+                    float strength=1.0f);
 }

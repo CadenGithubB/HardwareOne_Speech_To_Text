@@ -1,0 +1,6 @@
+# Control profile: full audio, final captions only, no capture feature pool/hooks.
+CONFIG_CAPTIONS_CAPTURE_FEATURES=n
+CONFIG_CAPTIONS_DRAFTS=n
+CONFIG_CAPTIONS_TRIM_SILENCE=n
+CONFIG_CAPTIONS_SPECULATIVE_FINAL=n
+CONFIG_HEAP_USE_HOOKS=n

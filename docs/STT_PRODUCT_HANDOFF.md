@@ -161,3 +161,13 @@ HardwareOne changes not yet reconciled here. The requested future direction is
 standalone qualification first, then HardwareOne adaptation; direct source-copy
 synchronization is not sufficient. October 31 host reruns passed all four suites
 listed above. No fresh firmware build or device qualification was performed.
+
+## October 31 standalone reconciliation
+
+The identified HardwareOne runtime/memory/watchdog, LM, speaker-policy and SDK
+fixes are now ported. The standalone also owns a portable streaming scheduler for
+capture-time feature prefixes, drafts and optional speculative finals. See
+[STANDALONE_PORT.md](STANDALONE_PORT.md) for exact profiles, validation, adapter
+boundaries and remaining device acceptance. This supersedes the earlier
+"not yet reconciled" status; it does not supersede historical hardware results.
+No image was flashed for this port and no speed/accuracy gain is claimed.

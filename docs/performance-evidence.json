@@ -83,7 +83,17 @@
   "current_source": {
     "psram_physical_bytes": 33554432,
     "retained_model_bytes": 20112128,
-    "retained_pcm_bytes": 960000,
+    "retained_pcm_bytes": 1600000,
+    "pcm_scope": "default standalone: capture, three queued slots, optional draft/spec snapshot",
+    "optional_feature_pool_bytes": 651272,
+    "default_stream_features": {
+      "capture_features": true,
+      "drafts": true,
+      "trim_tail_ms": 0,
+      "speculative_finals": false,
+      "speaker_labels": false
+    },
+    "qualification": "ported source and host/build checks; no new device benchmark",
     "lm_options": [
       {
         "label": "LM not loaded",
