@@ -1,0 +1,118 @@
+diff --git a/components/hardwareone/System_STT.cpp b/components/hardwareone/System_STT.cpp
+index dc8a0161..2f4674ca 100644
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -1096,12 +1096,47 @@ static bool sttQueueSegment(StreamRun& run) {
+   return run.segmenter.release();
+ }
+ #if HW1_STT_CAPTURE_FEATURES
++constexpr size_t kFeWindowSamples = 512;
++// Copy only the PCM indices read by one stable DSP row. Snapshot and producer
++// writes share a lock; the DSP runs after this function releases it.
++static bool sttFeatureSnapshot(StreamRun& run, int idx, uint32_t gen, uint64_t start,
++                               size_t row, int16_t (&window)[kFeWindowSamples]) {
++  static_assert(kFeWindowSamples >= 321 && (kFeWindowSamples & (kFeWindowSamples - 1)) == 0 &&
++                kFeRingSamples % kFeWindowSamples == 0);
++  const size_t rowLo = row * 160 > 161 ? row * 160 - 161 : 0;
++  const size_t rowHi = row ? row * 160 + 160 : 161;
++  const uint64_t source = start + rowLo;
++  const size_t to = static_cast<size_t>(source & (kFeWindowSamples - 1));
++  const size_t from = static_cast<size_t>(source & (kFeRingSamples - 1));
++  const size_t count = rowHi - rowLo;
++  const size_t first = std::min(count, kFeWindowSamples - to);
++  bool copied = false;
++  portENTER_CRITICAL(&gSTTMux);
++  const FeCache& current = run.fe[idx];
++  if (current.gen == gen && current.state == FeState::Live &&
++      source + kFeRingSamples >= run.feRingHead + kStreamReadSamples) {
++    // The producer copies and publishes its head under this same lock.
++    // The two ring sizes are powers of two and the larger is a multiple
++    // of the smaller, so a private-window span cannot cross the source
++    // ring's end before it crosses the private window's end.
++    memcpy(window + to, run.feRing + from, first * sizeof(int16_t));
++    if (count > first)
++      memcpy(window, run.feRing + ((from + first) & (kFeRingSamples - 1)),
++             (count - first) * sizeof(int16_t));
++    copied = true;
++  }
++  portEXIT_CRITICAL(&gSTTMux);
++  return copied;
++}
+ // Computes the phrase in progress's final rows from the stream ring.
+ // Single writer of every cache's rows; a batch is committed only if its cache
+ // is still the same live phrase and the ring was not overwritten under it.
+ static void sttFeatureWorker(void* context) {
+   auto& run = *static_cast<StreamRun*>(context);
+   bool stop = false;
++  // DSP reads at most 321 PCM samples per stable row. This private ring
++  // preserves its absolute indexing without changing frontend arithmetic.
++  int16_t window[kFeWindowSamples];
+   while (!stop) {
+     (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+     for (;;) {
+@@ -1125,15 +1160,31 @@ static void sttFeatureWorker(void* context) {
+       // Oldest sample this batch reads (row r: [r*160-161, r*160+160)).
+       const uint64_t lo = start + (done * 160 > 161 ? done * 160 - 161 : 0);
+       const bool safe = lo + kFeRingSamples >= head + kStreamReadSamples;
+-      if (safe)
+-        for (size_t r = done; r < end; ++r)
+-          (void)hw1::stt::log_mel_frame_ring(run.feRing, kFeRingSamples - 1, start, len, r,
+-                                             run.fe[idx].rows + r * kFeRowFloats, run.feWork);
++      // Incremental DSP never uses conditioned internally. Stage this whole
++      // batch in its existing worker-owned scratch, so retirement cannot wipe
++      // memory while the DSP writes it. No additional stack/heap row buffer.
++      static_assert(sizeof(hw1::stt::FrontendWorkspace::conditioned) >=
++                    kFeBatchRows * kFeRowFloats * sizeof(float));
++      float* const pending = run.feWork->conditioned;
++      bool computed = safe;
++      if (safe) {
++        for (size_t r = done; r < end; ++r) {
++          if (!sttFeatureSnapshot(run, idx, gen, start, r, window) ||
++              hw1::stt::log_mel_frame_ring(window, kFeWindowSamples - 1, start, len, r,
++                                         pending + (r - done) * kFeRowFloats, run.feWork) != hw1::stt::Status::Ok) {
++            computed = false;
++            break;
++          }
++        }
++      }
+       portENTER_CRITICAL(&gSTTMux);
+       FeCache& c = run.fe[idx];
+       if (c.gen == gen && c.state == FeState::Live) {
+-        // The capture task writes at most one block past the published head.
+-        if (safe && lo + kFeRingSamples >= run.feRingHead + kStreamReadSamples) {
++        // Keep the existing conservative overwrite guard for batch admission.
++        if (computed && lo + kFeRingSamples >= run.feRingHead + kStreamReadSamples) {
++          // Publish bytes and committed length together, only for this still
++          // live generation. Orphan/attached retirement can never race a write.
++          memcpy(c.rows + done * kFeRowFloats, pending, (end - done) * kFeRowFloats * sizeof(float));
+           c.frames = end;
+           run.feRowsComputed += static_cast<uint32_t>(end - done);
+         } else {
+@@ -1155,9 +1206,10 @@ static void sttFeatureRingWrite(StreamRun& run, int16_t* ring, const int16_t* bl
+   const uint64_t base = run.segmenter.samples_seen();
+   const size_t at = static_cast<size_t>(base & (kFeRingSamples - 1));
+   const size_t first = std::min(count, kFeRingSamples - at);
++  // Serialize every PCM byte with the feature worker's stable-row snapshot.
++  portENTER_CRITICAL(&gSTTMux);
+   memcpy(ring + at, block, first * sizeof(int16_t));
+   if (count > first) memcpy(ring, block + first, (count - first) * sizeof(int16_t));
+-  portENTER_CRITICAL(&gSTTMux);
+   if (!run.feRingStarted) { run.feRingStarted = true; run.feRingStart = base; }
+   run.feRingHead = base + count;
+   portEXIT_CRITICAL(&gSTTMux);
+diff --git a/components/hardwareone/stt/quartznet_frontend.h b/components/hardwareone/stt/quartznet_frontend.h
+index b9b4ec8e..775bf4bb 100644
+--- a/components/hardwareone/stt/quartznet_frontend.h
++++ b/components/hardwareone/stt/quartznet_frontend.h
+@@ -40,6 +40,11 @@ Status log_mel_frame(const int16_t* pcm, size_t samples, size_t frame, float* ou
+ // (ring_mask + 1 a power of two): the stream ring of the capture pipeline.
+ Status log_mel_frame_ring(const int16_t* ring, size_t ring_mask, uint64_t start, size_t samples,
+                           size_t frame, float* out64, FrontendWorkspace* workspace);
++// These two incremental row routines leave workspace->conditioned untouched
++// except when explicitly used as their output. Its 512 floats may therefore
++// stage up to eight 64-bin rows on the workspace's single owning thread.
++// No other workspace field may alias output; compute_features uses conditioned
++// itself and does not permit this alias. Commit staged rows before its reuse.
+ // compute_features' per-utterance CMVN over finished rows, in place.
+ Status normalize_features(float* output, size_t frames, FrontendWorkspace* workspace,
+                           FrontendTiming* timing=nullptr);

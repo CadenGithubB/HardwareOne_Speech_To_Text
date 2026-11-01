@@ -1807,3 +1807,137 @@ verified. The owned fixture was removed. Latest healthy original-app probe:
 6,021,120 B LittleFS free, logging inactive, onboard PDM preferred, model
 header/footer unchanged, zero new watchdog/fatal markers. Every measured block
 remained above 2 MiB. Future playback stays 50%; all these tests were silent.
+
+## Stable-PCM-window repair and target cost
+
+**Status:** prepared correctness repair, not a speed/accuracy win or a fully
+qualified application update. HardwareOne normal candidate b7598680 is on the
+local `codex/stt-ab-feature-ring` branch off aa6508fd, with the prior cache-row
+repair carried separately as 0e4a59e2 (same source as 3fff3013). No HardwareOne
+branch was pushed. The normal candidate was built but not flashed; target
+checks used the explicitly labelled cc6a256d diagnostic. Original firmware is
+restored. The earlier command-allocation faults remain unresolved.
+
+### Change and host findings
+
+The producer now copies PCM and publishes its head under `gSTTMux`. The feature
+worker uses that same lock to snapshot only the sample indices needed by one
+stable row into a private 512-sample ring, then performs the unchanged DSP after
+unlocking. Frame 0 includes reflected sample 160; other stable rows need at
+most 321 samples. Two bounded copies handle private/source ring wrap. Generation,
+state and the existing conservative overwrite guard remain checked. Cache-row
+staging/publication is retained. No segmentation, speaker policy, acoustic
+math, model, preview cadence, stack configuration or clock setting changed.
+
+The private PCM array occupies 1,024 B of the existing worker stack; it is not
+a new heap buffer or a larger configured task allocation. The actual portable
+StreamPipeline already uses a stable private window and was not rewritten.
+
+| Host worker ID | TSAN forced-wrap race | ASan/UBSan stale committed rows / overruns | Parity cases | Exact checked rows |
+|---|---:|---|---:|---:|
+| aa6508fd | 1 | 0 / 1 | 104 | 12,904 |
+| 3fff3013 cache-row repair | 1 | 0 / 1 | 104 | 12,904 |
+| b7598680 stable-window repair | 0 | 0 / 1 | 104 | 12,904 |
+
+The 104 cases combine 13 lengths (320–160,000 samples) and eight starts,
+including physical/private wraps and cached tails of long phrases. All three
+variants match the actual shared DSP byte for byte for checked stable rows.
+ASan/UBSan and strict TSAN both pass the final repair's normal, retirement,
+failed-DSP and parity checks; the original race schedules remain positive
+controls. Copy-interceptor calibration and the production portable pipeline
+also pass. Source binding checks actual producer/snapshot/worker bodies; DSP
+entry gating is a host scheduling adapter, not a replacement calculation.
+
+### P4 findings
+
+Five separate boots completed all 50 normal feature-worker cases (25 matched
+pairs). Every repaired and reference case matched 278 stable rows from the
+same 44,560-sample input: 6,950 exact rows per arm, zero mismatches. The control
+is the actual cache-row-only 3fff3013 worker, with only its function renamed.
+Pair order alternates and a logged random flip selects each boot's first arm.
+
+Both workers use the original core 0 / priority 1 / 3,072-byte task allocation.
+Timing uses the unchanged profile's existing microsecond FreeRTOS runtime
+counter, read after each task blocks. No timer hook was added inside either
+worker. Wall time includes task creation/readiness polling and scheduling.
+
+| Metric | Cache-row-only control | Stable-window repair | Candidate minus control / bootstrap 95% CI |
+|---|---:|---:|---|
+| Mean task CPU (us) | 56,302.84 | 56,907.24 | +604.40 [557.56, 653.32] |
+| CPU min / median / max (us) | 56,171 / 56,277 / 56,645 | 56,730 / 56,901 / 57,059 | — |
+| CPU cost (%) | — | — | +1.07348 [0.98979, 1.16046] |
+| Mean creation-to-ready wall (us) | 62,889.96 | 63,412.52 | +522.56 [78.60, 1,099.84] |
+| Stack high-water free range (B) | 2,608–2,624 | 1,600–1,612 | Same 3,072-B allocation |
+
+Intervals resample **five boots**, preserving the five matched pairs within
+each selected boot: 20,000 percentile resamples, seed 20261101, linear 2.5/97.5
+percentiles. The 25 pairs are not treated as 25 independent boots.
+
+| Boot ID | Flip | Control mean CPU (us) | Repair mean CPU (us) | Paired CPU delta (us) | Paired wall delta (us) |
+|---|---:|---:|---:|---:|---:|
+| 0 | 1 | 56290.20 | 56888.40 | 598.20 | 203.80 |
+| 1 | 1 | 56246.40 | 56880.60 | 634.20 | 732.80 |
+| 2 | 0 | 56324.00 | 56870.80 | 546.80 | 73.00 |
+| 3 | 1 | 56358.20 | 56906.20 | 548.00 | 21.60 |
+| 4 | 1 | 56295.40 | 56990.20 | 694.80 | 1581.60 |
+
+The direct snapshot check verified all required PCM values in 12,500/12,500
+calls. Whole snapshot-call mean was 5.82304 us (boot bootstrap 95%
+[5.54648, 6.20664]); per-case means ranged 4.526–8.026 us, largest observed
+whole call 923 us. These calls include guards, lock acquisition, copy and timer
+overhead, with possible preemption outside the lock. They are **not isolated
+critical-section duration or a worst-case interrupt-latency bound**.
+
+The separate producer microbenchmark repeats 500 maximum contiguous
+1,024-sample writes to the same hot location per case: 12,500 calls per arm.
+Control / repair means were 4.69304 / 4.67392 us; paired difference -0.01912 us,
+boot bootstrap 95% [-0.23184, 0.19624]. Per-case mean ranges were
+4.530–6.360 / 4.532–6.202 us; largest whole calls 896 / 828 us. This does not
+establish a speedup or bound cold/streaming capture-copy latency. Microbenchmarks
+are separate workloads, not additive components of the measured worker cost.
+
+All five complete lifecycles had zero watchdog warnings, fatal markers and
+audio overruns. Normal idle capture computed zero feature rows and submitted /
+labelled / skipped zero speaker jobs. Target feature checks used known private
+PCM while onboard PDM capture was active; they did not send audio through the
+microphone. No playback or live-speech WER/latency comparison was performed.
+This patch concerns recognition feature caching, not speaker similarity.
+
+**Interpretation:** the repair removes the demonstrated live-ring read/write
+race in the tested source paths and preserves checked feature values, with
+about 0.604 ms additional feature-task CPU per input in this scope. The positive
+cost interval means this is not a performance winner. The fixed stack retains
+at least 1,600 B measured headroom. No new heap buffer is requested, but full-app
+RAM, speech latency, recognition accuracy and long-run reliability still require
+qualification. Five clean diagnostic boots do not resolve the earlier heap
+faults or prove an ordinary-use crash reduction.
+
+### Reproducibility and remaining work
+
+Normal app b7598680: 6,026,048 B, SHA-256
+8f6827a1227dc5f44dd16857cd04bafd0c8776307b4eac4204626f24b85508ea.
+Diagnostic cc6a256d: 6,033,776 B, SHA-256
+2defc425174cef479bddfeec5c0ee903c73870a84cfa3135d5ed6c3402d09e5d.
+Matching source/app/ELF/map/profile inputs are private. The normal and diagnostic
+sdkconfig files are byte-identical; the original reviewed ESP-DL override is
+still active. No CPU/PSRAM/cache setting was changed.
+
+`feature-ring-aa6508fd.patch` contains the normal row and ring repairs;
+`feature-ring-3fff3013.patch` adds only the ring repair to the existing row fix.
+The separate `p4-feature-ring-probe-b7598680.patch` includes diagnostic enablement
+and measurement code; it is not part of the normal candidate. The numeric parser
+checks pairing order, exact rows, stack/timing fields and lifecycle gates;
+synthetic tests reject corrupted, failed and incomplete records. It retains all
+attempts when summarizing costs and cannot count a failed boot as clean.
+
+The next fault-origin investigation is described in
+[P4_HEAP_WATCH_PLAN.md](P4_HEAP_WATCH_PLAN.md): SDK watchpoint setters do not check
+ownership, and RISC-V breakpoints/watchpoints share the same trigger slots.
+Readback and expected-trap calibration on both cores are still pending. No board
+watchpoint has been armed. Cache traffic remains a separate unmeasured gap.
+
+The owned SD fixture was removed and the original full 7,426,048-byte app slot
+restored/full-slot-verified. Final healthy original-app probe: 5,943,296 B
+LittleFS free, logging inactive, PDM preferred, model header/footer unchanged,
+zero new watchdog/fatal markers. All blocks stayed above 2 MiB. Future playback
+remains 50%; this entire test block was silent.

@@ -165,6 +165,52 @@ python3 tests/test_feature_cache_ownership.py --hardwareone HARDWAREONE_CHECKOUT
 python3 tests/test_stt_stream.py --thread-sanitize
 ```
 
-The actual portable StreamPipeline passes with strict copy checking. A future
-HardwareOne stable-window repair needs a separate candidate path, parity tests
-and actual P4 stack/copy-cost checks; no ring repair is included here.
+The actual portable StreamPipeline passes with strict copy checking. The
+subsequent stable-window candidate below supplies the separate repair path,
+parity checks and actual P4 stack/copy-cost evidence; the original controls
+remain unchanged for comparison.
+
+
+## Stable-window candidate
+
+Normal HardwareOne b7598680 adds a 512-sample private PCM window and serializes
+both snapshot reads and producer writes under the same lock. The old overwrite
+admission guard and private feature-batch publication remain. No new heap
+buffer/configured stack is requested. The array uses 1,024 B of existing stack.
+`ring_snapshot_candidate.inc`, `ring_writer_candidate.inc` and
+`worker_ring_candidate.inc` are bound to actual production sources and the
+shared DSP is unchanged. They use the HardwareOne license above.
+
+For a current ring-candidate checkout, use `--ring-candidate` so the source
+binder checks all three variants. The original commands without that flag are
+for a cache-row-only checkout; they intentionally reject a different worker.
+
+```
+python3 tests/test_feature_cache_ownership.py --hardwareone HARDWAREONE_CHECKOUT --ring-candidate --parity
+python3 tests/test_feature_cache_ownership.py --hardwareone HARDWAREONE_CHECKOUT --ring-candidate --parity --thread-sanitize
+python3 tests/test_feature_cache_ownership.py --hardwareone HARDWAREONE_CHECKOUT --ring-candidate --ring-audit --thread-sanitize
+python3 tests/test_feature_cache_ownership.py --hardwareone HARDWAREONE_CHECKOUT --ring-candidate
+```
+
+The normal full patch is `feature-ring-aa6508fd.patch`; the incremental patch
+for the existing row repair is `feature-ring-3fff3013.patch`. Diagnostic patch
+`p4-feature-ring-probe-b7598680.patch` adds the known-input comparison separately
+(cc6a256d). The reference is the exact 3fff3013 worker/producer with renamed
+functions. Each boot executes five matched pairs in alternating order with a
+logged flip, verifies stable rows, reads blocked-task CPU/runtime and stack
+high-water data, and checks/times snapshot and producer calls. PDM capture is
+already active, before the normal feature pool and speaker worker start.
+
+```
+python3 tests/test_p4fering.py
+python3 tools/device_tests/feature_cache/p4fering.py PRIVATE_TRIAL_DIRS
+```
+
+Task CPU uses existing ESP_TIMER FreeRTOS runtime stats; no worker timer hook
+is added. Producer microcalls repeatedly use one hot contiguous location.
+Snapshot/producer whole-call times include overhead and possible preemption,
+not exact critical-section hold time or worst-case streaming-copy latency.
+The parser emits only numbers/IDs, rejects damaged/duplicate/misordered records,
+and keeps lifecycle status separate from pre-stop numerical checks. Five clean
+boots are an isolated diagnostic gate, not full application qualification.
+See AB_TEST_RESULTS.md for measured cost and remaining checks.

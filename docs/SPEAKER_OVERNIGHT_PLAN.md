@@ -187,8 +187,8 @@ explicit 75 and remain unchanged. This default does not start playback or set
 volume; it prevents future default invocations from expecting an obsolete level.
 
 Build continuity: the active local HardwareOne source is
-`codex/stt-ab-feature-ownership` at 002e3a0c; 3fff3013 is the normal two-file
-repair. The prepared SDK was restored and verified to the original reviewed
+`codex/stt-ab-feature-ring` at cc6a256d; b7598680 is the normal stable-window
+candidate, and 3fff3013 is the prior cache-row-only repair. The prepared SDK was restored and verified to the original reviewed
 patch SHA 0dc9782643ce3d2332b2c4a54624fce27150736314d065b48b55d5cf2a54d593
 and tree SHA b217d41df9f399d7958496ae62f075cfbc8adecd222f9fe9c03064a452ddcd2c.
 The pointwise experimental SDK is not active. Selected matching normal-fix and
@@ -273,3 +273,43 @@ queued block removed its owned fixture. Latest healthy original-app probe:
 zero new watchdog/fatal markers. The existing owned build and matching selected
 source/app/debug artifacts remain for the next fault-location test. All runs
 were silent; future playback remains 50%.
+
+
+Stable-window checkpoint: normal candidate b7598680 serializes the producer's
+PCM copy and per-row private snapshot, then performs DSP outside the lock.
+No new heap buffer or stack configuration change: the 512-sample array uses
+1,024 B of the existing worker stack. Source-bound host checks cover 104
+length/start cases and 12,904 exact rows per variant; strict TSAN reproduces the
+ring race in original/cache-only controls and passes the final repair. Normal,
+retirement, failed-DSP and portable stream checks also pass. No speaker-model,
+segmentation, recognition math or labelling-policy change is included.
+
+P4 cc6a256d diagnostic: five clean boots, 25 matched task pairs, 6,950 exact
+stable feature rows per arm, zero mismatches/watchdog warnings/fatal markers/
+audio overruns. Mean task CPU 56,302.84 -> 56,907.24 us; cost +604.40 us,
+bootstrap 95% [557.56,653.32], +1.07348% [0.98979,1.16046]. Bootstrap units are
+five boots, not 25 independent pairs. Configured stack remains 3,072 B; observed
+free high-water is 1,600–1,612 B for the repair versus 2,608–2,624 B control.
+All 12,500 snapshot calls matched expected PCM. Whole-call microtimings include
+lock acquisition/timer/preemption effects and do not bound critical-section
+hold time or cold streaming-copy latency. The normal and probe sdkconfig files
+are byte-identical. This is a correctness candidate with measured cost, not a
+performance winner or a proven accuracy improvement.
+
+Earlier command-allocation faults remain unresolved. Normal capture during this
+known-input block was idle (zero feature rows/speaker jobs); full live-speech
+WER/latency/RAM and long-run application qualification remain open. The normal
+candidate was built but not flashed; the diagnostic is not left installed.
+Original full app slot restored/verified and owned fixture removed. Latest
+healthy probe: 5,943,296 B LittleFS/logging inactive/PDM/model header/footer
+unchanged, zero new watchdog/fatal markers. Future playback remains 50%; all
+these tests were silent.
+
+Next priority is the source-audited heap-header watch diagnostic in
+P4_HEAP_WATCH_PLAN.md: first read back all shared breakpoint/watchpoint trigger
+slots on each core without clearing them, then calibrate expected traps before
+watching the heap field. No trigger has been changed on the board. Preserve
+hardware stack guard and existing trigger owners. Cache-counter calibration
+and actual traffic measurement remain separate gaps. Selected normal/probe
+app/debug/source artifacts are retained privately; reuse the same owned build
+only after preserving the next required matching debug image.

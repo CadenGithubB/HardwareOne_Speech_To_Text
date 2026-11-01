@@ -357,3 +357,28 @@ P4_CACHE_COUNTER_PLAN.md separates verified counter semantics from unmeasured
 traffic. Original app restored/full-slot-verified, owned fixture removed; latest
 healthy probe 6,021,120 B LittleFS/logging inactive/PDM/model unchanged. No
 unqualified image is installed. HardwareOne changes remain local only.
+
+
+Stable-PCM-window candidate b7598680 is prepared on the local HardwareOne
+codex/stt-ab-feature-ring branch. It combines the prior row-staging repair with
+locked producer writes / row snapshots and unchanged DSP on private PCM.
+Source-bound host tests pass 104 cases / 12,904 exact checked rows per variant;
+strict TSAN passes the new candidate and detects both old ring controls. The
+normal full/incremental patches and a separate diagnostic patch are in
+tools/device_tests/feature_cache/. HardwareOne changes are not pushed.
+
+Five P4 diagnostic boots completed 25 matched pairs with 6,950 exact rows per
+arm, zero watchdog/fatal/overrun markers. Task CPU cost is +604.40 us (95%
+[557.56,653.32]) per 44,560-sample input, +1.07348%. Stack allocation stays
+3,072 B, with 1,600–1,612 B measured free headroom. The 1,024-byte private array
+uses existing stack, not a new heap buffer. This is not a performance win;
+WER/speaker accuracy/full-app RAM and live-speech latency are unqualified.
+The earlier heap-control-pointer faults are not resolved by these clean boots.
+Next perform trigger ownership/readback/calibration per P4_HEAP_WATCH_PLAN.md
+before watching stores to that heap field. No board trigger is armed.
+
+The normal app was compiled but not flashed; the diagnostic was removed.
+Original full app slot restored/verified, owned fixture removed; final healthy
+probe 5,943,296 B LittleFS/logging inactive/PDM/model unchanged. Future playback
+50%; this entire block was silent. See AB_TEST_RESULTS.md for bootstrap units,
+raw numeric distributions, copy-timing limitations and remaining gates.

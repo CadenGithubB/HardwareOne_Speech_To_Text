@@ -265,3 +265,20 @@ Prepare a separate stable-PCM-window repair, keep configured stacks/clocks and
 models fixed, and prove parity plus actual P4 headroom/copy overhead. This is
 correctness work, not a measured speed or WER win. Counter register semantics
 are now pinned in P4_CACHE_COUNTER_PLAN.md; actual traffic remains unmeasured.
+
+
+The stable-window ring repair is now prepared (normal b7598680) and passes
+source-bound host concurrency/parity tests plus five known-input P4 diagnostic
+boots. Target rows are byte-identical (6,950 per arm). Its measured feature-task
+CPU cost is +604.40 us, 95% [557.56,653.32] us (+1.07348%), per 44,560 samples;
+this is a correctness tradeoff, not a performance winner. The same 3,072-byte
+stack retains at least 1,600 B observed headroom; no new heap buffer/configuration
+change is used. Full live-speech latency/WER/RAM and app reliability remain
+unqualified, and the command-allocation heap faults remain open.
+
+Next apply the source-audited P4_HEAP_WATCH_PLAN.md through readback-only
+ownership checks and expected-trap calibration before monitoring the heap field.
+Breakpoint/watchpoint resources are shared on this RISC-V target, so do not
+assume a slot is unused. No board trigger is armed. Actual cache-counter traffic
+measurement remains pending; model, clocks, cache configuration and raw captions
+are unchanged. Original firmware is restored after the diagnostic block.

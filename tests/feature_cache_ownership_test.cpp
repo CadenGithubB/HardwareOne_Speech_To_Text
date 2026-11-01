@@ -63,10 +63,49 @@ namespace candidate {
 #include "worker_candidate.inc"
 }
 #endif
+#ifdef HAVE_RING_CANDIDATE
+namespace ring_candidate {
+#include "ring_snapshot_candidate.inc"
+#include "retirement_reference.inc"
+#include "ring_writer_candidate.inc"
+#include "worker_ring_candidate.inc"
+}
+#endif
+using FeatureWorker=void(*)(void*);
+static void parityCases(FeatureWorker worker,unsigned variant) {
+    const size_t lengths[]={320,321,479,480,511,512,1280,1297,16000,44560,64000,100000,160000};
+    const uint64_t starts[]={0,1,350,511,65088,65520,65535,131073};
+    size_t cases=0,equal=0;
+    allowed=true;
+    for(const auto samples:lengths)for(const auto start:starts) {
+        std::vector<int16_t> ring(kFeRingSamples);
+        for(size_t i=0;i<samples;++i)ring[(start+i)&(kFeRingSamples-1)]=int16_t(int((i*73+19)%15001)-7500);
+        std::vector<float> rows(kFeMaxRows*64);
+        hw1::stt::FrontendWorkspace work{},compare{};
+        StreamRun run;activeRun=&run;run.feRing=ring.data();run.feWork=&work;
+        run.feRingHead=start+samples;run.feLiveLen=samples;
+        const size_t initial=samples>64351 ? (samples-64351+159)/160 : 0;
+        run.fe[0].rows=rows.data();run.fe[0].state=FeState::Live;run.fe[0].gen=13;
+        run.fe[0].start=start;run.fe[0].frames=initial;
+        dspCalls=0;entered=false;
+        std::thread task([&]{worker(&run);});task.join();
+        const size_t end=std::min(samples/160,kFeMaxRows);
+        assert(!run.feRunning && run.fe[0].frames==end && run.feRowsComputed==end-initial && run.feOverruns==0);
+        float expected[64];
+        for(size_t i=initial;i<end;++i) {
+            assert(hw1::stt::log_mel_frame_ring(ring.data(),kFeRingSamples-1,start,samples,i,expected,&compare)==hw1::stt::Status::Ok);
+            assert(!memcmp(expected,rows.data()+i*64,sizeof(expected)));++equal;
+        }
+        ++cases;
+    }
+    std::printf("feature PCM windows: variant=%u cases=%zu equal_rows=%zu first_and_last_rows=1 physical_and_private_wrap=1\n",variant,cases,equal);
+}
 int main(int argc,char** argv) {
-    bool overlap=false,attached=false,fixed=false,live=false,ringOverlap=false;
+    bool overlap=false,attached=false,fixed=false,live=false,ringOverlap=false,ringFixed=false,parity=false;
     for(int i=1;i<argc;++i) {
-        if(!strcmp(argv[i],"--overlap"))overlap=true;
+        if(!strcmp(argv[i],"--parity"))parity=true;
+        else if(!strcmp(argv[i],"--ring-candidate")){ringFixed=true;fixed=true;}
+        else if(!strcmp(argv[i],"--overlap"))overlap=true;
         else if(!strcmp(argv[i],"--attached"))attached=true;
         else if(!strcmp(argv[i],"--candidate"))fixed=true;
         else if(!strcmp(argv[i],"--live"))live=true;
@@ -89,6 +128,13 @@ int main(int argc,char** argv) {
 #else
     if(fixed)return 2;
 #endif
+    auto producer=sttFeatureRingWrite;
+#ifdef HAVE_RING_CANDIDATE
+    if(ringFixed) {worker=ring_candidate::sttFeatureWorker;retire=ring_candidate::sttFeatureRetireOrphans;release=ring_candidate::sttFeatureRelease;producer=ring_candidate::sttFeatureRingWrite;}
+#else
+    if(ringFixed)return 2;
+#endif
+    if(parity){parityCases(worker,ringFixed?2:fixed?1:0);return 0;}
     std::thread feature([&]{worker(&run);});
     {std::unique_lock<std::mutex> guard(gateMutex);gateCv.wait(guard,[]{return entered;});}
     if(!live) {std::lock_guard<std::mutex> guard(gSTTMux);run.fe[0].state=attached?FeState::Attached:FeState::Orphan;run.feLive=-1;}
@@ -104,12 +150,12 @@ int main(int argc,char** argv) {
         int16_t block[kStreamReadSamples];
         for(size_t i=0;i<kStreamReadSamples;++i)block[i]=int16_t(i*13);
         for(unsigned i=0;i<62;++i) {
-            sttFeatureRingWrite(run,ring.data(),block,kStreamReadSamples);
+            producer(run,ring.data(),block,kStreamReadSamples);
             run.segmenter.seen+=kStreamReadSamples;
         }
         allow();
         for(unsigned i=62;i<192;++i) {
-            sttFeatureRingWrite(run,ring.data(),block,kStreamReadSamples);
+            producer(run,ring.data(),block,kStreamReadSamples);
             run.segmenter.seen+=kStreamReadSamples;
         }
     }
@@ -145,6 +191,6 @@ int main(int argc,char** argv) {
         if(fixed)assert(nonzero==0);
         else if(!overlap)assert(nonzero>0);
     }
-    std::printf("feature ownership: candidate=%u attached=%u overlap=%u live=%u failed_dsp=%u dsp_calls=%zu nonzero=%zu committed_rows=%u overruns=%u ring_overlap=%u\n",
-        unsigned(fixed),unsigned(attached),unsigned(overlap),unsigned(live),unsigned(invalidFirstRow),dspCalls,nonzero,run.feRowsComputed,run.feOverruns,unsigned(ringOverlap));
+    std::printf("feature ownership: candidate=%u attached=%u overlap=%u live=%u failed_dsp=%u dsp_calls=%zu nonzero=%zu committed_rows=%u overruns=%u ring_overlap=%u ring_fixed=%u\n",
+        unsigned(fixed),unsigned(attached),unsigned(overlap),unsigned(live),unsigned(invalidFirstRow),dspCalls,nonzero,run.feRowsComputed,run.feOverruns,unsigned(ringOverlap),unsigned(ringFixed));
 }

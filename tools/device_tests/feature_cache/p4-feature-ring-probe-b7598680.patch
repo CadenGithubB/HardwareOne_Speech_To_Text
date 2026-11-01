@@ -1,0 +1,313 @@
+diff --git a/components/hardwareone/System_STT.cpp b/components/hardwareone/System_STT.cpp
+index 2f4674ca..f1a7e7bf 100644
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -24,6 +24,9 @@
+ #include <algorithm>
+ #ifdef ESP_PLATFORM
+ #include "esp_log.h"
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++#include "esp_timer.h"
++#endif
+ #endif
+ #include <cmath>
+ #include <cstring>
+@@ -1200,6 +1203,9 @@ static void sttFeatureWorker(void* context) {
+   portEXIT_CRITICAL(&gSTTMux);
+   vTaskDelete(nullptr);
+ }
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++#include "stt/feature_ring_reference.h"
++#endif
+ // Capture task, per block: copy PCM into the stream ring (before the
+ // segmenter sees it) ...
+ static void sttFeatureRingWrite(StreamRun& run, int16_t* ring, const int16_t* block, size_t count) {
+@@ -1692,6 +1698,9 @@ static void sttFeatureStop(StreamRun& run) {
+   for (auto& c : run.fe)
+     if (c.rows) { sttWipe(c.rows, kFeMaxRows * kFeRowFloats * sizeof(float)); free(c.rows); c.rows = nullptr; }
+ }
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++#include "stt/feature_ring_probe.h"
++#endif
+ #endif
+ #if HW1_STT_SPEAKER_LABELS
+ static void sttStartSpeakers(STTLocalSession& backendSession, STTToken token,
+@@ -2532,6 +2541,16 @@ static void sttContinuousWorker(void*) {
+ 
+ } // namespace
+ 
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++extern "C" bool hw1_stt_feature_ring_probe(const int16_t* pcm, size_t samples) {
++#if HW1_STT_CAPTURE_FEATURES
++  return sttFeatureRingProbe(pcm, samples);
++#else
++  (void)pcm; (void)samples; return false;
++#endif
++}
++#endif
++
+ static bool sttBeginMode(STTOwner owner, uint32_t captureMs, bool continuous,
+                          STTToken* token, char* error, size_t errorCap,
+                          const TranscriptOptions* suppliedOptions = nullptr,
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index ae77a922..4c43968a 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -34,6 +34,9 @@ using hw1::stt::sttPsramFree;
+ #include "stt/stt_lm.h"
+ #include <algorithm>
+ #endif
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++extern "C" bool hw1_stt_feature_ring_probe(const int16_t*, size_t);
++#endif
+ namespace {
+ // Selection pairs the fixed path with its generated, SHA-pinned identity.
+ // Explicit path overrides remain available to standalone deployment experiments.
+@@ -351,7 +354,7 @@ bool readFully(File& file,uint8_t* dest,size_t bytes) {
+     return true;
+ }
+ constexpr const char* kSpeakerPath="/sd/STT Models/speaker.spk";
+-constexpr const char* kSpeakerFixturePath="/sd/STT Models/speaker_fixture.bin";
++constexpr const char* kSpeakerFixturePath="/sd/STT Models/codex_speaker_parity.bin";
+ constexpr size_t kSpeakerMaxBytes=16u<<20, kSpeakerArenaEstimate=1u<<20, kSpeakerKeepFree=3u<<20;
+ // Diagnostics: the fixture (PCM + the Mac's embedding) kept in PSRAM, re-embedded before every background
+ // job: a cosine below ~0.99 during a session means the trunk's result was corrupted (e.g. PIE state across a
+@@ -381,10 +384,30 @@ float speakerFixtureCosine(SpeakerState& s) {
+         memcpy(&samples,buf,4); memcpy(&dim,buf+4,4);
+         if(dim==s.model.info().dim && 8+size_t(samples)*2+size_t(dim)*4==bytes &&
+            s.model.embed(reinterpret_cast<const int16_t*>(buf+8),samples,s.embedding)) {
++            if(!hw1_stt_feature_ring_probe(reinterpret_cast<const int16_t*>(buf+8),samples)) {
++                heap_caps_free(buf); return -4.0f;
++            }
+             const float* want=reinterpret_cast<const float*>(buf+8+size_t(samples)*2);
+             double dot=0,a=0,b=0;
+             for(size_t i=0;i<dim;++i) { dot+=double(s.embedding[i])*want[i]; a+=double(s.embedding[i])*s.embedding[i]; b+=double(want[i])*want[i]; }
+             cos=a>0 && b>0 ? float(dot/std::sqrt(a*b)) : -3.0f;
++            // Diagnostic-only known-PCM vector, in bounded numeric chunks.
++            // This lets the host measure quantization separately from mic,
++            // playback and phrase-boundary differences. Never enabled normally.
++            if(cos>-2.0f && a>0) {
++                const double inv=1.0/std::sqrt(a);
++                ESP_LOGI("STT","TL spk_fixture_dim n=%lu",(unsigned long)dim);
++                for(size_t start=0;start<dim;start+=8) {
++                    char values[384];size_t used=0;
++                    for(size_t j=start;j<std::min(start+8,size_t(dim));++j) {
++                        const int n=snprintf(values+used,sizeof(values)-used,"%s%.9g",
++                                             j==start ? "" : " ",double(s.embedding[j])*inv);
++                        if(n<0 || size_t(n)>=sizeof(values)-used) { used=0;break; }
++                        used+=size_t(n);
++                    }
++                    if(used)ESP_LOGI("STT","TL spk_fixture_part i=%u v=%s end",unsigned(start),values);
++                }
++            }
+         }
+     }
+     if(cos>-2.0f && !gSpeakerFixture) { gSpeakerFixture=buf; gSpeakerFixtureBytes=bytes; buf=nullptr; }
+diff --git a/components/hardwareone/System_STTLocal.h b/components/hardwareone/System_STTLocal.h
+index fc226894..79a1869f 100644
+--- a/components/hardwareone/System_STTLocal.h
++++ b/components/hardwareone/System_STTLocal.h
+@@ -73,7 +73,7 @@ STTLocalCallBudget sttLocalCallBudget(size_t samples, const STTLocalSession* ses
+ // and every 16th job (TL spkfix), per-phrase voiceprints (TL spke), ESP-DL kernel
+ // binds (TL kbind) and per-layer internal-RAM dips (TL spkram). 1 to enable.
+ #ifndef HW1_STT_SPEAKER_DIAGNOSTICS
+-#define HW1_STT_SPEAKER_DIAGNOSTICS 0
++#define HW1_STT_SPEAKER_DIAGNOSTICS 1
+ #endif
+ struct STTSpeakerStatus {
+   bool ready = false;
+diff --git a/components/hardwareone/stt/feature_ring_probe.h b/components/hardwareone/stt/feature_ring_probe.h
+new file mode 100644
+index 00000000..9146e87e
+--- /dev/null
++++ b/components/hardwareone/stt/feature_ring_probe.h
+@@ -0,0 +1,108 @@
++#pragma once
++// Known-input diagnostic only. PDM capture is already active, before the
++// normal feature pool/speaker worker starts. No PCM or feature values logged.
++#if !CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS || !CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER
++#error "The ring probe requires the unchanged profile's microsecond task runtime stats"
++#endif
++static bool sttFeatureRingProbe(const int16_t* pcm, size_t samples) {
++  if(!pcm || samples<1280 || samples>kFeRingSamples-kStreamReadSamples) {
++    ESP_LOGE("STT","TL fering_done ok=0 cases=0 end"); return false;
++  }
++  const unsigned flip=esp_random()&1;
++  unsigned cases=0;
++  for(unsigned pair=0;pair<5;++pair)for(unsigned order=0;order<2;++order) {
++    const unsigned mode=((pair+flip)&1) ? 1-order : order;
++    auto* memory=ps_alloc(sizeof(StreamRun),AllocPref::RequirePSRAM,"stt.ring_probe");
++    StreamRun* run=memory ? new(memory) StreamRun : nullptr;
++    auto* compare=static_cast<hw1::stt::FrontendWorkspace*>(ps_alloc(sizeof(hw1::stt::FrontendWorkspace),AllocPref::RequirePSRAM,"stt.ring_probe"));
++    bool ok=run && compare;
++    size_t equal=0,stackFree=0,rows=0;
++    uint64_t cpuUs=0,snapshotSum=0,writeSum=0;
++    uint32_t wallUs=0,snapshotMax=0,writeMax=0;
++    unsigned snapshotCalls=0,snapshotEqual=0,writeCalls=0;
++    if(run) {
++      run->feRing=static_cast<int16_t*>(ps_alloc(kFeRingSamples*sizeof(int16_t),AllocPref::RequirePSRAM,"stt.ring_probe"));
++      run->feWork=static_cast<hw1::stt::FrontendWorkspace*>(ps_alloc(sizeof(*run->feWork),AllocPref::RequirePSRAM,"stt.ring_probe"));
++      run->fe[0].rows=static_cast<float*>(ps_alloc(kFeMaxRows*kFeRowFloats*sizeof(float),AllocPref::RequirePSRAM,"stt.ring_probe"));
++      ok=ok && run->feRing && run->feWork && run->fe[0].rows;
++    }
++    if(ok) {
++      constexpr uint64_t start=65520;
++      memset(run->feRing,0,kFeRingSamples*sizeof(int16_t));
++      memset(run->feWork,0,sizeof(*run->feWork));memset(compare,0,sizeof(*compare));
++      memset(run->fe[0].rows,0,kFeMaxRows*kFeRowFloats*sizeof(float));
++      for(size_t i=0;i<samples;++i)run->feRing[(start+i)&(kFeRingSamples-1)]=pcm[i];
++      run->fe[0].start=start;run->fe[0].gen=13;run->fe[0].state=FeState::Live;
++      run->feLive=0;run->feLiveLen=samples;run->feRingHead=start+samples;
++      run->feRingStart=start;run->feRingStarted=true;run->feRunning=true;
++      const auto worker=mode ? sttFeatureWorker : sttFeatureWorkerRingReference;
++      const int64_t begin=esp_timer_get_time();
++      if(xTaskCreatePinnedToCore(worker,"stt_ring",kFeStackBytes,run,1,&run->feTask,0)!=pdPASS) {
++        run->feRunning=false;ok=false;
++      } else {
++        xTaskNotifyGive(run->feTask);
++        bool ready=false;const int64_t deadline=begin+10000000;
++        while(esp_timer_get_time()<deadline) {
++          portENTER_CRITICAL(&gSTTMux);
++          ready=run->fe[0].frames==samples/160;
++          portEXIT_CRITICAL(&gSTTMux);
++          if(ready && eTaskGetState(run->feTask)==eBlocked)break;
++          ready=false;vTaskDelay(1);
++        }
++        wallUs=uint32_t(esp_timer_get_time()-begin);
++        ok=ready;
++        if(ready) {
++          TaskStatus_t task{};vTaskGetInfo(run->feTask,&task,pdFALSE,eInvalid);
++          cpuUs=uint64_t(task.ulRunTimeCounter);
++          stackFree=uxTaskGetStackHighWaterMark(run->feTask);
++          rows=run->fe[0].frames;
++          ok=stackFree>128 && stackFree<=kFeStackBytes && cpuUs>0 && run->feOverruns==0;
++          float expected[kFeRowFloats];
++          for(size_t r=0;r<rows;++r) {
++            const bool computed=hw1::stt::log_mel_frame_ring(run->feRing,kFeRingSamples-1,start,samples,r,expected,compare)==hw1::stt::Status::Ok;
++            if(computed && !memcmp(expected,run->fe[0].rows+r*kFeRowFloats,sizeof(expected)))++equal;
++            if((r&63)==63)vTaskDelay(1);
++          }
++          ok=ok && equal==samples/160;
++          if(mode) {
++            int16_t window[kFeWindowSamples];
++            for(unsigned i=0;i<500;++i) {
++              const size_t row=(i*7)%rows;
++              const int64_t t0=esp_timer_get_time();
++              const bool copied=sttFeatureSnapshot(*run,0,13,start,row,window);
++              const uint32_t dt=uint32_t(esp_timer_get_time()-t0);
++              snapshotSum+=dt;snapshotMax=std::max(snapshotMax,dt);++snapshotCalls;
++              const size_t lo=row*160>161 ? row*160-161 : 0,hi=row ? row*160+160 : 161;
++              bool same=copied;
++              for(size_t j=lo;j<hi && same;++j)same=window[(start+j)&(kFeWindowSamples-1)]==pcm[j];
++              snapshotEqual+=same;
++            }
++            ok=ok && snapshotEqual==500;
++          }
++          const auto producer=mode ? sttFeatureRingWrite : sttFeatureRingWriteReference;
++          // Whole-call cost for a maximum contiguous 1024-sample capture block.
++          // This synthetic segmenter's position is zero; no live producer uses it.
++          for(unsigned i=0;i<500;++i) {
++            const int64_t t0=esp_timer_get_time();producer(*run,run->feRing,pcm,kStreamReadSamples);
++            const uint32_t dt=uint32_t(esp_timer_get_time()-t0);
++            writeSum+=dt;writeMax=std::max(writeMax,dt);++writeCalls;
++          }
++        }
++      }
++    }
++    if(run)sttFeatureStop(*run);
++    if(run){run->~StreamRun();free(run);}
++    if(compare){sttWipe(compare,sizeof(*compare));free(compare);}
++    ++cases;
++    ESP_LOGI("STT","TL fering_case pair=%u mode=%u ok=%u rows=%u equal=%u cpu_us=%llu wall_us=%lu stack_free=%u end",
++             pair,mode,unsigned(ok),unsigned(rows),unsigned(equal),(unsigned long long)cpuUs,(unsigned long)wallUs,unsigned(stackFree));
++    ESP_LOGI("STT","TL fering_copy pair=%u mode=%u calls=%u equal=%u sum_us=%llu max_us=%lu end",
++             pair,mode,snapshotCalls,snapshotEqual,(unsigned long long)snapshotSum,(unsigned long)snapshotMax);
++    ESP_LOGI("STT","TL fering_write pair=%u mode=%u calls=%u sum_us=%llu max_us=%lu end",
++             pair,mode,writeCalls,(unsigned long long)writeSum,(unsigned long)writeMax);
++    vTaskDelay(2);
++    if(!ok){ESP_LOGE("STT","TL fering_done ok=0 cases=%u end",cases);return false;}
++  }
++  ESP_LOGI("STT","TL fering_done ok=1 cases=%u samples=%u stack_bytes=%u flip=%u end",cases,unsigned(samples),unsigned(kFeStackBytes),flip);
++  return true;
++}
+diff --git a/components/hardwareone/stt/feature_ring_reference.h b/components/hardwareone/stt/feature_ring_reference.h
+new file mode 100644
+index 00000000..78fc0aaa
+--- /dev/null
++++ b/components/hardwareone/stt/feature_ring_reference.h
+@@ -0,0 +1,75 @@
++// Cache-row repair 3fff3013 as the matched control. No ring-window repair.
++static void sttFeatureWorkerRingReference(void* context) {
++  auto& run = *static_cast<StreamRun*>(context);
++  bool stop = false;
++  while (!stop) {
++    (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
++    for (;;) {
++      int idx = -1;
++      uint32_t gen = 0;
++      uint64_t start = 0, head = 0;
++      size_t done = 0, len = 0;
++      portENTER_CRITICAL(&gSTTMux);
++      stop = run.feStop;
++      if (run.feLive >= 0 && run.fe[run.feLive].state == FeState::Live && !run.fe[run.feLive].overrun) {
++        idx = run.feLive;
++        gen = run.fe[idx].gen; start = run.fe[idx].start; done = run.fe[idx].frames;
++        len = run.feLiveLen;
++      }
++      head = run.feRingHead;
++      portEXIT_CRITICAL(&gSTTMux);
++      if (stop || idx < 0) break;
++      const size_t stable = len >= 320 ? std::min(len / 160, kFeMaxRows) : 0;
++      if (done >= stable) break;
++      const size_t end = std::min(stable, done + kFeBatchRows);
++      // Oldest sample this batch reads (row r: [r*160-161, r*160+160)).
++      const uint64_t lo = start + (done * 160 > 161 ? done * 160 - 161 : 0);
++      const bool safe = lo + kFeRingSamples >= head + kStreamReadSamples;
++      // Incremental DSP never uses conditioned internally. Stage this whole
++      // batch in its existing worker-owned scratch, so retirement cannot wipe
++      // memory while the DSP writes it. No additional stack/heap row buffer.
++      static_assert(sizeof(hw1::stt::FrontendWorkspace::conditioned) >=
++                    kFeBatchRows * kFeRowFloats * sizeof(float));
++      float* const pending = run.feWork->conditioned;
++      bool computed = safe;
++      if (safe)
++        for (size_t r = done; r < end; ++r)
++          if (hw1::stt::log_mel_frame_ring(run.feRing, kFeRingSamples - 1, start, len, r,
++                                         pending + (r - done) * kFeRowFloats, run.feWork) != hw1::stt::Status::Ok) {
++            computed = false;
++            break;
++          }
++      portENTER_CRITICAL(&gSTTMux);
++      FeCache& c = run.fe[idx];
++      if (c.gen == gen && c.state == FeState::Live) {
++        // The capture task writes at most one block past the published head.
++        if (computed && lo + kFeRingSamples >= run.feRingHead + kStreamReadSamples) {
++          // Publish bytes and committed length together, only for this still
++          // live generation. Orphan/attached retirement can never race a write.
++          memcpy(c.rows + done * kFeRowFloats, pending, (end - done) * kFeRowFloats * sizeof(float));
++          c.frames = end;
++          run.feRowsComputed += static_cast<uint32_t>(end - done);
++        } else {
++          c.overrun = true;
++          ++run.feOverruns;
++        }
++      }
++      portEXIT_CRITICAL(&gSTTMux);
++    }
++  }
++  portENTER_CRITICAL(&gSTTMux);
++  run.feRunning = false;
++  portEXIT_CRITICAL(&gSTTMux);
++  vTaskDelete(nullptr);
++}
++static void sttFeatureRingWriteReference(StreamRun& run, int16_t* ring, const int16_t* block, size_t count) {
++  const uint64_t base = run.segmenter.samples_seen();
++  const size_t at = static_cast<size_t>(base & (kFeRingSamples - 1));
++  const size_t first = std::min(count, kFeRingSamples - at);
++  memcpy(ring + at, block, first * sizeof(int16_t));
++  if (count > first) memcpy(ring, block + first, (count - first) * sizeof(int16_t));
++  portENTER_CRITICAL(&gSTTMux);
++  if (!run.feRingStarted) { run.feRingStarted = true; run.feRingStart = base; }
++  run.feRingHead = base + count;
++  portEXIT_CRITICAL(&gSTTMux);
++}
