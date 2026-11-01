@@ -279,3 +279,49 @@ not prove these. Keep all raw logs/registers and app/debug images private.
 Do not mistake a deliberate calibration trap for a successful STT lifecycle
 or an unexpected production crash. Do not use the RTC calibration target as
 evidence that DMA or every memory/cache path is monitored.
+
+### Both cores armed and heap-field watch
+
+`p4-heap-dual-f8a2a5bc.patch` extends the individual-core calibration to arm
+both cores on the same disposable RTC word, check reads/adjacent writes on both,
+recheck both leases, then deliberately store on core 0. Initialization happens
+once before either arm. The retained identity prevents rearming on recovery.
+Parse its two-core evidence with `p4hwcal.py --dual --core 0 --store-pc ELF_PC`.
+The single-core parser remains available for the earlier sessions.
+
+`p4-heap-watch-06b04fbe.patch` replaces automatic calibration with an explicit
+heap-header diagnostic, leaving the calibration source available separately.
+It derives the field from the matching image's `_ext_ram_bss_end + 16`, requires
+its value to equal heap-start + 20, checks both cores empty and rechecks locally
+under the saved IRQ mask before arming. The actual SDK descriptor layout must
+remain pinned; do not use these offsets on an unverified SDK/image.
+
+With STT stopped and the authenticated test connection active:
+
+```
+sttperf heapwatch arm
+stt start
+# Wait for known-input diagnostic completion; stop the owned token, collect
+# all teardown markers through 321, and obtain the terminal status reply.
+sttperf heapwatch off
+```
+
+The watch stays armed through teardown, terminal publication and the following
+command-request allocation. Release is a separate diagnostic command accepted
+only while the STT worker is inactive. No release is placed inside teardown.
+Only an attempted, exactly matching owned trigger may clear; with no recorded
+lease, the release path merely verifies inactive state and refuses occupied
+slots. IPC callbacks do not log/allocate or hold cross-core locks. Neither arm
+nor release writes the heap descriptor. Models, algorithms and device policy
+are unchanged. Calibration traps and actual writer traps are separate outcomes.
+
+`p4hwwatch.py PRIVATE_RAW_LOGS --heap MATCHING_ELF_HEAP_START` requires complete
+both-core arm/release records, all four active readback checkpoints (including
+context registers), unchanged heap pointers, six forced ownership cases and
+all 19 teardown markers. It checks release follows phase 321, and rejects live
+faults, missing/duplicate/damaged evidence or an unexpected trigger state. The
+previous-crash summary is excluded using the live reader's boundary convention;
+its raw content is never returned. Verify lifecycle/reader health and full-slot
+rollback separately. Incomplete faulting attempts must be retained, not passed
+to the completed-lifecycle parser as if they were clean. Host coverage is in
+`tests/test_p4hwwatch.py` and the extended source-bound lease test.

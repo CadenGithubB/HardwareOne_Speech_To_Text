@@ -2138,3 +2138,136 @@ preferred, model header/footer unchanged, zero new fatal/watchdog markers. All
 readings were above 2 MiB. No SD fixture was created. The existing owned build
 is retained for the bounded simultaneous-arming follow-up; selected compact
 recovery/debug inputs remain private before that build is reused.
+
+
+## Both-core synthetic recovery and heap-field watch
+
+### Both-core calibration findings
+
+06b04fbe armed slot 0 on cores 0 and 1 against the same four-byte RTC word
+0x50108234. Both read/adjacent-store controls passed; both configurations were
+rechecked before the deliberate core-0 store. One expected trap occurred at
+0x4ff22cd0, matching the ELF's store instruction; MCAUSE 3. The word remained
+0x13579bdf and its neighbour held 0x2468ace0. Serial stayed open through panic
+and recovery. Neither core showed an active trigger on the recovery read:
+TDATA1=0x21000000, TDATA2=0, TCONTROL=0 for both the firing core and non-firing
+peer. Both cores' three slots and context qualifiers retained inactive state
+at all four subsequent readback checkpoints. No trigger-data/control clear was
+needed in this run. Recovery STT reached done with zero new fatal/watchdog/
+overrun markers, and the original app was restored/full-slot-verified. Final
+healthy baseline: 5,844,992 B LittleFS free, logging inactive, PDM preferred,
+model header/footer unchanged. The expected trap is separate from ordinary
+failures. No PSRAM/DMA or pre-reset hit-bit coverage follows from the RTC test.
+
+06b04fbe app: 6,037,968 B, SHA-256
+1fe97d6b2be4f05d05dbf9312a7a665a6442138f9ff2d7151bf8cdb3c64dceed.
+The sdkconfig is byte-identical to 647e4858; matching debug/source inputs stay
+private. The incremental patch reproduces the single touched file endpoint.
+The dual parser requires both arm/probe pairs, the final two-lease verification
+and both recovery rows. Missing/changed peer evidence is rejected.
+
+### Actual heap-watch design and timing qualification
+
+e1044e86 replaces automatic calibration with explicit diagnostic-only
+`sttperf heapwatch arm|off` commands, accepted with the STT worker inactive.
+The field is derived from this matching ELF/runtime heap start, and its pointer
+must match the pinned SDK layout before arming. A fresh per-core ownership
+check occurs under the saved local IRQ mask. The watch remains armed through
+all STT teardown markers, terminal publication and the following terminal
+status-command allocation. Release is a later command; only a recorded, exact
+owned configuration may clear. With no lease, occupied slots are preserved.
+IPC callbacks do not log, allocate or hold cross-core locks. Neither path
+writes the heap header. The diagnostic is based on the earlier cache-only
+fault workload, not the separately prepared ring candidate.
+
+The first five-boot batch completed but released shortly after the terminal
+reply. Same-clock log prefixes show only 2,378–3,982 ms of watch time after
+phase 321. This does not cover the earlier approximately 4,654-ms-after-stop
+watchdog window in every trial. A separate follow-up holds the watch for six
+seconds after the terminal reply; retain these timing cohorts separately.
+
+An initial cross-clock subtraction overstated the post-cleanup intervals by
+approximately 1.5 s. Installed `log/src/os/log_timestamp.c` uses a scheduler
+clock/base, while teardown's explicit `ms=` uses esp_timer. The parser now
+compares log prefixes with each other for intervals. Same-clock arm/release
+watch durations were unaffected. Synthetic tests explicitly exercise this
+clock distinction; raw logs are not altered or reconstructed.
+
+### Heap-watch numeric findings
+
+Matching ELF heap start / watched field / expected control pointer:
+0x4809e424 / 0x4809e434 / 0x4809e438. Each trial armed slot 0 on both cores
+with TDATA1=0x210000ca, TDATA2=0x4809e435, TCONTROL=0x88. All four readbacks
+per trial found both watches present, other slots inactive, zero context
+qualifiers, no debugger, restored selectors and the expected heap pointer.
+The installed SDK assigns heap_data at registration; no later write was caught.
+
+| Cohort | Fresh-boot trials | Watch duration ms, min / median / max | Sum of watched ms | After phase 321 ms, min / median / max |
+|---|---:|---|---:|---|
+| e1044e86 initial | 5 | 12,294 / 12,343 / 13,964 | 64,668 | 2,378 / 2,435 / 3,982 |
+| e1044e86 dwell6 | 5 | 18,334 / 20,107 / 21,491 | 98,567 | 8,478 / 10,118 / 10,847 |
+
+The added host wait measured 6,009 / 6,021 / 6,037 ms (min / median / max).
+The combined 163,235 ms is the sum of separate armed intervals across ten
+trials; startup and between-run unarmed gaps are excluded. These are descriptive
+fault-tracing durations, not a baseline/candidate speed comparison.
+
+| Cohort / trial | Watch ms | Watch after phase 321 ms | Added terminal hold ms |
+|---|---:|---:|---:|
+| initial / 0 | 12,343 | 2,435 | 0 |
+| initial / 1 | 12,294 | 2,420 | 0 |
+| initial / 2 | 13,964 | 3,982 | 0 |
+| initial / 3 | 13,730 | 3,849 | 0 |
+| initial / 4 | 12,337 | 2,378 | 0 |
+| dwell6 / 0 | 20,107 | 10,118 | 6,022 |
+| dwell6 / 1 | 20,109 | 10,281 | 6,009 |
+| dwell6 / 2 | 18,334 | 8,559 | 6,037 |
+| dwell6 / 3 | 21,491 | 10,847 | 6,016 |
+| dwell6 / 4 | 18,526 | 8,478 | 6,021 |
+
+Across ten completed trials: zero caught heap-field writes, zero fatal markers,
+zero watchdog warnings and zero audio overruns. All 60 forced ownership checks,
+80 active trigger observations, 40 heap-pointer observations and 190 teardown
+markers passed. Both cores were released to inactive state after each covered
+terminal reply. Normal capture had zero feature rows, feature overruns, finals,
+cached/draft rows and submitted/labelled/skipped speaker jobs in all ten runs.
+Known-input fixture work was performed while onboard PDM capture was active;
+this was not a microphone speech-accuracy or long-run application qualification.
+
+### Interpretation and next experiment
+
+The earlier faults did not reproduce in these bounded watched intervals. The
+writer remains unknown. Trigger visibility is verified at four checkpoints per
+run; the samples do not prove permanent ownership between reads or rule out
+DMA, aliases, different timing, register/argument corruption or events outside
+the interval. Instrumentation and additional command allocations can perturb
+a timing-dependent failure. Neither the earlier faults nor this negative
+batch establishes an ordinary-use crash rate. No WER, speaker-accuracy, RAM
+speed or performance gain is claimed.
+
+The positive store controls used RTC memory. The next bounded check should
+watch a separate allocated PSRAM word and catch its deliberate store without
+writing the heap descriptor. That directly tests the memory path relevant to
+this negative heap-watch result. Preserve both-core ownership/recovery guards,
+exact ELF PC verification and the original-app rollback. The PSRAM-path
+positive control is not yet performed; do not count it as completed coverage.
+
+e1044e86 app: 6,037,952 B, SHA-256
+2652cbcbed0da343a8f2f4ba1b5def1ef03af74e908b8a12f14904ca9138d9f9.
+The public patch reproduces its four touched file endpoints after 06b04fbe.
+The matching app/ELF/map/configuration and bounded source bundle are private.
+SDK configuration remains byte-identical to 647e4858 and ESP-DL override checks
+match the restored original override. No production algorithm/model, clock,
+cache geometry, configured stack or file-logging policy was changed. Host
+ASan/UBSan tests cover fresh arming, occupied slots, SDK failures/readback
+mismatch and exact owned release; parsers cover both-core/interval/cleanup
+requirements, historical versus live faults and damaged/missing evidence.
+
+Both five-trial blocks removed their separately owned/content-verified fixture
+and restored/full-slot-verified the original 7,426,048-byte app. Healthy final
+baseline LittleFS free: 5,767,168 / 5,689,344 B. Logging inactive, PDM preferred,
+speaker model header/footer unchanged, zero new fatal/watchdog markers. All
+observed free-space readings remained above 2 MiB. No audible playback occurred;
+future playback remains 50%. No HardwareOne branch is pushed or promoted.
+The one owned build remains needed for the next PSRAM-path diagnostic; selected
+matching app/debug/source inputs are archived before it is reused.

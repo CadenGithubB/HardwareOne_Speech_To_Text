@@ -1,0 +1,159 @@
+diff --git a/components/hardwareone/stt/heap_watch_calibration.h b/components/hardwareone/stt/heap_watch_calibration.h
+index d755385e..81d0039f 100644
+--- a/components/hardwareone/stt/heap_watch_calibration.h
++++ b/components/hardwareone/stt/heap_watch_calibration.h
+@@ -4,9 +4,9 @@
+ #include "heap_trigger_lease.h"
+ #include "esp_attr.h"
+ namespace hw1::stt {
+-constexpr unsigned kHeapCalibrationCore=1; // build one separately labelled core at a time
+-constexpr uint32_t kHeapCalibrationMagic=0x48574330u+kHeapCalibrationCore;
+-struct HeapCalibrationRecord {uint32_t magic,inverse,core,address,phase,selector;alignas(4) uint32_t word,adjacent;};
++constexpr unsigned kHeapCalibrationCore=0; // deliberate store core; both cores are armed
++constexpr uint32_t kHeapCalibrationMagic=0x48574432u; // dual-core layout/attempt identity
++struct HeapCalibrationRecord {uint32_t magic,inverse,core,address,phase,armedMask;alignas(4) uint32_t word,adjacent;};
+ static RTC_NOINIT_ATTR volatile HeapCalibrationRecord heapCalibrationRecord;
+ struct HeapCalibrationCpu:HeapTriggerCpu {
+   static void writeData1(uint32_t v){RV_WRITE_CSR(tdata1,v);}
+@@ -14,7 +14,7 @@ struct HeapCalibrationCpu:HeapTriggerCpu {
+   static void writeData3(uint32_t v){RV_WRITE_CSR(tdata3,v);}
+   static void writeControl(uint32_t v){RV_WRITE_CSR(tcontrol,v);}
+ };
+-struct HeapCalibrationCall {unsigned operation=0;bool ok=false;HeapTriggerRead state;uint32_t value=0;};
++struct HeapCalibrationCall {unsigned operation=0,core=0;bool ok=false;HeapTriggerRead state;uint32_t value=0;};
+ extern "C" __attribute__((noinline)) void IRAM_ATTR hw1_heap_calibration_store(volatile uint32_t* word) {
+   const uint32_t value=0x51a7cafe;
+   asm volatile(".global hw1_heap_calibration_store_pc\nhw1_heap_calibration_store_pc:\nsw %1,0(%0)"::"r"(word),"r"(value):"memory");
+@@ -26,33 +26,32 @@ static void heapCalibrationOnCore(void* argument) {
+   c.state=readHeapTriggers<HeapCalibrationCpu>();
+   const uint32_t address=reinterpret_cast<uintptr_t>(&record.word);
+   if(c.operation==0) { // Fresh lease and arm, serialized against local IRQ users.
+-    if(heapTriggersIdle(c.state,kHeapCalibrationCore)) {
+-      record.magic=0;record.inverse=~kHeapCalibrationMagic;record.core=kHeapCalibrationCore;
+-      record.address=address;record.phase=1;record.selector=c.state.before;
+-      record.word=0x13579bdf;record.adjacent=0;
+-      asm volatile("":::"memory");record.magic=kHeapCalibrationMagic;
++    if(heapTriggersIdle(c.state,c.core)) {
++      record.armedMask|=1u<<c.core; // claim attempted slot before SDK writes
+       const auto error=esp_cpu_set_watchpoint(0,(const void*)address,4,ESP_CPU_WATCHPOINT_STORE);
+       HeapCalibrationCpu::select(c.state.before);
+       c.state=readHeapTriggers<HeapCalibrationCpu>();
+-      c.ok=error==ESP_OK && heapTriggerOwned(c.state,kHeapCalibrationCore,address) && c.state.controlBefore==0x88;
++      c.ok=error==ESP_OK && heapTriggerOwned(c.state,c.core,address) && c.state.controlBefore==0x88;
+     }
+   } else if(c.operation==1) { // Read + adjacent store must return normally.
+-    if(heapTriggerOwned(c.state,kHeapCalibrationCore,address)) {
++    if(heapTriggerOwned(c.state,c.core,address)) {
+       c.value=record.word;record.adjacent=0x2468ace0;
+       record.phase=2;c.ok=c.value==0x13579bdf && record.adjacent==0x2468ace0;
+     }
+   } else if(c.operation==2) { // Intentionally never returns on a working trigger.
+-    if(heapTriggerOwned(c.state,kHeapCalibrationCore,address) && record.phase==2)
++    if(c.core==kHeapCalibrationCore && heapTriggerOwned(c.state,c.core,address) && record.phase==2)
+       hw1_heap_calibration_store(&record.word);
+   } else if(c.operation==3) { // After reset: preserve unexpected owners.
+-    c.ok=heapTriggerRelease<HeapCalibrationCpu>(kHeapCalibrationCore,address);
+-    if(c.ok)record.phase=3;
++    c.ok=(record.armedMask&(1u<<c.core)) ? heapTriggerRelease<HeapCalibrationCpu>(c.core,address)
++      : heapTriggersIdle(c.state,c.core);
++  } else if(c.operation==4) {
++    c.ok=heapTriggerOwned(c.state,c.core,address) && c.state.controlBefore==0x88;
+   }
+   HeapCalibrationCpu::restoreInterrupts(mask);
+ }
+ static bool heapCalibrationCallOnCore(HeapCalibrationCall& c) {
+-  const esp_err_t error=kHeapCalibrationCore==esp_cpu_get_core_id() ? (heapCalibrationOnCore(&c),ESP_OK)
+-    : esp_ipc_call_blocking(kHeapCalibrationCore,heapCalibrationOnCore,&c);
++  const esp_err_t error=c.core==esp_cpu_get_core_id() ? (heapCalibrationOnCore(&c),ESP_OK)
++    : esp_ipc_call_blocking(c.core,heapCalibrationOnCore,&c);
+   return error==ESP_OK && c.ok;
+ }
+ static bool heapCalibrationAllIdle() {
+@@ -64,41 +63,63 @@ static bool heapCalibrationAllIdle() {
+   }
+   return true;
+ }
++static bool heapCalibrationReleaseBoth(HeapCalibrationCall (&calls)[2]) {
++  bool released=true;
++  for(unsigned core=0;core<2;++core) {
++    calls[core].core=core;calls[core].operation=3;
++    released=heapCalibrationCallOnCore(calls[core]) && released;
++  }
++  return released && heapCalibrationAllIdle();
++}
+ static bool heapWatchCalibrate() {
+   auto& r=heapCalibrationRecord;
+   const uint32_t address=reinterpret_cast<uintptr_t>(&r.word);
+   const bool retained=r.magic==kHeapCalibrationMagic && r.inverse==~kHeapCalibrationMagic
+-    && r.core==kHeapCalibrationCore && r.address==address && r.phase>=1 && r.phase<=3 && r.selector<3;
++    && r.core==kHeapCalibrationCore && r.address==address && r.phase>=1 && r.phase<=3 && r.armedMask<=3;
+   if(retained) {
+     const uint32_t previousPhase=r.phase;
+-    HeapCalibrationCall c;c.operation=3;
+-    const bool released=heapCalibrationCallOnCore(c);
+-    const bool idle=released && heapCalibrationAllIdle();
+-    ESP_LOGI("STT","TL hwcal_recovery core=%u phase=%lu address=%lu word=%lu adjacent=%lu released=%u idle=%u data1=%lu data2=%lu control=%lu end",
+-      kHeapCalibrationCore,(unsigned long)previousPhase,(unsigned long)address,(unsigned long)r.word,
+-      (unsigned long)r.adjacent,unsigned(released),unsigned(idle),(unsigned long)c.state.slots[0].data1,
+-      (unsigned long)c.state.slots[0].data2,(unsigned long)c.state.controlBefore);
+-    return idle; // Never rearm this image after its expected trap.
++    HeapCalibrationCall calls[2];
++    const bool idle=heapCalibrationReleaseBoth(calls);
++    if(idle)r.phase=3;
++    for(unsigned core=0;core<2;++core) {
++      const auto& c=calls[core];
++      ESP_LOGI("STT","TL hwcal_recovery core=%u phase=%lu address=%lu word=%lu adjacent=%lu released=%u idle=%u data1=%lu data2=%lu control=%lu end",
++        core,(unsigned long)previousPhase,(unsigned long)address,(unsigned long)r.word,
++        (unsigned long)r.adjacent,unsigned(c.ok),unsigned(idle),(unsigned long)c.state.slots[0].data1,
++        (unsigned long)c.state.slots[0].data2,(unsigned long)c.state.controlBefore);
++    }
++    return idle; // Retained identity prevents rearming after the expected trap.
+   }
+   if(!heapCalibrationAllIdle()) {
+     ESP_LOGI("STT","TL hwcal_refused core=%u reason=1 end",kHeapCalibrationCore);return false;
+   }
+-  HeapCalibrationCall arm;
+-  if(!heapCalibrationCallOnCore(arm)) {
+-    HeapCalibrationCall release;release.operation=3;
+-    const bool released=heapCalibrationCallOnCore(release);
+-    ESP_LOGI("STT","TL hwcal_refused core=%u reason=2 released=%u end",kHeapCalibrationCore,unsigned(released));return false;
++  // Initialize once, before either core watches the word. Never initialize
++  // the watched storage from a second arm callback after the first is armed.
++  r.magic=0;r.inverse=~kHeapCalibrationMagic;r.core=kHeapCalibrationCore;
++  r.address=address;r.phase=1;r.armedMask=0;r.word=0x13579bdf;r.adjacent=0;
++  asm volatile("":::"memory");r.magic=kHeapCalibrationMagic;
++  bool safe=true;
++  for(unsigned core=0;core<2 && safe;++core) {
++    HeapCalibrationCall arm;arm.core=core;
++    safe=heapCalibrationCallOnCore(arm);
++    ESP_LOGI("STT","TL hwcal_armed core=%u address=%lu data1=%lu data2=%lu control=%lu end",core,
++      (unsigned long)address,(unsigned long)arm.state.slots[0].data1,(unsigned long)arm.state.slots[0].data2,(unsigned long)arm.state.controlBefore);
++  }
++  for(unsigned core=0;core<2 && safe;++core) {
++    HeapCalibrationCall probe;probe.operation=1;probe.core=core;
++    safe=heapCalibrationCallOnCore(probe);
++    ESP_LOGI("STT","TL hwcal_probe core=%u read_adjacent_ok=%u value=%lu end",core,unsigned(safe),(unsigned long)probe.value);
++  }
++  for(unsigned core=0;core<2 && safe;++core) {
++    HeapCalibrationCall verify;verify.operation=4;verify.core=core;
++    safe=heapCalibrationCallOnCore(verify);
+   }
+-  ESP_LOGI("STT","TL hwcal_armed core=%u address=%lu data1=%lu data2=%lu control=%lu end",kHeapCalibrationCore,
+-    (unsigned long)address,(unsigned long)arm.state.slots[0].data1,(unsigned long)arm.state.slots[0].data2,(unsigned long)arm.state.controlBefore);
+-  HeapCalibrationCall probe;probe.operation=1;
+-  const bool safe=heapCalibrationCallOnCore(probe);
+-  ESP_LOGI("STT","TL hwcal_probe core=%u read_adjacent_ok=%u value=%lu end",kHeapCalibrationCore,unsigned(safe),(unsigned long)probe.value);
+-  // Existing loglink worker emits the bounded records before the expected trap.
+-  vTaskDelay(pdMS_TO_TICKS(500));
+-  if(safe){HeapCalibrationCall trap;trap.operation=2;(void)heapCalibrationCallOnCore(trap);}
+-  HeapCalibrationCall release;release.operation=3;
+-  const bool released=heapCalibrationCallOnCore(release);
++  ESP_LOGI("STT","TL hwcal_ready cores=2 phase=%lu verified=%u end",(unsigned long)r.phase,unsigned(safe));
++  vTaskDelay(pdMS_TO_TICKS(500)); // allow queued loglink records to leave
++  if(safe){HeapCalibrationCall trap;trap.operation=2;trap.core=kHeapCalibrationCore;(void)heapCalibrationCallOnCore(trap);}
++  HeapCalibrationCall calls[2];
++  const bool released=heapCalibrationReleaseBoth(calls);
++  if(released)r.phase=3;
+   ESP_LOGI("STT","TL hwcal_failed core=%u released=%u end",kHeapCalibrationCore,unsigned(released));
+   return false;
+ }

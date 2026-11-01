@@ -10,6 +10,11 @@ using namespace hw1::stt;
 struct Cpu {
  inline static unsigned chosen=2,irq=7,writes=0,debug=0,ctl=0;
  inline static HeapTriggerSlot slots[3]={{0,kHeapTriggerReset,0,0},{1,kHeapTriggerReset,0,0},{2,kHeapTriggerReset,0,0}};
+ inline static bool armFails=false,armWrong=false;
+ static bool armAddress(unsigned address){
+  if(armFails)return false;
+  select(0);writeControl(0x88);writeData1(0xca);writeData2((address|1)+(armWrong?4:0));return true;
+ }
  static unsigned core(){return 1;}
  static unsigned debugger(){return debug;}
  static unsigned maskInterrupts(){auto old=irq;irq=15;return old;}
@@ -48,10 +53,22 @@ int main(){
  Cpu::slots[0].data1|=kHeapTriggerHit;Cpu::ctl=0x80;
  assert(heapTriggerRelease<Cpu>(1,0x50100000));assert(Cpu::writes==4 && Cpu::irq==7 && Cpu::chosen==2);
  assert(heapTriggersIdle(readHeapTriggers<Cpu>(),1));
+ auto writes=Cpu::writes;
+ assert(!heapTriggerArm<Cpu>(1,0) && !heapTriggerArm<Cpu>(1,0x50100001));
+ assert(!heapTriggerArm<Cpu>(0,0x50100000) && Cpu::writes==writes);
+ Cpu::debug=1;assert(!heapTriggerArm<Cpu>(1,0x50100000) && Cpu::writes==writes);Cpu::debug=0;
+ Cpu::slots[2].data3=1;assert(!heapTriggerArm<Cpu>(1,0x50100000) && Cpu::writes==writes);Cpu::slots[2].data3=0;
+ Cpu::armFails=true;assert(!heapTriggerArm<Cpu>(1,0x50100000) && Cpu::writes==writes && Cpu::chosen==2 && Cpu::irq==7);Cpu::armFails=false;
+ assert(heapTriggerArm<Cpu>(1,0x50100000));assert(Cpu::chosen==2 && Cpu::irq==7);
+ writes=Cpu::writes;assert(!heapTriggerArm<Cpu>(1,0x50100000) && Cpu::writes==writes);
+ assert(heapTriggerRelease<Cpu>(1,0x50100000));
+ Cpu::armWrong=true;assert(!heapTriggerArm<Cpu>(1,0x50100000));
+ writes=Cpu::writes;assert(!heapTriggerRelease<Cpu>(1,0x50100000) && Cpu::writes==writes);
+ assert(Cpu::chosen==2 && Cpu::irq==7);
 }
 '''.replace('HEADER',str(header))
 with tempfile.TemporaryDirectory(prefix='heap-trigger-lease-') as d:
  p=Path(d);(p/'test.cpp').write_text(source)
  subprocess.run(['clang++','-std=c++17','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',str(p/'test.cpp'),'-o',str(p/'test')],check=True)
  subprocess.run([str(p/'test')],check=True)
-print('heap trigger lease: owner refusal, exact release, hit state and IRQ restoration ok')
+print('heap trigger lease: fresh arm/refusal, SDK failure, exact release, hit state and IRQ restoration ok')

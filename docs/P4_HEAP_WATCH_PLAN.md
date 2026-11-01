@@ -1,10 +1,10 @@
 # P4 heap-header write-watch diagnostic
 
-Status: readback and one-core-at-a-time expected-store calibration complete.
-Core 0 recovery included a serial reopen; core 1 maintained serial continuity.
-Both-core simultaneous ownership/reset calibration and the real heap watch
-remain pending. Keep this separate
-from ring-worker timing and from production firmware qualification.
+Status: readback, individual-core and dual-armed RTC positive controls complete.
+Ten fresh-boot heap-field watch trials completed without catching a write or
+reproducing a fault. Original app restored/full-slot-verified after each block.
+The corrupting writer remains unknown. A separate allocated-PSRAM positive
+control is next; keep this work separate from ring timing/product qualification.
 
 ## Evidence being investigated
 
@@ -122,3 +122,45 @@ trap. Abort/preserve unexpected state; release only exact owned configuration.
 This removes the extra-reset confound and checks the recovery sequence needed
 for a simultaneous both-core heap watch. Then instrument the actual verified
 heap_data field during the earlier known-input fault workload.
+
+
+## Both-core gate and actual watch
+
+06b04fbe passed the bounded dual-armed/core-0-store calibration: both leases
+verified before the trap, both cores inactive afterward without a serial reopen,
+recovery STT done, original app restored/verified. Actual heap watch e1044e86
+uses explicit arm/off commands while STT is stopped, so the interval covers
+startup, known input, teardown and the following status allocation. The new
+source-bound arm helper rejects occupied slots, SDK failures and wrong readback;
+release still requires a recorded exact owner. No heap header is written.
+
+First five watched boots completed without a trap/fatal/watchdog/overrun; all
+eight active slot observations per boot passed. The watch lasted only
+2,378–3,982 ms after phase 321. The follow-up adds a six-second host wait after
+the terminal reply, retaining both cohorts and every attempt. Derive intervals
+from the same clock: ESP log prefixes and explicit esp_timer ms= have a
+boot-dependent offset. A negative watch is not a corruption cure and cannot
+rule out aliases, DMA, changed timing or writes outside the interval.
+
+
+## Completed bounded watch matrix
+
+Both e1044e86 cohorts completed five fresh-boot trials. Initial / dwell6 summed
+watch intervals: 64,668 / 98,567 ms; same-clock post-phase-321 ranges:
+2,378–3,982 / 8,478–10,847 ms. The latter host holds measured 6,009–6,037 ms
+after the terminal reply. Combined: 163,235 watched ms, 60 forced ownership
+checks, 80 active-slot observations, 40 expected heap-pointer observations and
+190 teardown markers. No caught write/fatal/watchdog/overrun. Normal capture
+rows/jobs were zero; this is a known-input diagnostic, not live speech qualification.
+
+Both owned fixtures removed and original app restored/verified. Latest healthy
+baseline: 5,689,344 B LittleFS free/logging inactive/PDM/model header-footer
+unchanged. Future playback remains 50%; all runs were silent.
+
+Next test a controlled store on a separately allocated PSRAM word, with both
+cores armed, exact ELF-PC verification and safe reset/owned cleanup. Do not
+write the actual heap descriptor for calibration. This tests the memory path
+not established by the RTC control. No unchanged heap-watch repetitions or
+corruption cure are implied by the ten negative intervals. Preserve the
+remaining alias/DMA/timing/register-argument hypotheses until stronger evidence
+distinguishes them. No new fault-origin finding is established.

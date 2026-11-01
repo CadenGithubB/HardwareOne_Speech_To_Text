@@ -25,3 +25,19 @@ for t,r in cases:
  else:raise AssertionError('damaged calibration accepted')
 assert 'PRIVATE' not in str(summarize(trap+'PRIVATE text\n',recovery,0,0x4ff22cd0))
 print('P4 watch calibration: expected trap, negative controls, recovery and damaged cases ok')
+from p4hwcal import summarize_dual
+lines=trap.splitlines()
+dual='\n'.join([lines[0],lines[0].replace('core=0','core=1'),lines[1],lines[1].replace('core=0','core=1'),'TL hwcal_ready cores=2 phase=2 verified=1 end',*lines[2:]])+'\n'
+dual_recovery=recovery+recovery.replace('core=0','core=1')
+r=summarize_dual(dual,dual_recovery,0,0x4ff22cd0);assert r['armed_cores']==2 and r['peer_core']==1 and r['both_post_reset_slot0_reset_shape']
+retained_peer=recovery+owned.replace('core=0','core=1')
+r=summarize_dual(dual,retained_peer,0,0x4ff22cd0)
+assert r['cores'][0]['post_reset_slot0_reset_shape'] and not r['cores'][1]['post_reset_slot0_reset_shape']
+assert not r['both_post_reset_slot0_reset_shape']
+for t,r in [(trap,dual_recovery),(dual,recovery),(dual.replace('verified=1','verified=0'),dual_recovery),
+ (dual.replace('core=1 address=1343225856','core=1 address=1343225860'),dual_recovery),(dual,dual_recovery+recovery),
+ (dual.replace('TL hwcal_probe core=1','TL hwcal_probe core=2'),dual_recovery)]:
+ try:summarize_dual(t,r,0,0x4ff22cd0)
+ except ValueError:pass
+ else:raise AssertionError('damaged dual calibration accepted')
+print('P4 dual calibration: both leases, peer recovery, missing/changed evidence ok')

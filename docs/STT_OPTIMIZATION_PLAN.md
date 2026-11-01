@@ -1,6 +1,31 @@
 # STT performance and accuracy improvement plan
 
-Date: 31 October 2026. Status: proposed experiments; optimizations have not been implemented.
+## Current overnight checkpoint — 1 November 2026
+
+- Stable-PCM candidate b7598680 retains bit parity in host/target tests; its
+  measured feature-task CPU cost is +1.07348%, not a speed win. Full live-speech
+  qualification remains open and it is not installed.
+- RTC store-watchpoint controls passed individually and with both cores armed.
+  The dual test verified both firing and non-firing cores inactive after panic
+  without reopening serial.
+- Heap-watch e1044e86 completed two five-boot cohorts: 163,235 ms summed armed
+  time, 60 forced checks, zero caught writes/fatal/watchdog/overrun markers. The
+  longer cohort watched 8,478–10,847 ms past phase 321. This does not resolve
+  the earlier invalid-control-pointer faults or establish ordinary-use rates.
+- Next: a bounded allocated-PSRAM store-watchpoint positive control. RTC tests
+  do not establish that memory path; do not calibrate by writing the heap header.
+- Both fixtures removed and original full app slot restored/verified. Final
+  baseline: 5,689,344 B LittleFS free, logging inactive, PDM preferred, model
+  header/footer unchanged. All runs silent; future playback 50%.
+
+See [AB_TEST_RESULTS.md](AB_TEST_RESULTS.md#both-core-synthetic-recovery-and-heap-field-watch)
+for per-trial numbers, timer-source correction, source patches and limitations.
+HardwareOne diagnostic sources remain local on codex/stt-ab-heap-watch at
+e1044e86. The existing 1.1 GiB build is retained for the next diagnostic;
+selected matching recovery/debug/source inputs are private. No automatic
+production integration or HardwareOne branch push has occurred.
+
+Original plan: 31 October 2026. Subsequent experiments, prepared candidates, rejections and remaining gates are recorded in [AB_TEST_RESULTS.md](AB_TEST_RESULTS.md) and the checkpoints below. The proposal sections preserve the starting rationale; they do not describe the current implementation status.
 
 ## Evidence and scope
 

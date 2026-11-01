@@ -1,0 +1,167 @@
+diff --git a/components/hardwareone/System_STT.cpp b/components/hardwareone/System_STT.cpp
+index d9f8ce6e..61d4b3cf 100644
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -27,6 +27,7 @@
+ #include "esp_log.h"
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+ #include "stt/heap_watch_readback.h"
++extern bool sttDiagnosticHeapWatch(bool arm);
+ #endif
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+ #include "esp_timer.h"
+@@ -3138,6 +3139,19 @@ static const char* cmd_sttperf(const String& argsInput) {
+   STT_PERF_TEXT_ATTR static char out[16 * 440 + 256];
+   CommandArgs args(argsInput);
+   const String op = args.count() ? args.arg(0) : "show";
++#if HW1_STT_SPEAKER_DIAGNOSTICS && defined(CONFIG_IDF_TARGET_ESP32P4)
++  if (op == "heapwatch") {
++    if (args.count()!=2 || (args.arg(1)!="arm" && args.arg(1)!="off"))
++      return "Error: Usage: sttperf heapwatch arm|off";
++    portENTER_CRITICAL(&gSTTMux);
++    const bool active=gSTT.snapshot.workerActive;
++    portEXIT_CRITICAL(&gSTTMux);
++    if(active)return "Error: stop STT before changing diagnostic heap watch";
++    const bool arm=args.arg(1)=="arm";
++    if(!sttDiagnosticHeapWatch(arm))return "Error: diagnostic heap watch refused";
++    return arm ? "OK: diagnostic heap watch armed" : "OK: diagnostic heap watch released";
++  }
++#endif
+   if (op == "log") {
+     const String v = args.count() > 1 ? args.arg(1) : "";
+     if (v == "on") gSTTPerfLog = true;
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index e17dc75e..be7add8b 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -37,9 +37,14 @@ using hw1::stt::sttPsramFree;
+ #endif
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+ #include "stt/heap_watch_readback.h"
+-#include "stt/heap_watch_calibration.h"
++#include "stt/heap_header_watch.h"
+ extern "C" bool hw1_stt_feature_ownership_probe(const int16_t*, size_t);
+ #endif
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++bool sttDiagnosticHeapWatch(bool arm) {
++    return arm ? hw1::stt::heapHeaderWatchArm() : hw1::stt::heapHeaderWatchRelease();
++}
++#endif
+ namespace {
+ // Selection pairs the fixed path with its generated, SHA-pinned identity.
+ // Explicit path overrides remain available to standalone deployment experiments.
+@@ -545,7 +550,6 @@ bool sttSpeakerBegin(STTLocalSession* session,size_t maxSamples,STTSpeakerStatus
+     b->speakerTried=true;
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+     (void)hw1::stt::heapWatchReadback(0);
+-    if(!hw1::stt::heapWatchCalibrate())return why("watch calibration refused");
+ #endif
+     // trusted: fixed optional model path beside the STT model; content is SHA-checked.
+     const auto auth=VFS::systemAuth(VFS::sttModelScopeFor(kSpeakerPath),"stt.speaker_read");
+diff --git a/components/hardwareone/stt/heap_header_watch.h b/components/hardwareone/stt/heap_header_watch.h
+new file mode 100644
+index 00000000..50a7cd3b
+--- /dev/null
++++ b/components/hardwareone/stt/heap_header_watch.h
+@@ -0,0 +1,77 @@
++#pragma once
++// Diagnostic-only heap descriptor write watch. No heap/header writes here.
++#include "heap_watch_readback.h"
++#include "heap_trigger_lease.h"
++namespace hw1::stt {
++struct HeapHeaderWatchCpu:HeapTriggerCpu {
++  static bool armAddress(uint32_t address){return esp_cpu_set_watchpoint(0,(const void*)address,4,ESP_CPU_WATCHPOINT_STORE)==ESP_OK;}
++  static void writeData1(uint32_t v){RV_WRITE_CSR(tdata1,v);}
++  static void writeData2(uint32_t v){RV_WRITE_CSR(tdata2,v);}
++  static void writeData3(uint32_t v){RV_WRITE_CSR(tdata3,v);}
++  static void writeControl(uint32_t v){RV_WRITE_CSR(tcontrol,v);}
++};
++static uint32_t heapHeaderWatchAddress=0,heapHeaderWatchMask=0;
++struct HeapHeaderWatchCall {unsigned core=0,operation=0;bool ok=false;HeapTriggerRead before,after;};
++static void heapHeaderWatchOnCore(void* argument) {
++  auto& c=*static_cast<HeapHeaderWatchCall*>(argument);
++  c.before=readHeapTriggers<HeapHeaderWatchCpu>();
++  c.ok=c.operation==0 ? heapTriggerArm<HeapHeaderWatchCpu>(c.core,heapHeaderWatchAddress)
++    : ((heapHeaderWatchMask&(1u<<c.core)) ? heapTriggerRelease<HeapHeaderWatchCpu>(c.core,heapHeaderWatchAddress)
++       : heapTriggersIdle(c.before,c.core));
++  c.after=readHeapTriggers<HeapHeaderWatchCpu>();
++}
++static bool heapHeaderWatchCall(HeapHeaderWatchCall& c) {
++  const auto e=c.core==esp_cpu_get_core_id() ? (heapHeaderWatchOnCore(&c),ESP_OK)
++    : esp_ipc_call_blocking(c.core,heapHeaderWatchOnCore,&c);
++  return e==ESP_OK && c.ok;
++}
++static bool heapHeaderWatchRelease() {
++  bool all=true;
++  for(unsigned core=0;core<2;++core) {
++    HeapHeaderWatchCall c;c.core=core;c.operation=1;
++    // Even with no recorded lease, release only reads an inactive shape;
++    // heapTriggerRelease refuses any non-matching live configuration.
++    const bool ok=heapHeaderWatchCall(c);all=all && ok;
++    ESP_LOGI("STT","TL hwwatch_release core=%u ok=%u address=%lu data1=%lu data2=%lu control=%lu end",core,unsigned(ok),
++      (unsigned long)heapHeaderWatchAddress,(unsigned long)c.after.slots[0].data1,(unsigned long)c.after.slots[0].data2,(unsigned long)c.after.controlBefore);
++  }
++  if(all)heapHeaderWatchMask=0;
++  ESP_LOGI("STT","TL hwwatch_released ok=%u mask=%lu end",unsigned(all),(unsigned long)heapHeaderWatchMask);
++  return all;
++}
++static bool heapHeaderWatchArm() {
++  // Address is derived from this linked image, not copied from a prior fault.
++  const uintptr_t heap=reinterpret_cast<uintptr_t>(&_ext_ram_bss_end);
++  const uint32_t address=heap+16,expected=heap+20;
++  const uint32_t before=*reinterpret_cast<volatile const uint32_t*>(address);
++  if(heapHeaderWatchMask || before!=expected) {
++    ESP_LOGI("STT","TL hwwatch_refused reason=1 mask=%lu address=%lu value=%lu expected=%lu end",
++      (unsigned long)heapHeaderWatchMask,(unsigned long)address,(unsigned long)before,(unsigned long)expected);return false;
++  }
++  // Inspect both cores before changing either. Each arm rechecks locally under
++  // its saved interrupt mask. No cross-core lock is held over IPC.
++  for(unsigned core=0;core<2;++core) {
++    HeapTriggerRead r;
++    const auto e=core==esp_cpu_get_core_id() ? (heapTriggerReadOnCore(&r),ESP_OK)
++      : esp_ipc_call_blocking(core,heapTriggerReadOnCore,&r);
++    if(e!=ESP_OK || !heapTriggersIdle(r,core)) {
++      ESP_LOGI("STT","TL hwwatch_refused reason=2 core=%u end",core);return false;
++    }
++  }
++  heapHeaderWatchAddress=address;
++  bool all=true;
++  for(unsigned core=0;core<2 && all;++core) {
++    HeapHeaderWatchCall c;c.core=core;
++    heapHeaderWatchMask|=1u<<core;
++    all=heapHeaderWatchCall(c);
++    ESP_LOGI("STT","TL hwwatch_armed core=%u ok=%u address=%lu data1=%lu data2=%lu control=%lu end",core,unsigned(all),
++      (unsigned long)address,(unsigned long)c.after.slots[0].data1,(unsigned long)c.after.slots[0].data2,(unsigned long)c.after.controlBefore);
++  }
++  const uint32_t after=*reinterpret_cast<volatile const uint32_t*>(address);
++  all=all && after==expected;
++  ESP_LOGI("STT","TL hwwatch_active ok=%u mask=%lu heap=%lu address=%lu value=%lu expected=%lu end",unsigned(all),
++    (unsigned long)heapHeaderWatchMask,(unsigned long)heap,(unsigned long)address,(unsigned long)after,(unsigned long)expected);
++  if(!all)(void)heapHeaderWatchRelease();
++  return all;
++}
++}
+diff --git a/components/hardwareone/stt/heap_trigger_lease.h b/components/hardwareone/stt/heap_trigger_lease.h
+index caf26327..cca0c0f9 100644
+--- a/components/hardwareone/stt/heap_trigger_lease.h
++++ b/components/hardwareone/stt/heap_trigger_lease.h
+@@ -21,6 +21,19 @@ inline bool heapTriggerOwned(const HeapTriggerRead& r,unsigned core,uint32_t add
+   if(s.selected || (s.data1&~kHeapTriggerHit)!=kHeapTriggerStore4 || s.data2!=(address|1u) || s.data3)return false;
+   return heapTriggerResetSlot(r.slots[1],1) && heapTriggerResetSlot(r.slots[2],2);
+ }
++// Arm only after a fresh local snapshot. The caller records the attempted
++// lease and handles partial SDK failures without clearing an unexpected owner.
++template<class Cpu> bool heapTriggerArm(unsigned core,uint32_t address) {
++  if(!address || address%4)return false;
++  const auto mask=Cpu::maskInterrupts();
++  const auto before=readHeapTriggers<Cpu>();
++  if(!heapTriggersIdle(before,core)){Cpu::restoreInterrupts(mask);return false;}
++  const bool set=Cpu::armAddress(address);
++  Cpu::select(before.before);
++  const auto after=readHeapTriggers<Cpu>();
++  Cpu::restoreInterrupts(mask);
++  return set && heapTriggerOwned(after,core,address) && after.controlBefore==0x88;
++}
+ // Invoke on the owning core with interrupts masked. Re-read ownership before
+ // changing any trigger data. Only the exact diagnostic word/config may clear.
+ template<class Cpu> bool heapTriggerRelease(unsigned core,uint32_t address) {
