@@ -3,8 +3,8 @@
 Status: readback, individual-core and dual-armed RTC positive controls complete.
 Ten fresh-boot heap-field watch trials completed without catching a write or
 reproducing a fault. Original app restored/full-slot-verified after each block.
-The corrupting writer remains unknown. A separate allocated-PSRAM positive
-control is next; keep this work separate from ring timing/product qualification.
+The corrupting writer remains unknown. Allocated-PSRAM scalar controls passed
+on both cores; a wider overlapping-store control is next; keep this work separate from ring timing/product qualification.
 
 ## Evidence being investigated
 
@@ -164,3 +164,24 @@ not established by the RTC control. No unchanged heap-watch repetitions or
 corruption cure are implied by the ten negative intervals. Preserve the
 remaining alias/DMA/timing/register-argument hypotheses until stronger evidence
 distinguishes them. No new fault-origin finding is established.
+
+
+## PSRAM scalar path checkpoint
+
+fcdc25dd/core 0 and 4404da4e/core 1 each allocated eight payload bytes in PSRAM,
+armed both cores, passed both read/adjacent controls and caught the exact scalar
+store PC 0x4ff22cd0 with MCAUSE 3. Targets were 0x49625bf8 / 0x4826ac8c.
+Both cores reset inactive without serial reopening. Recovery STT done, zero
+new watchdog/fatal/overrun markers; original app restored/full-slot-verified
+after both. Latest healthy baseline: 5,615,616 B LittleFS/logging inactive/PDM/
+model header-footer unchanged. No heap descriptor or SD fixture was written.
+
+Only pre-trap probe values were retained; PSRAM contents after reset were not
+read and the old allocation was not freed. The parser distinguishes this from
+RTC recovery and verifies the cached P4 address window. The full negative heap
+watch remains unexplained. Next check 128-bit overlapping stores on an aligned
+owned block, with offsets 0 and 4, exact instruction-PC proof and safe release
+if the instruction returns. The generic RISC-V compare-address rule motivates
+this measurement (link in AB_TEST_RESULTS.md), but does not establish P4 PIE
+semantics. Keep scalar, wide, alias and DMA coverage claims separate. Do not
+repeat the unchanged ten-watch matrix as a substitute for closing this gap.

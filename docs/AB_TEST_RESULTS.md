@@ -2271,3 +2271,91 @@ observed free-space readings remained above 2 MiB. No audible playback occurred;
 future playback remains 50%. No HardwareOne branch is pushed or promoted.
 The one owned build remains needed for the next PSRAM-path diagnostic; selected
 matching app/debug/source inputs are archived before it is reused.
+
+
+## PSRAM scalar-store watchpoint controls
+
+### Findings
+
+| Source / firing core | Allocated target | Payload bytes | Both cores armed | Expected / observed store PC | MCAUSE |
+|---|---|---:|---:|---|---:|
+| fcdc25dd / 0 | 0x49625bf8 | 8 | 2 | 0x4ff22cd0 / 0x4ff22cd0 | 3 |
+| 4404da4e / 1 | 0x4826ac8c | 8 | 2 | 0x4ff22cd0 / 0x4ff22cd0 | 3 |
+
+Each trial allocated a word and neighbour with SPIRAM/8-bit capabilities and
+checked both allocation endpoints using the installed SDK's external-RAM
+classifier. Both cores' three shared trigger slots were checked inactive first;
+arming was rechecked locally under the saved interrupt mask. Slot 0 on both
+cores used TDATA1=0x210000ca, TDATA2=target|1 and TCONTROL=0x88. Reads of the
+watched word and stores to its neighbour returned on both cores before the
+intended store. Both leases were rechecked before the expected trap.
+
+Both matching ELFs identify the faulting instruction as the compressed scalar
+`sw a5,0(a0)` at 0x4ff22cd0. Each produced exactly one expected breakpoint
+trap, on its selected core. There were zero watchdog warnings in these trap
+records. These deliberate traps are counted separately from unexpected
+ordinary-use failures and from the subsequent successful STT lifecycles.
+
+Pre-trap probe values retained in RTC: word=0x13579bdf, neighbour=0x2468ace0.
+The attempted store value was 0x51a7cafe. The retained values are snapshots
+from before the store, not reads of PSRAM after reboot. The old allocation was
+not dereferenced or freed after reset; the new boot's allocator owns PSRAM
+again. The ordinary target pointer resets to null. Distinct PSRAM recovery
+markers and parser fields preserve this provenance and omit word_unchanged.
+
+Serial remained open through each panic and recovery. Both cores read
+TDATA1=0x21000000, TDATA2=0, TCONTROL=0 on recovery; no trigger-data/control
+clear was needed. The six physical slots, including context qualifiers, were
+inactive at all four later lifecycle checkpoints in both runs: 48 context/slot
+observations and eight expected heap-pointer observations in total. Both
+recovery STT sessions reached done with zero new fatal/watchdog/overrun markers.
+No SD fixture or audio playback was used.
+
+Both original app slots were restored/full-slot-verified. Healthy baseline
+LittleFS free after core 0 / core 1: 5,652,480 / 5,615,616 B; logging inactive,
+onboard PDM preferred, speaker-model header/footer unchanged, zero new
+fatal/watchdog markers. All readings stayed above 2 MiB. Future playback is 50%.
+
+### Interpretation and remaining coverage
+
+Direct aligned 32-bit CPU stores to two selected cached-PSRAM addresses are
+observable with this watchpoint setup on both cores. The earlier ten negative
+heap-field watches remain bounded negative results; no corrupting writer,
+accuracy improvement or application-reliability qualification has been found.
+The controls do not prove coverage of every address, alias, access width, DMA
+write or instruction path. No pre-reset trigger hit-bit observation is claimed.
+
+The next bounded control should use an aligned owned PSRAM block and an actual
+128-bit store, comparing a watch at the store's base with a watch four bytes
+inside its span. The latter matches the heap field's offset within a 16-byte
+alignment block. The installed ESP-DL copy assembly contains
+`esp.vst.128.ip`; scalar coverage alone does not measure that vendor instruction.
+Retain either outcome: an exact-PC trap or a returned store with an observed
+changed target and verified owned release. Do not broaden the real heap watch
+until legitimate neighbouring heap-metadata writes and the new coverage are
+understood. Aliases, DMA, timing and register/argument corruption remain open.
+
+The generic RISC-V trigger specification requires a compare value for the
+lowest accessed address and recommends additional values for other accessed
+addresses. This motivates the overlap test; P4 vendor-instruction behavior
+requires measurement. [RISC-V mcontrol address selection](https://github.com/riscv/riscv-debug-spec/blob/main/xml/hwbp_registers.xml#L335-L342).
+
+### Reproducibility
+
+fcdc25dd app: 6,040,560 B, SHA-256
+9c8e6af24de59a03bb82217fcb8cebf2753f0df706e9bc465ee0e7ca9c31bf3c.
+4404da4e app: 6,040,560 B, SHA-256
+3e6df43710a4de533c340c5773d4ff41c8193fd7cb05c52af19d1167abc03aad.
+The public incremental patch reproduces 4404da4e's two touched file endpoints
+after e1044e86; selecting firing core 0 reproduces fcdc25dd source. Matching
+app/ELF/map/configuration and bounded source bundles are private. SDK config
+is byte-identical to 647e4858 and the ESP-DL override check matches the restored
+original override. Models, production speaker policy, clocks, cache geometry
+and configured task stacks are unchanged; the heap descriptor is never written.
+
+The parser adds a PSRAM mode requiring target kind/size/external classification,
+a cached-address-window check from the pinned P4 soc.h, both arm/probe pairs,
+exact trap and both recovery records. Synthetic tests reject mixed RTC/PSRAM
+formats, invalid classification/addresses, missing peers, changed probe values
+and damaged evidence. Prior RTC modes remain tested. No real-line parse fix
+was required. Raw logs, registers, audio and private data are not committed.

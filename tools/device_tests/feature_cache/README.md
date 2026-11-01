@@ -325,3 +325,30 @@ its raw content is never returned. Verify lifecycle/reader health and full-slot
 rollback separately. Incomplete faulting attempts must be retained, not passed
 to the completed-lifecycle parser as if they were clean. Host coverage is in
 `tests/test_p4hwwatch.py` and the extended source-bound lease test.
+
+### PSRAM scalar-store positive controls
+
+`p4-psram-calibration-e1044e86.patch` applies after the heap-watch diagnostic.
+It re-enables automatic calibration before speaker-model loading, using an
+owned eight-byte PSRAM allocation (word plus neighbour) in place of the RTC
+target. The patch selects firing core 1; fcdc25dd selected core 0. Both cores
+are armed. Allocation start/end are checked with the installed SDK's external
+RAM classifier, and address/size/classification are logged numerically.
+
+The RTC record retains only successful **pre-trap** probe values. After reboot,
+the ordinary target pointer is null and the new allocator owns PSRAM again.
+The old target address is used only for trigger-ownership comparison; it is
+never dereferenced or freed. Recovery records use a different marker name and
+`probe_word`/`probe_adjacent` fields to prevent a claim that PSRAM contents were
+preserved across reset. A store returning unexpectedly first releases both
+owned triggers and then frees the still-live allocation, only if release
+succeeded. No heap descriptor is written.
+
+Parse these logs with `p4hwcal.py --psram --core CORE --store-pc MATCHING_PC`.
+The parser requires the PSRAM classification marker, both arm/probe pairs,
+two-lease verification, exact trap and both recovery rows. It rejects mixed
+RTC/PSRAM formats and reports `post_reset_target_read=false`; it never reports
+`word_unchanged` for a reset PSRAM allocation. The scalar `sw` test establishes
+that access pattern only. Wider overlapping stores, aliases and DMA require
+separate evidence. No production model, labelling or configuration change is
+included. Raw registers/logs and matching app/debug inputs stay private.

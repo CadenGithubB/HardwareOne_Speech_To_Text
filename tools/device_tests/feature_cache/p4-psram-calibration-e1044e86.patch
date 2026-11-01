@@ -1,0 +1,126 @@
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index be7add8b..8ef5fd25 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -38,6 +38,7 @@ using hw1::stt::sttPsramFree;
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+ #include "stt/heap_watch_readback.h"
+ #include "stt/heap_header_watch.h"
++#include "stt/heap_watch_calibration.h"
+ extern "C" bool hw1_stt_feature_ownership_probe(const int16_t*, size_t);
+ #endif
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+@@ -550,6 +551,7 @@ bool sttSpeakerBegin(STTLocalSession* session,size_t maxSamples,STTSpeakerStatus
+     b->speakerTried=true;
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+     (void)hw1::stt::heapWatchReadback(0);
++    if(!hw1::stt::heapWatchCalibrate())return why("PSRAM watch calibration refused");
+ #endif
+     // trusted: fixed optional model path beside the STT model; content is SHA-checked.
+     const auto auth=VFS::systemAuth(VFS::sttModelScopeFor(kSpeakerPath),"stt.speaker_read");
+diff --git a/components/hardwareone/stt/heap_watch_calibration.h b/components/hardwareone/stt/heap_watch_calibration.h
+index 81d0039f..2a0df06b 100644
+--- a/components/hardwareone/stt/heap_watch_calibration.h
++++ b/components/hardwareone/stt/heap_watch_calibration.h
+@@ -3,11 +3,17 @@
+ #include "heap_watch_readback.h"
+ #include "heap_trigger_lease.h"
+ #include "esp_attr.h"
++#include "esp_heap_caps.h"
++#include "esp_memory_utils.h"
+ namespace hw1::stt {
+-constexpr unsigned kHeapCalibrationCore=0; // deliberate store core; both cores are armed
+-constexpr uint32_t kHeapCalibrationMagic=0x48574432u; // dual-core layout/attempt identity
++constexpr unsigned kHeapCalibrationCore=1; // deliberate store core; both cores are armed
++constexpr uint32_t kHeapCalibrationMagic=0x48575032u+kHeapCalibrationCore; // dual-core layout/attempt identity
+ struct HeapCalibrationRecord {uint32_t magic,inverse,core,address,phase,armedMask;alignas(4) uint32_t word,adjacent;};
+ static RTC_NOINIT_ATTR volatile HeapCalibrationRecord heapCalibrationRecord;
++// This pointer is ordinary BSS: after reboot the allocation is gone and is
++// never dereferenced/freed through its retained numeric address. RTC word and
++// adjacent fields retain only the successful PRE-TRAP probe values.
++static volatile uint32_t* heapCalibrationTarget=nullptr;
+ struct HeapCalibrationCpu:HeapTriggerCpu {
+   static void writeData1(uint32_t v){RV_WRITE_CSR(tdata1,v);}
+   static void writeData2(uint32_t v){RV_WRITE_CSR(tdata2,v);}
+@@ -24,7 +30,7 @@ static void heapCalibrationOnCore(void* argument) {
+   auto& record=heapCalibrationRecord;
+   const auto mask=HeapCalibrationCpu::maskInterrupts();
+   c.state=readHeapTriggers<HeapCalibrationCpu>();
+-  const uint32_t address=reinterpret_cast<uintptr_t>(&record.word);
++  const uint32_t address=record.address;
+   if(c.operation==0) { // Fresh lease and arm, serialized against local IRQ users.
+     if(heapTriggersIdle(c.state,c.core)) {
+       record.armedMask|=1u<<c.core; // claim attempted slot before SDK writes
+@@ -35,12 +41,13 @@ static void heapCalibrationOnCore(void* argument) {
+     }
+   } else if(c.operation==1) { // Read + adjacent store must return normally.
+     if(heapTriggerOwned(c.state,c.core,address)) {
+-      c.value=record.word;record.adjacent=0x2468ace0;
++      c.value=heapCalibrationTarget[0];heapCalibrationTarget[1]=0x2468ace0;
++      record.word=c.value;record.adjacent=heapCalibrationTarget[1];
+       record.phase=2;c.ok=c.value==0x13579bdf && record.adjacent==0x2468ace0;
+     }
+   } else if(c.operation==2) { // Intentionally never returns on a working trigger.
+     if(c.core==kHeapCalibrationCore && heapTriggerOwned(c.state,c.core,address) && record.phase==2)
+-      hw1_heap_calibration_store(&record.word);
++      hw1_heap_calibration_store(heapCalibrationTarget);
+   } else if(c.operation==3) { // After reset: preserve unexpected owners.
+     c.ok=(record.armedMask&(1u<<c.core)) ? heapTriggerRelease<HeapCalibrationCpu>(c.core,address)
+       : heapTriggersIdle(c.state,c.core);
+@@ -73,9 +80,9 @@ static bool heapCalibrationReleaseBoth(HeapCalibrationCall (&calls)[2]) {
+ }
+ static bool heapWatchCalibrate() {
+   auto& r=heapCalibrationRecord;
+-  const uint32_t address=reinterpret_cast<uintptr_t>(&r.word);
++  uint32_t address=r.address;
+   const bool retained=r.magic==kHeapCalibrationMagic && r.inverse==~kHeapCalibrationMagic
+-    && r.core==kHeapCalibrationCore && r.address==address && r.phase>=1 && r.phase<=3 && r.armedMask<=3;
++    && r.core==kHeapCalibrationCore && address && !(address%4) && esp_ptr_external_ram((const void*)address) && esp_ptr_external_ram((const void*)(address+7)) && r.phase>=1 && r.phase<=3 && r.armedMask<=3;
+   if(retained) {
+     const uint32_t previousPhase=r.phase;
+     HeapCalibrationCall calls[2];
+@@ -83,7 +90,7 @@ static bool heapWatchCalibrate() {
+     if(idle)r.phase=3;
+     for(unsigned core=0;core<2;++core) {
+       const auto& c=calls[core];
+-      ESP_LOGI("STT","TL hwcal_recovery core=%u phase=%lu address=%lu word=%lu adjacent=%lu released=%u idle=%u data1=%lu data2=%lu control=%lu end",
++      ESP_LOGI("STT","TL hwcal_psram_recovery core=%u phase=%lu address=%lu probe_word=%lu probe_adjacent=%lu released=%u idle=%u data1=%lu data2=%lu control=%lu end",
+         core,(unsigned long)previousPhase,(unsigned long)address,(unsigned long)r.word,
+         (unsigned long)r.adjacent,unsigned(c.ok),unsigned(idle),(unsigned long)c.state.slots[0].data1,
+         (unsigned long)c.state.slots[0].data2,(unsigned long)c.state.controlBefore);
+@@ -93,10 +100,21 @@ static bool heapWatchCalibrate() {
+   if(!heapCalibrationAllIdle()) {
+     ESP_LOGI("STT","TL hwcal_refused core=%u reason=1 end",kHeapCalibrationCore);return false;
+   }
+-  // Initialize once, before either core watches the word. Never initialize
+-  // the watched storage from a second arm callback after the first is armed.
++  // Allocate an owned PSRAM word and neighbour, not a heap descriptor. The
++  // allocation is deliberately abandoned on the expected reboot; the new
++  // boot's allocator owns that region. Do not read it through a retained ptr.
++  auto* allocation=static_cast<uint32_t*>(heap_caps_malloc(8,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
++  address=reinterpret_cast<uintptr_t>(allocation);
++  const bool external=allocation && !(address%4) && esp_ptr_external_ram(allocation)
++    && esp_ptr_external_ram(reinterpret_cast<const void*>(address+7));
++  ESP_LOGI("STT","TL hwcal_target kind=1 bytes=8 address=%lu external=%u end",(unsigned long)address,unsigned(external));
++  if(!external) {
++    if(allocation)heap_caps_free(allocation);
++    ESP_LOGI("STT","TL hwcal_refused core=%u reason=3 end",kHeapCalibrationCore);return false;
++  }
++  heapCalibrationTarget=allocation;allocation[0]=0x13579bdf;allocation[1]=0;
+   r.magic=0;r.inverse=~kHeapCalibrationMagic;r.core=kHeapCalibrationCore;
+-  r.address=address;r.phase=1;r.armedMask=0;r.word=0x13579bdf;r.adjacent=0;
++  r.address=address;r.phase=1;r.armedMask=0;r.word=0;r.adjacent=0;
+   asm volatile("":::"memory");r.magic=kHeapCalibrationMagic;
+   bool safe=true;
+   for(unsigned core=0;core<2 && safe;++core) {
+@@ -119,7 +137,9 @@ static bool heapWatchCalibrate() {
+   if(safe){HeapCalibrationCall trap;trap.operation=2;trap.core=kHeapCalibrationCore;(void)heapCalibrationCallOnCore(trap);}
+   HeapCalibrationCall calls[2];
+   const bool released=heapCalibrationReleaseBoth(calls);
+-  if(released)r.phase=3;
++  if(released) {
++    r.phase=3;heap_caps_free((void*)heapCalibrationTarget);heapCalibrationTarget=nullptr;
++  }
+   ESP_LOGI("STT","TL hwcal_failed core=%u released=%u end",kHeapCalibrationCore,unsigned(released));
+   return false;
+ }

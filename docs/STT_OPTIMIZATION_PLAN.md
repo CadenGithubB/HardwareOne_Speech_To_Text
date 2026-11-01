@@ -12,16 +12,17 @@
   time, 60 forced checks, zero caught writes/fatal/watchdog/overrun markers. The
   longer cohort watched 8,478–10,847 ms past phase 321. This does not resolve
   the earlier invalid-control-pointer faults or establish ordinary-use rates.
-- Next: a bounded allocated-PSRAM store-watchpoint positive control. RTC tests
-  do not establish that memory path; do not calibrate by writing the heap header.
+- Allocated-PSRAM scalar store controls passed on both cores with both cores
+  armed. Next: an aligned 128-bit store with watch offsets 0 and 4, checking
+  wider-overlap coverage on an owned block. The corrupting writer is unknown.
 - Both fixtures removed and original full app slot restored/verified. Final
-  baseline: 5,689,344 B LittleFS free, logging inactive, PDM preferred, model
+  baseline: 5,615,616 B LittleFS free, logging inactive, PDM preferred, model
   header/footer unchanged. All runs silent; future playback 50%.
 
 See [AB_TEST_RESULTS.md](AB_TEST_RESULTS.md#both-core-synthetic-recovery-and-heap-field-watch)
 for per-trial numbers, timer-source correction, source patches and limitations.
 HardwareOne diagnostic sources remain local on codex/stt-ab-heap-watch at
-e1044e86. The existing 1.1 GiB build is retained for the next diagnostic;
+4404da4e. The existing 1.1 GiB build is retained for the next diagnostic;
 selected matching recovery/debug/source inputs are private. No automatic
 production integration or HardwareOne branch push has occurred.
 
@@ -361,3 +362,24 @@ panic-hook change is included. All work was silent; future playback stays 50%.
 The local HardwareOne diagnostic branch is codex/stt-ab-heap-watch at f8a2a5bc.
 Keep the owned P4 build for the next diagnostic; selected app/ELF/map/config
 and bounded source bundles are private. HardwareOne branches are not pushed.
+
+
+PSRAM scalar-control checkpoint: fcdc25dd/core 0 and 4404da4e/core 1 each
+caught one deliberate store at exact ELF PC 0x4ff22cd0, MCAUSE 3, after both
+cores' read/adjacent probes and lease verification. Both cores reset inactive
+without serial reopening; both recovery STT sessions done with zero new faults/
+watchdogs/overruns. Only pre-trap probe values were retained in RTC: no old
+PSRAM allocation was read/freed after reset. No SD fixture or playback used.
+Original app restored/full-slot-verified after each. Latest healthy baseline:
+5,615,616 B LittleFS free/logging inactive/PDM/model header-footer unchanged.
+Future playback remains 50%. Source patch and strict parser/tests are in the
+feature_cache tools; matching app/debug/source evidence stays private.
+
+Next control is wider-store overlap (aligned owned PSRAM, 128-bit store, watch
+offsets 0 and 4). Preserve both trap and returned-store outcomes with exact
+ELF instruction identity and owned cleanup. Scalar tests do not qualify wide
+instructions, every alias or DMA. The earlier faults and ten negative watched
+intervals remain unexplained; no ordinary-use crash rate or accuracy/speed
+improvement is inferred. See AB_TEST_RESULTS.md for measured numbers and the
+primary-source motivation. HardwareOne branch remains local at 4404da4e; no
+model, production labelling, clock/cache geometry or configured-stack changes.

@@ -41,3 +41,21 @@ for t,r in [(trap,dual_recovery),(dual,recovery),(dual.replace('verified=1','ver
  except ValueError:pass
  else:raise AssertionError('damaged dual calibration accepted')
 print('P4 dual calibration: both leases, peer recovery, missing/changed evidence ok')
+
+from p4hwcal import summarize_psram
+psram=('TL hwcal_target kind=1 bytes=8 address=1343225856 external=1 end\n'+dual).replace('1343225856','1207963648').replace('1343225857','1207963649')
+psram_recovery=dual_recovery.replace('1343225856','1207963648').replace('1343225857','1207963649').replace('hwcal_recovery','hwcal_psram_recovery').replace(' word=',' probe_word=').replace(' adjacent=',' probe_adjacent=')
+r=summarize_psram(psram,psram_recovery,0,0x4ff22cd0)
+assert r['external_verified']==1 and r['allocated_payload_bytes']==8 and not r['post_reset_target_read']
+assert all('word_unchanged' not in c for c in r['cores'])
+for t,r in [(dual,psram_recovery),(psram,dual_recovery),(psram.replace('external=1','external=0'),psram_recovery),
+ (psram.replace('bytes=8','bytes=4'),psram_recovery),(psram,psram_recovery.replace('probe_word=324508639','probe_word=0')),
+ (psram.replace('kind=1','kind=0'),psram_recovery),(psram.replace('TL hwcal_target kind=1 bytes=8 address=1207963648','TL hwcal_target kind=1 bytes=8 address=1207963652'),psram_recovery)]:
+ try:summarize_psram(t,r,0,0x4ff22cd0)
+ except ValueError:pass
+ else:raise AssertionError('damaged PSRAM evidence accepted')
+print('P4 PSRAM calibration: target kind, pre-trap provenance, both recovery rows and damaged cases ok')
+
+try:summarize_psram(psram.replace('1207963648','1343225856').replace('1207963649','1343225857'),psram_recovery.replace('1207963648','1343225856'),0,0x4ff22cd0)
+except ValueError:pass
+else:raise AssertionError('RTC address masquerading as external RAM accepted')
