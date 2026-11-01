@@ -1,7 +1,9 @@
 # P4 heap-header write-watch diagnostic
 
-Status: source audit and readback discovery complete; no board trigger has
-been armed or calibrated. Keep this separate
+Status: readback and one-core-at-a-time expected-store calibration complete.
+Core 0 recovery included a serial reopen; core 1 maintained serial continuity.
+Both-core simultaneous ownership/reset calibration and the real heap watch
+remain pending. Keep this separate
 from ring-worker timing and from production firmware qualification.
 
 ## Evidence being investigated
@@ -67,7 +69,9 @@ These are from installed IDF b774170ff46c393eeb5e495ea37936038d3f4f4f:
    the original full app slot after each block. Never disable logging or stack
    protections to manufacture a clean result.
 
-No heap-header watchpoint, calibration or corruption-origin finding is complete.
+No heap-header watchpoint or corruption-origin finding is complete. The
+individual-core synthetic positive controls below do not close the remaining
+simultaneous-arming/reset gate.
 
 
 ## Readback checkpoint
@@ -97,3 +101,24 @@ the other core is already stalled; no allocation, locks, printf or IPC there.
 Clear only a positively identified owned trigger on the executing core and
 verify both cores after reset before proceeding. Do not assume the other
 core's trigger was cleared by a local operation or by an untested reset path.
+
+
+## Individual-core positive controls
+
+18da8a44 (core 0) and f8a2a5bc (core 1) each trapped once at the exact matching
+ELF store PC 0x4ff22cd0, MCAUSE 3, after read/adjacent-store controls passed.
+Four-byte RTC word 0x50108234 remained 0x13579bdf; adjacent became 0x2468ace0.
+Both recovery lifecycles completed without new faults/overruns. Slot 0 was
+inactive by recovery and all subsequent both-core readback checkpoints passed.
+Core 0's first controller reopened serial; core 1 kept it open through panic,
+readback and cleanup. Do not attribute core 0's inactive state to panic alone.
+No pre-reset hit-bit observation or PSRAM/DMA coverage is claimed.
+
+Next bounded calibration: arm the same synthetic word independently on both
+cores after fresh local ownership checks, deliberately store on core 0, keep
+serial open, and verify the non-firing peer as well as the firing core after
+reset. Preserve the retained ownership record and prevent rearming after the
+trap. Abort/preserve unexpected state; release only exact owned configuration.
+This removes the extra-reset confound and checks the recovery sequence needed
+for a simultaneous both-core heap watch. Then instrument the actual verified
+heap_data field during the earlier known-input fault workload.

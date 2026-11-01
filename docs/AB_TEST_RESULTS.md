@@ -2049,3 +2049,92 @@ original app. Healthy post-restore LittleFS free was 5,967,872 / 5,935,104 B;
 logging inactive, PDM preferred, model header/footer unchanged, zero new
 watchdog/fatal markers. All measurements stayed above 2 MiB. All tests were
 silent; future playback remains 50%.
+
+
+## Synthetic store-watchpoint calibration
+
+### Findings
+
+| Source / core | Expected traps | Expected / observed PC | MCAUSE | Read + adjacent store | Watched word after reset | Serial reopened before recovery |
+|---|---:|---|---:|---|---|---|
+| 18da8a44 / 0 | 1 | 0x4ff22cd0 / 0x4ff22cd0 | 3 | pass | 0x13579bdf | yes |
+| f8a2a5bc / 1 | 1 | 0x4ff22cd0 / 0x4ff22cd0 | 3 | pass | 0x13579bdf | no |
+
+Each run armed only slot 0 of its named core. Both cores' three slots were
+checked inactive before arming; a fresh local check occurred under the saved
+interrupt mask immediately before the SDK arm call. The naturally aligned RTC
+no-init target was 0x50108234, four bytes. Armed TDATA1 / TDATA2 / TCONTROL were
+0x210000ca / 0x50108235 / 0x88. The matching ELFs identify the compressed
+`sw a5,0(a0)` at 0x4ff22cd0 as the sole deliberate faulting store. Reads and a
+store to the following word returned normally before the watched store.
+
+The retained phase was 2 in both recoveries. The watched value was unchanged
+from initialization (0x13579bdf), and the adjacent word held 0x2468ace0. The
+attempted watched replacement was 0x51a7cafe. These observations are consistent
+with a trap before the matching instruction takes effect. The trigger hit bit
+was not captured before reset and is not claimed as observed evidence.
+
+Both recovery reads found slot 0 TDATA1=0x21000000, TDATA2=0, TCONTROL=0. All
+three slots on both cores, including TDATA3 context qualifiers, had the inactive
+shape at all four subsequent lifecycle checkpoints. Thus recovery required no
+trigger-data/control writes in these actual runs. The release helper accepts
+only the exact owned diagnostic address/configuration (allowing the hit bit),
+refuses unexpected owners, and restores local selector/interrupt state. It can
+clear an owned trigger if retained; that branch is host-tested, not target-hit
+in these runs.
+
+Both recovery STT lifecycles reached done with zero audio overruns and no new
+watchdog/fatal markers. Each deliberate MCAUSE=3 trap is retained separately;
+neither is counted as a clean STT lifecycle or an unexpected ordinary-use
+crash. No fixture was uploaded for this block. No audio was played; PDM was
+verified and future playback remains 50%.
+
+### Interpretation and limits
+
+The store-watchpoint path catches the intended CPU store on each core. This
+establishes a positive control for a later heap-field watch, not a corruption
+origin, an accuracy gain, a crash-rate estimate or an application qualification.
+The synthetic target is RTC memory, not the PSRAM heap. It does not establish
+coverage of DMA, all address aliases, cache behavior or unarmed intervals.
+
+Core 0's first controller closed/reopened serial before recovery; opening the
+port can reset this board. Its inactive recovery state therefore covers the
+combined panic/reopen sequence and does not isolate panic-reset behavior. Core
+1 kept the same serial handle, including through the post-panic readback and
+cleanup, with no further reset/fault during that recovery. Only one core's
+trigger was armed in each experiment. Before arming both cores on the actual
+heap field, perform the bounded follow-up with both cores armed on the
+synthetic word, a deliberate core-0 store, continuous serial and verification
+of the non-firing peer's post-reset state. This also removes core 0's reopening
+confound. Then watch the real heap field using addresses derived from the new
+matching ELF/runtime layout and retain any writer trap or workload failure.
+
+The earlier two heap-control-pointer faults remain unresolved. The diagnostic
+uses the earlier cache-only fault workload base 647e4858; it does not combine
+the ring correctness candidate with this investigation. Configuration is
+byte-identical to the prior readback build. Models, recognition math, speaker
+policy, clocks, cache settings and configured task stacks are unchanged. No
+panic-hook or system-file-logging change is included.
+
+### Reproducibility
+
+18da8a44 app: 6,037,696 B, SHA-256
+267b301b26fc94aa203abf465d6a000d2f0f5badea29564a61ed073d999d1f3f.
+f8a2a5bc app: 6,037,712 B, SHA-256
+cb8fc8478bc8a2505b97064dac903d82f3149f707dfbb9a62e04c95a07131a18.
+Selected matching ELF/map/configuration and bounded source bundles are private.
+The public incremental patch applies to 647e4858 and reproduces f8a2a5bc's
+three touched file endpoints; selecting core 0 reproduces the earlier source.
+Source-bound lease/release host tests pass under ASan/UBSan. Numeric parser
+tests include both cores, exact PC/cause matching, owned and reset post-states,
+refusal, truncated/duplicate markers, changed words and extra traps. Raw logs,
+registers, private evidence and binaries are not committed. HardwareOne branches
+remain local; only the STT diagnostics branch receives the public report/tools.
+
+Both blocks restored the original 7,426,048-byte app slot and verified it
+against the saved baseline. Final healthy baseline LittleFS free was
+5,906,432 B after core 0 and 5,869,568 B after core 1; logging inactive, PDM
+preferred, model header/footer unchanged, zero new fatal/watchdog markers. All
+readings were above 2 MiB. No SD fixture was created. The existing owned build
+is retained for the bounded simultaneous-arming follow-up; selected compact
+recovery/debug inputs remain private before that build is reused.

@@ -240,3 +240,42 @@ records, and emits only numbers/IDs. A decoded inactive/reset shape is an
 observation, not a lease or lifecycle qualification. Check harness result /
 failure records independently, including faults after the last marker.
 Actual calibration and heap-write monitoring remain pending.
+
+
+## Synthetic watchpoint calibration
+
+`p4-heap-calibration-647e4858.patch` applies after the readback diagnostic and
+adds a deliberately faulting calibration, not a production STT update. Its
+`kHeapCalibrationCore` constant selects exactly one core (the patch selects 1;
+18da8a44 selected 0). Preserve separate matching app/ELF/map/source identities.
+A four-byte aligned RTC no-init word is initialized before arming; reads and an
+adjacent store must return, then `hw1_heap_calibration_store_pc` names the exact
+expected faulting store instruction. Verify it against the matching objdump.
+
+Both cores must have the observed empty trigger shape before the test. A fresh
+local read occurs under the saved IRQ mask immediately before the SDK arm call.
+The retained record prevents automatic rearming after the trap. Recovery clears
+only an exactly matching diagnostic trigger (allowing the documented hit bit),
+preserves unexpected owners, and verifies both cores inactive. An already empty
+state needs no trigger-data/control writes. The test changes no production
+model, DSP, stack configuration, clocks or labelling policy. IPC callbacks do
+not allocate, log or hold a cross-core lock. No panic-hook change is included.
+
+`python3 tests/test_heap_trigger_lease.py HARDWAREONE` compiles the actual
+lease/release header with ASan/UBSan and verifies refusal/owned cleanup/state
+restoration. `python3 tests/test_p4hwcal.py` tests strict numeric evidence parsing.
+To parse actual private logs, run:
+
+```sh
+python3 tools/device_tests/feature_cache/p4hwcal.py PRIVATE_TRAP_LOG PRIVATE_RECOVERY_LOG --core CORE --store-pc MATCHING_ELF_PC
+```
+
+The parser requires exactly one expected trap, the matching core/PC/cause, the
+read/adjacent negative controls and unchanged watched word at recovery. It
+rejects missing/duplicate/damaged markers, failed/refused calibration and extra
+traps. Lifecycle health, serial-reset provenance, both-core complete readback
+and full-slot rollback must be verified separately; numeric markers alone do
+not prove these. Keep all raw logs/registers and app/debug images private.
+Do not mistake a deliberate calibration trap for a successful STT lifecycle
+or an unexpected production crash. Do not use the RTC calibration target as
+evidence that DMA or every memory/cache path is monitored.

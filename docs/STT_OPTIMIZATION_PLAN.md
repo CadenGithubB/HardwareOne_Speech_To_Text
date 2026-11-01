@@ -309,3 +309,30 @@ ownership and panic-context constraints. Current HardwareOne diagnostic branch
 is local codex/stt-ab-heap-watch at 647e4858, based on the earlier cache-only
 fault workload; the separately prepared ring repair remains unqualified for
 full application use. Matching app/debug/source evidence is retained privately.
+
+
+Synthetic trigger checkpoint: 18da8a44/core 0 and f8a2a5bc/core 1 each caught
+one deliberate four-byte RTC-word store at matching ELF PC 0x4ff22cd0, MCAUSE 3.
+Reads/adjacent writes returned, watched value stayed 0x13579bdf and adjacent
+became 0x2468ace0. Both recovery STT lifecycles completed with zero new
+watchdog/fatal/overrun markers. Expected calibration traps are recorded
+separately from ordinary failures. Source-bound lease/release tests and strict
+numeric parsing pass; the public incremental patch reproduces f8a2a5bc.
+
+Core 0 recovery included serial reopening (which can reset the board); core 1
+kept the same handle through panic/readback/cleanup. Both read inactive state
+at recovery and all four later checkpoints, so actual recovery needed no
+trigger-data/control clear. Do not infer core 0 panic-reset semantics alone,
+pre-reset hit-bit capture, PSRAM/DMA coverage or corruption cure. Next perform
+one bounded dual-armed synthetic test with a core-0 store and continuous serial
+to verify the non-firing peer's reset state too, before the simultaneous
+both-core heap-field watch. The original writer remains unknown.
+
+Both blocks restored/full-slot-verified the original app. No SD fixture was
+created. Latest healthy baseline: 5,869,568 B LittleFS free, logging inactive,
+PDM preferred, speaker model header/footer unchanged, zero new fatal/watchdog
+markers. Models/clocks/cache/configured stacks/policy remain fixed and no
+panic-hook change is included. All work was silent; future playback stays 50%.
+The local HardwareOne diagnostic branch is codex/stt-ab-heap-watch at f8a2a5bc.
+Keep the owned P4 build for the next diagnostic; selected app/ELF/map/config
+and bounded source bundles are private. HardwareOne branches are not pushed.
