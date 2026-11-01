@@ -1571,3 +1571,79 @@ for promotion. Cache/PSRAM traffic, the complete target export-fixture suite and
 broader kernel/layout candidates remain open. Memory attribution is partial;
 no right-sizing is qualified. Candidate sources/recovery inputs remain private,
 and no unqualified change has been integrated into another checkout.
+
+## Teardown phase and heap-integrity diagnostics
+
+Diagnostic-only HardwareOne 5e07c4d9 adds 19 numbered cleanup boundaries:
+worker join; speaker trunk/workspace and state buffers; backend park/reset;
+audio-buffer release; completion publication; worker self-delete. Each boundary
+emits an entry marker and a completed full-heap scan. The app is 6,034,608 B
+(SHA-256 0f8cd832535b0287424caab5126026377bd822717ffcce38e1704e0f842ab5c8).
+Matching source/app/ELF/map/configuration are retained privately. Model,
+algorithms, production settings, task stacks and CPU/RAM clocks are unchanged.
+No playback, flashing outside the app slot or system file logging was used.
+
+**Findings:** four silent PDM start/stop lifecycles completed on separate boots:
+two without the owned fixture and two with it. Load-time speaker self-test
+remained enabled in both conditions. All runs had zero normal capture-feature
+rows and zero submitted/labelled/skipped speaker jobs. The fixture condition
+also executed all six forced ownership cases, with all 12 checks passing.
+These are idle-capture cleanup diagnostics, not transcription accuracy tests.
+
+| Trial ID | Owned fixture | Complete cleanup marker pairs | Logged heap failures | Sum of logged heap scans (us) | First-to-last marker (ms) | Watchdog warnings / fatal markers / audio overruns |
+|---|---|---:|---:|---:|---:|---|
+| 0 | 0 | 19/19 | 0 | 37427 | 224 | 0 / 0 / 0 |
+| 1 | 0 | 19/19 | 0 | 37264 | 208 | 0 / 0 / 0 |
+| 2 | 1 | 19/19 | 0 | 35726 | 173 | 0 / 0 / 0 |
+| 3 | 1 | 18/19 | 0 | 55864 | 170 | 0 / 0 / 0 |
+
+All 75 fully parsed heap checks passed. Trials 0–2 have all 38 expected entry
+and completion markers. Trial 3 has 37: the completed phase-301 marker was
+interleaved with a CLI JSON reply and does not satisfy the full marker grammar.
+The later phases through 321 completed, and the normal status confirmed terminal
+completion. Count that run as a completed device lifecycle but an **incomplete
+heap diagnostic**, not 19/19 verified scans. No bytes or fields were reconstructed.
+The strict collector stopped on the missing marker and restored the original
+app; retrospective `--partial` output retains all four attempts and explicitly
+lists missing event [301,1]. Synthetic cases cover this exact omission pattern,
+missing model phases, duplicate/out-of-order events and failed heap checks.
+
+The first instrumentation build 7c8736d0 completed one separate no-fixture
+lifecycle with 16 passing scans and zero watchdog/fatal markers, but omitted
+model phases 200–202 because that source did not inherit the diagnostics policy.
+It was rejected as a full diagnostic. The corrected model source includes the
+existing policy owner; an undefined policy now fails compilation. Host tests
+compile the actual probe with enabled, disabled and missing policies, and the
+corrected target object contains the marker format. This was an instrumentation
+fix, not a firmware algorithm or model change.
+
+**Interpretation:** cleanup can complete with no detected heap damage both with
+and without the fixture in this small instrumented sample. The two earlier
+shutdown faults remain unexplained and remain in the report. Full heap scans
+and additional output perturb scheduling; these four runs cannot qualify the
+uninstrumented repair, measure a speedup or isolate load-time self-test effects.
+Heap integrity also does not prove every live object's contents correct. No
+WER benefit or ordinary-use reliability improvement is claimed.
+
+A separate host ring-wrap attempt used the actual producer and DSP paths with
+192 blocks of 1,024 samples against a 65,536-sample ring. Under ASan/UBSan both
+reference and ownership repair rejected the stale batch: zero committed rows,
+one overrun. The tested reference schedule did not elicit a ThreadSanitizer
+race, so it is **not an accepted race reproducer**; the candidate TSAN stage
+was not reached. Attempt source/results remain private. Production ring code
+is unchanged; further validation must establish an actual overlap before
+claiming a race or its connection to a device fault.
+
+After both diagnostic blocks the original 7,426,048-byte app slot was
+restored/full-slot-verified, and the owned fixture was removed. The last healthy
+original-app probe found 6,135,808 B LittleFS free, logging inactive, PDM preferred,
+speaker model header/footer unchanged, and zero new watchdog/fatal markers.
+Every measured block remained above the 2 MiB free-space floor. Small persistent
+filesystem changes were retained, not deleted speculatively. Future playback
+remains 50%; this entire diagnostic was silent.
+
+Next controlled step: reduce instrumentation perturbation with phase markers
+without repeated heap scans, retain all failures, and avoid interleaving CLI
+polling with the diagnostic marker stream. Compare the same fixture workloads;
+then isolate load-time self-test separately. Neither continued testing nor a
+clean selected subset is evidence that the earlier faults are fixed.

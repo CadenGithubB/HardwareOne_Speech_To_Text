@@ -1,0 +1,154 @@
+diff --git a/components/hardwareone/System_STT.cpp b/components/hardwareone/System_STT.cpp
+index da1106aa..8239c6a5 100644
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -18,6 +18,7 @@
+ #include "System_STTVocabulary.h"
+ #include "System_TaskUtils.h"
+ #include "stt/stt_segmenter.h"
++#include "stt/teardown_probe.h"
+ #include "stt/quartznet_frontend.h"
+ #include <ArduinoJson.h>
+ #include <esp_random.h>
+@@ -2490,21 +2491,26 @@ static void sttContinuousWorker(void*) {
+   // FreeRTOS self-delete does not unwind C++ locals. Close the backend (or
+   // park it for the next run while a hold lasts) before publishing
+   // workerActive=false, after every inference/capture user joined.
++  hw1::stt::teardownProbe(300);
+   sttWarmPark(backendSession);
++  hw1::stt::teardownProbe(301);
+ #if HW1_STT_SPECULATIVE_FINAL
+   sttWipe(gSpecText, sizeof(gSpecText));  // a held, never-promoted result
+ #endif
++  hw1::stt::teardownProbe(310);
+   if (run.working) { sttWipe(run.working, kStreamSamples * sizeof(int16_t)); free(run.working); }
+   if (run.draftPcm) { sttWipe(run.draftPcm, kStreamSamples * sizeof(int16_t)); free(run.draftPcm); }
+   for (auto& slot : run.slots) {
+     if (slot.pcm) { sttWipe(slot.pcm, kStreamSamples * sizeof(int16_t)); free(slot.pcm); }
+   }
++  hw1::stt::teardownProbe(311);
+   sttStreamTick(run);
+   const bool cancelled = sttCancelled(&run.token);
+   // Saving has a completion boundary here. Later cancellation can retire the
+   // mailbox, but cannot rewrite this already-admitted final outcome.
+   transcript.finish(cancelled ? "cancelled" : run.failed ? "failed" : "done");
+   sttPublishTranscript(run.token, transcript.snapshot());
++  hw1::stt::teardownProbe(320);
+   portENTER_CRITICAL(&gSTTMux);
+   // A failed one-question run must not retain an actionable partial prefix.
+   // Ordinary continuous captions keep completed text available after failure.
+@@ -2519,6 +2525,7 @@ static void sttContinuousWorker(void*) {
+   gSTT.completedMs = millis();
+   gSTT.snapshot.workerActive = false;
+   portEXIT_CRITICAL(&gSTTMux);
++  hw1::stt::teardownProbe(321);
+   vTaskDelete(nullptr);
+ }
+ 
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index a44bc774..17807690 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -1,5 +1,6 @@
+ #include "System_BuildConfig.h"
+ #include "System_STTLocal.h"
++#include "stt/teardown_probe.h"
+ #if ENABLE_LOCAL_STT
+ #include <cstdio>
+ #include <new>
+@@ -276,8 +277,19 @@ void SpeakerState::stopTask() {
+ SpeakerState::~SpeakerState() {
+     stopTask();
+     if(gSpeakerActive==this)gSpeakerActive=nullptr;
+-    model.reset(); sttPsramFree(centroids); sttPsramFree(embedding); sttPsramFree(jobPcm); sttPsramFree(diagBuf);
++    hw1::stt::teardownProbe(120);
++    model.reset();
++    hw1::stt::teardownProbe(140);
++    sttPsramFree(centroids);
++    hw1::stt::teardownProbe(141);
++    sttPsramFree(embedding);
++    hw1::stt::teardownProbe(142);
++    sttPsramFree(jobPcm);
++    hw1::stt::teardownProbe(143);
++    sttPsramFree(diagBuf);
++    hw1::stt::teardownProbe(144);
+     heap_caps_free(blob);
++    hw1::stt::teardownProbe(145);
+ }
+ #endif
+ // Session-owned backend state: verified weights plus the optional LM.
+@@ -727,11 +739,14 @@ void sttSpeakerEnd(STTLocalSession* session) {
+     Backend* b=session ? static_cast<Backend*>(session->backendState_) : nullptr;
+     if(!b)return;
+     if(b->speaker) {
++        hw1::stt::teardownProbe(100);
+         b->speaker->stopTask(); // join before sampling final completion/discard counters
+         ESP_LOGI("STT","TL spk_end submitted=%lu labelled=%lu skipped=%lu",(unsigned long)b->speaker->submitted,
+                  (unsigned long)b->speaker->labelled,(unsigned long)b->speaker->skipped);
+     }
++    hw1::stt::teardownProbe(110);
+     b->releaseSpeaker();   // destructor's stopTask is idempotent; model remains alive through the summary
++    hw1::stt::teardownProbe(160);
+ }
+ void sttSpeakerProfileLog() {
+     SpeakerState* s=gSpeakerActive;
+diff --git a/components/hardwareone/stt/speaker_model.cpp b/components/hardwareone/stt/speaker_model.cpp
+index e98ea028..f70b6488 100644
+--- a/components/hardwareone/stt/speaker_model.cpp
++++ b/components/hardwareone/stt/speaker_model.cpp
+@@ -1,4 +1,6 @@
+ #include "speaker_model.h"
++#include "../System_STTLocal.h" // owns HW1_STT_SPEAKER_DIAGNOSTICS for this diagnostic app
++#include "teardown_probe.h"
+ #include "dl_model_base.hpp"
+ #include "esp_timer.h"
+ #include "esp_heap_caps.h"
+@@ -46,10 +48,14 @@ void Model::resetProfile() {
+ void Model::reset() {
+     resetProfile();
+     modules_=0; report_=LoadReport{};
++    const bool teardown=trunk_ || work_;
++    if(teardown)teardownProbe(200);
+     delete trunk_;
+     trunk_=nullptr; input_=output_=nullptr;
++    if(teardown)teardownProbe(201);
+     if(work_ && release_)release_(work_);
+     work_=nullptr;
++    if(teardown)teardownProbe(202);
+     info_=ModelInfo{};
+ }
+ 
+diff --git a/components/hardwareone/stt/teardown_probe.h b/components/hardwareone/stt/teardown_probe.h
+new file mode 100644
+index 00000000..21f172f3
+--- /dev/null
++++ b/components/hardwareone/stt/teardown_probe.h
+@@ -0,0 +1,28 @@
++#pragma once
++// Diagnostic app only: numbered teardown boundaries, no PCM/text/pointers.
++// Heap scans perturb timing; these runs locate damage and are not speed tests.
++#if defined(ESP_PLATFORM) && !defined(HW1_STT_SPEAKER_DIAGNOSTICS)
++#error "Include System_STTLocal.h before the teardown probe so every source uses the same diagnostics policy"
++#endif
++#if defined(ESP_PLATFORM) && HW1_STT_SPEAKER_DIAGNOSTICS
++#include "esp_heap_caps.h"
++#include "esp_rom_sys.h"
++#include "esp_timer.h"
++#include <cstdlib>
++namespace hw1::stt {
++inline void teardownProbe(unsigned phase) {
++    esp_rom_printf("TL teardown phase=%u event=0 ms=%u end\n", phase,
++                   unsigned(esp_timer_get_time()/1000));
++    const int64_t begin=esp_timer_get_time();
++    const bool ok=heap_caps_check_integrity_all(false);
++    const unsigned elapsed=unsigned(esp_timer_get_time()-begin);
++    esp_rom_printf("TL teardown phase=%u event=1 ms=%u heap_ok=%u check_us=%u int_free=%u psram_free=%u end\n",
++                   phase,unsigned(esp_timer_get_time()/1000),unsigned(ok),elapsed,
++                   unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)),
++                   unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
++    if(!ok)std::abort(); // Preserve the first failed boundary; do not allocate through a damaged heap.
++}
++}
++#else
++namespace hw1::stt { inline void teardownProbe(unsigned) {} }
++#endif

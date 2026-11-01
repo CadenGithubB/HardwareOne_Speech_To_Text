@@ -236,3 +236,14 @@ two shutdown faults remain in seven diagnostic boots (one watchdog reset, one
 core-0 heap-allocation load-access fault). The next priority is instrumenting
 teardown and heap integrity, with all failures retained. Direct-ring concurrency
 and cache/PSRAM traffic remain separate gaps. The original app is restored.
+
+
+The initial teardown diagnostic is complete: four idle-capture lifecycles,
+75 passing fully logged heap checks, three complete 19-check marker sets and
+one partial set due to interleaved CLI output. Both fixture conditions can
+complete; the earlier faults remain unexplained. No qualifying reliability,
+WER or speed claim follows. Next reduce instrumentation perturbation and
+isolate load-time self-test, keeping the original failures. The first ring-wrap
+schedule rejected stale batches but did not reproduce a TSAN race; no ring
+rewrite is justified yet. Source 5e07c4d9/app and matching debug metadata are
+private/local only; the original app is restored and future playback stays 50%.

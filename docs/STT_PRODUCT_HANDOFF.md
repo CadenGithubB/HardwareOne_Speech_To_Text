@@ -319,3 +319,18 @@ header/footer unchanged, no new watchdog/fatal markers. Future playback remains
 50%; this block was silent. Timeline/source review corrected earlier fixture
 startup wording: PDM capture is already active, before the normal feature pool
 and speaker worker start. Numeric historical results are unchanged.
+
+
+Teardown follow-up 5e07c4d9: four silent PDM idle-capture lifecycles completed
+(two without/two with fixture), zero watchdog/fatal markers/overruns. All 75
+complete logged heap checks passed; one CLI-interleaved marker [301,1] leaves
+three full 19-check diagnostics plus one partial. The first diagnostic build
+also omitted three model phases; the owning policy and a compile guard now
+prevent that silent omission, with synthetic coverage. These instrumented
+samples do not explain the two prior shutdown faults or qualify the repair.
+No new accuracy or speed benefit is claimed. Next isolate timing perturbation
+and self-test effects rather than selecting clean retries. The separate ring
+preemption attempt safely rejected stale work but did not establish a TSAN race.
+The original app is restored/full-slot-verified and the fixture removed; latest
+healthy probe 6,135,808 B LittleFS, logging inactive/PDM, model header/footer
+unchanged, no new watchdog/fatal markers. Keep private evidence private.

@@ -153,7 +153,7 @@ Both blocks restored/full-slot-verified the original app and removed owned
 fixtures. Last healthy original-app probe: 6,230,016 B LittleFS/logging off/PDM,
 model header/footer unchanged, no new watchdog/fatal markers.
 
-Next priority: instrument teardown phases and heap integrity around speaker
+Initial teardown instrumentation is now complete (details below). Continue tracing speaker
 model destruction, work/centroid/job/blob release, backend reset, audio-buffer
 freeing, completion publication and task reclamation. The last available summary
 is spk_end (worker joined, model not yet destroyed). Neither a watchdog with no
@@ -187,7 +187,7 @@ explicit 75 and remain unchanged. This default does not start playback or set
 volume; it prevents future default invocations from expecting an obsolete level.
 
 Build continuity: the active local HardwareOne source is
-`codex/stt-ab-feature-ownership` at ebe29cdf; 3fff3013 is the normal two-file
+`codex/stt-ab-feature-ownership` at 5e07c4d9; 3fff3013 is the normal two-file
 repair. The prepared SDK was restored and verified to the original reviewed
 patch SHA 0dc9782643ce3d2332b2c4a54624fce27150736314d065b48b55d5cf2a54d593
 and tree SHA b217d41df9f399d7958496ae62f075cfbc8adecd222f9fe9c03064a452ddcd2c.
@@ -196,3 +196,29 @@ probe app/debug/source artifacts are archived privately. The same owned profile
 build stays active for teardown diagnostics; do not silently mix SDK/source
 branches. An extra replacement script was prepared but not run after the second
 shutdown fault, then removed as unused temporary work.
+
+
+Teardown checkpoint 5e07c4d9: four silent idle-capture lifecycles completed,
+two without and two with the owned fixture. All 75 complete logged heap checks
+passed; only three runs have all 19 marker pairs. The fourth has a CLI-interleaved
+missing completed marker [301,1] and remains an incomplete diagnostic. All four
+had zero watchdog/fatal markers, capture rows, speaker jobs and overruns. The
+fixture runs passed all 12 additional ownership checks. A separate initial
+7c8736d0 build completed but omitted model phases 200–202 (16 scans); policy
+ownership and an undefined-policy build guard fixed the instrumentation.
+Synthetic tests preserve both omission patterns. No earlier fault is resolved.
+
+Next teardown step: use the same phases with less timing perturbation, passively
+collect the marker stream before issuing status/drain commands, then isolate
+load-time self-test separately. No instrumentation image is qualified or left
+installed. Original app restored/full-slot-verified, owned fixture removed;
+latest probe 6,135,808 B LittleFS/logging inactive/PDM/model header/footer
+unchanged, zero new watchdog/fatal markers. Matching selected app/debug/source
+artifacts are private; the same owned build remains active for the next test.
+
+The first actual-source ring-wrap attempt rejected stale work (ASan/UBSan: zero
+committed rows, one overrun in both versions) but failed to reproduce a TSAN
+race in the reference schedule. Do not treat it as confirmed corruption or
+ship a speculative ring rewrite. Its trial source and failed reproducer
+history are retained privately; public ownership tests remain the verified
+cache-retirement suite. Establish overlap independently before revisiting a fix.

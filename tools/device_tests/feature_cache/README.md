@@ -78,3 +78,44 @@ heap-allocation load-access fault). The intended matrix has four clean runs and
 two failed attempts, plus a separate clean smoke. This is not a qualified app
 update or demonstrated WER/reliability improvement. All attempts are retained;
 unchanged retries stopped. Original app restored and owned fixture removed.
+
+The incremental `p4-teardown-probe-ebe29cdf.patch` is diagnostic instrumentation
+on top of the ownership probe, not a production repair. It adds low-allocation
+ROM-console markers and full heap-integrity scans at the following boundaries.
+A failed scan aborts after its numeric marker, preserving the first failure.
+Scans perturb timing; neither successful cleanup nor timing from these runs
+qualifies an uninstrumented app. The acoustic model, cluster rule and clocks
+are unchanged.
+
+| Phase | Boundary just reached |
+|---|---|
+| 100 | Speaker end, before worker join |
+| 110 | Worker joined and speaker summary logged |
+| 120 | Speaker destructor, before model reset |
+| 200 | Model reset, before deleting ESP-DL trunk |
+| 201 | ESP-DL trunk deleted |
+| 202 | Speaker frontend workspace released |
+| 140 | Explicit speaker model reset returned |
+| 141–145 | Centroids, embedding, job PCM, diagnostic buffer, model blob freed in that order |
+| 160 | Speaker state object released |
+| 300–301 | Before/after warm backend park/reset |
+| 310–311 | Before/after audio buffers wiped and freed |
+| 320 | Transcript completion published, before terminal state update |
+| 321 | Terminal state published, before worker self-delete |
+
+Each phase has event 0 before its heap scan and event 1 after it. The latter
+includes `heap_ok`, scan duration and remaining internal/PSRAM bytes. Model
+resets outside a session shutdown can also emit 200–202; the parser starts a
+cycle only at 100. `teardowndiag.py PRIVATE_RAW_LOG...` reports numeric fields
+only and rejects missing, duplicate or out-of-order markers within a cycle.
+A truncated cycle is reported incomplete, never a successful teardown.
+Use `--partial` to retain a stream with missing markers: missing event IDs are
+listed explicitly, no fields are reconstructed, and the cycle stays incomplete.
+Duplicates and reversed events remain errors. The real interleaved phase-301
+completion and initially omitted model phases have synthetic omission cases.
+
+```
+python3 tests/test_teardowndiag.py
+python3 tests/test_teardown_probe.py HARDWAREONE_CHECKOUT
+python3 tools/device_tests/feature_cache/teardowndiag.py PRIVATE_RAW_LOG
+```
