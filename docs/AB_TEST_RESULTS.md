@@ -1122,8 +1122,206 @@ pairs of 30 computations each gave median 593.3105 µs reference and 587.0875 µ
 candidate. Mean paired difference is -5.8042 µs, bootstrap 95% interval
 [-6.8480, -4.6905] µs (10,000 resamples, seed 17). This is a small host frontend
 result on one fixed synthetic input, not target embedding speed or end-to-end
-caption latency. P4 bit-exact output and performance checks are pending; the
-candidate has not been integrated into HardwareOne or left installed.
+caption latency. The subsequent target comparison is reported below; the
+candidate has not replaced the normal HardwareOne frontend or been left installed.
+
+### Silent P4 frontend comparison
+
+HardwareOne diagnostic source d6029017 compiles the original frontend and the
+standalone 64ec0e2 clear-once candidate separately, without replacing the normal
+model's frontend. The compiler options match (`-O2` last in both), and no model,
+settings, tile sizes, CPU or RAM clocks change. The app is 6,036,816 B, SHA-256
+4ef84490b5f31fdbdd01559e102274247944d1b920d2febf88ab41be0e9ebae6.
+Selected app, matching ELF/map/build metadata and a source bundle stay private;
+only the diagnostic source patch and numeric report are committed here.
+
+Five independent boots used one fixed 44,560-sample input. Each boot checked
+six lengths (1, 2, 257, 400, 16,000 and 44,560) with byte-identical features:
+30/30 target cases passed. Eight warm-up calls per implementation preceded ten
+alternating timing pairs of three computations each. Scratch/output addresses
+are shared; allocations, comparisons, logging and task delays are untimed.
+The bootstrap resamples whole boots (10,000 draws, seed 17), rather than treating
+50 within-boot pairs as independent reboot trials.
+
+| Frontend computation | Original | Clear once |
+|---|---:|---:|
+| Mean (ms) | 55.381373 | 54.709907 |
+| Median of pair averages (ms) | 55.410000 | 54.724167 |
+| p05–p95 (ms) | 54.982183–55.947000 | 54.340233–55.046183 |
+| Min–max (ms) | 54.893000–56.098000 | 54.273000–55.667667 |
+| Workspace (B) | 97,892 | 97,892 |
+| Output (B) | 48,000 | 48,000 |
+
+Mean paired candidate-minus-original difference is -0.671467 ms, bootstrap 95%
+[-0.743473, -0.599460] ms; relative change -1.212441%, interval
+[-1.341257%, -1.083394%]. Per-boot differences are -0.566400, -0.576667,
+-0.784633, -0.711167 and -0.718467 ms. All five normal STT lifecycle controls
+stopped/drained with zero reported overruns, watchdog warnings or fatal markers;
+the original-path fixture cosine repeated at 0.9928348557423828.
+
+This establishes a small isolated target frontend saving, not an end-to-end
+caption/embedding speed or accuracy improvement. The diagnostic temporarily
+allocates additional comparison state; its app RAM/load time is not a production
+memory benchmark. Candidate features match, but the normal model in this image
+continues to consume original frontend output. Live WER/labels, delivery delays,
+peak headroom and a production-style candidate app remain qualification gaps.
+
+The cleanup reader initially rejected debug output interleaved inside one
+otherwise valid JSON base64 string. It now retries the identical read up to
+three times with strict base64, offset, size and length checks; it never strips
+foreign characters or repairs data. A synthetic regression covers successful
+retry, persistent corruption and mismatched byte counts. The first orchestration
+process exited with a cleanup error after its `finally` path successfully
+restored and full-slot-verified the original app. Retrying with the fixed reader
+verified and deleted the owned SD fixture. Final LittleFS free is 6,504,448 B;
+logging remained inactive, PDM preferred, model header/footer unchanged and no
+watchdog/fatal markers in the restored-app probe. This was a host read-framing
+failure after valid timing trials, not a device crash or benchmark failure.
+
+### Portable sample-boundary audit
+
+`tests/test_segmenter_boundaries.py` compiles the actual portable segmenter
+under ASan/UBSan. Six synthetic configurations and 20 seeded streams each were
+compared against the same stream pushed on its 160-sample analysis grid. Chunk
+sizes 1, 159, 161, 257 and 4,096 plus seeded random chunks yielded 720 matching
+comparisons and 1,076 reference segments. Every emitted PCM sample equals its
+absolute source sample; offsets and boundary metadata are invariant to chunking.
+Continuous qualified speech survives repeated hard cuts and a 79-sample partial
+session end without gaps or unrequested overlap. Stopping while a quiet-point
+cut is ready preserves the otherwise pending suffix. No sanitizer fault or
+boundary error was found; no segmenter change was made.
+
+This covers fixed/adaptive endpointing, percentile noise, blip tolerance,
+forced overlap, quiet-point hard cuts and short closes on synthetic audio.
+Intentional idle gaps and rejected short candidates are permitted. It does not
+prove microphone transport continuity, timestamp alignment, phonetic correctness
+or transport/ownership behavior of the HardwareOne capture loop. The tested
+segmenter header is byte-identical to the current HardwareOne diagnostic source
+(SHA-256 2b3e4a5c48fec27b3c82770e9fbed51075e098e85431b23ba6e0c984d8d59151). The existing
+portable streaming suite also passed its feature equality, preemption, exact
+promotion, resumed speech, finish/cancel, queue overflow, stale generation and
+concurrent ownership checks, including a separate ThreadSanitizer run.
+
+The unchanged production LM decoder's existing ASan/UBSan oracle suite also
+passed: 2,612 comparisons at factor 1.00 and 2,626 at synthetic factor 0.75;
+388 and 374 cases respectively were skipped because a nonstructural rank
+decision lay within 1e-6 nats. Context reset, within-call history, unavailable
+stages, immutable LM and validation cases passed. These are synthetic
+correctness checks, not a production setting change or measured WER gain.
+
+### Offline boundary sensitivity
+
+All four known conversation playlists were replayed with the unchanged float
+model and production C++ clusterer at threshold 0.6 and minimum new-speaker
+length 2,000 ms. Eleven extraction conditions change one boundary at a time:
+pre-roll -300, -100, 0, 150, 300 (control), 450 or 600 ms with tail 500 ms;
+tail 0, 250, 500 (control), 750 or 1,000 ms with pre-roll 300 ms. Negative
+pre-roll starts inside the source clip. These are offline input perturbations,
+not production configuration changes or selected optimization gains.
+
+135 source phrases × 11 conditions produced 1,485 embeddings and 44 in-order
+replays. Each condition also replayed the same 200 seeded shuffles (seed 1):
+8,800 order simulations. No manifest energy envelope from a different reference
+speaker intruded into these extracted spans (0/1,485). Energy envelopes are
+not phonetic annotations; this does not establish that every cut retains speech.
+
+Pooled in-order counts below are over the same 135 phrases. S/M conversations
+count conversations containing any split/merge, out of four; shuffled S/M
+counts orders with any split/merge, out of 800 per condition. These are
+descriptive sensitivity results, not independent accuracy trials or confidence
+intervals. No final-test speakers were opened.
+
+| Pre / tail (ms) | Correct / labelled | Accuracy % | Coverage % | Labelled accuracy % | S/M conversations | Shuffled S/M |
+|---|---:|---:|---:|---:|---:|---:|
+| 300 / 500 | 122 / 127 | 90.370 | 94.074 | 96.063 | 1/0 | 372/30 |
+| -300 / 500 | 125 / 129 | 92.593 | 95.556 | 96.899 | 1/1 | 390/147 |
+| -100 / 500 | 119 / 124 | 88.148 | 91.852 | 95.968 | 1/0 | 407/51 |
+| 0 / 500 | 116 / 120 | 85.926 | 88.889 | 96.667 | 2/0 | 363/8 |
+| 150 / 500 | 113 / 119 | 83.704 | 88.148 | 94.958 | 2/0 | 386/5 |
+| 450 / 500 | 116 / 124 | 85.926 | 91.852 | 93.548 | 3/0 | 468/36 |
+| 600 / 500 | 125 / 130 | 92.593 | 96.296 | 96.154 | 1/0 | 376/112 |
+| 300 / 0 | 128 / 130 | 94.815 | 96.296 | 98.462 | 1/0 | 370/6 |
+| 300 / 250 | 115 / 120 | 85.185 | 88.889 | 95.833 | 2/0 | 374/8 |
+| 300 / 750 | 115 / 122 | 85.185 | 90.370 | 94.262 | 3/0 | 468/25 |
+| 300 / 1000 | 124 / 129 | 91.852 | 95.556 | 96.124 | 1/0 | 387/87 |
+
+Per-conversation results for all conditions:
+
+| Conversation | Pre / tail (ms) | Accuracy / coverage / labelled accuracy % | Clusters | Split IDs / merged clusters | Shuffled S/M (of 200) |
+|---|---|---|---:|---:|---:|
+| 1 | 300 / 500 | 100.0 / 100.0 / 100.0 | 2 | 0/0 | 45/0 |
+| 1 | -300 / 500 | 100.0 / 100.0 / 100.0 | 2 | 0/0 | 72/0 |
+| 1 | -100 / 500 | 100.0 / 100.0 / 100.0 | 2 | 0/0 | 59/0 |
+| 1 | 0 / 500 | 65.6 / 68.8 / 95.5 | 3 | 1/0 | 80/0 |
+| 1 | 150 / 500 | 68.8 / 71.9 / 95.7 | 3 | 1/0 | 80/0 |
+| 1 | 450 / 500 | 78.1 / 81.2 / 96.2 | 3 | 1/0 | 68/0 |
+| 1 | 600 / 500 | 100.0 / 100.0 / 100.0 | 2 | 0/0 | 61/0 |
+| 1 | 300 / 0 | 100.0 / 100.0 / 100.0 | 2 | 0/0 | 80/0 |
+| 1 | 300 / 250 | 75.0 / 78.1 / 96.0 | 3 | 1/0 | 77/0 |
+| 1 | 300 / 750 | 75.0 / 78.1 / 96.0 | 3 | 1/0 | 66/0 |
+| 1 | 300 / 1000 | 100.0 / 100.0 / 100.0 | 2 | 0/0 | 68/0 |
+| 2 | 300 / 500 | 93.9 / 93.9 / 100.0 | 4 | 0/0 | 113/12 |
+| 2 | -300 / 500 | 100.0 / 100.0 / 100.0 | 4 | 0/0 | 86/0 |
+| 2 | -100 / 500 | 97.0 / 97.0 / 100.0 | 4 | 0/0 | 128/3 |
+| 2 | 0 / 500 | 93.9 / 93.9 / 100.0 | 4 | 0/0 | 54/5 |
+| 2 | 150 / 500 | 97.0 / 97.0 / 100.0 | 4 | 0/0 | 83/3 |
+| 2 | 450 / 500 | 93.9 / 97.0 / 96.9 | 5 | 1/0 | 183/14 |
+| 2 | 600 / 500 | 93.9 / 93.9 / 100.0 | 4 | 0/0 | 98/13 |
+| 2 | 300 / 0 | 97.0 / 97.0 / 100.0 | 4 | 0/0 | 73/6 |
+| 2 | 300 / 250 | 97.0 / 97.0 / 100.0 | 4 | 0/0 | 74/8 |
+| 2 | 300 / 750 | 90.9 / 93.9 / 96.8 | 5 | 1/0 | 184/12 |
+| 2 | 300 / 1000 | 97.0 / 97.0 / 100.0 | 4 | 0/0 | 95/16 |
+| 3 | 300 / 500 | 73.8 / 85.7 / 86.1 | 5 | 2/0 | 200/18 |
+| 3 | -300 / 500 | 78.6 / 88.1 / 89.2 | 5 | 2/1 | 200/144 |
+| 3 | -100 / 500 | 66.7 / 78.6 / 84.8 | 7 | 2/0 | 200/38 |
+| 3 | 0 / 500 | 88.1 / 95.2 / 92.5 | 5 | 2/0 | 200/2 |
+| 3 | 150 / 500 | 73.8 / 85.7 / 86.1 | 7 | 2/0 | 200/2 |
+| 3 | 450 / 500 | 76.2 / 90.5 / 84.2 | 5 | 2/0 | 200/22 |
+| 3 | 600 / 500 | 81.0 / 92.9 / 87.2 | 5 | 2/0 | 200/98 |
+| 3 | 300 / 0 | 88.1 / 92.9 / 94.9 | 5 | 1/0 | 200/0 |
+| 3 | 300 / 250 | 73.8 / 83.3 / 88.6 | 5 | 2/0 | 200/0 |
+| 3 | 300 / 750 | 81.0 / 92.9 / 87.2 | 5 | 2/0 | 200/10 |
+| 3 | 300 / 1000 | 81.0 / 92.9 / 87.2 | 5 | 2/0 | 200/61 |
+| 4 | 300 / 500 | 100.0 / 100.0 / 100.0 | 3 | 0/0 | 14/0 |
+| 4 | -300 / 500 | 96.4 / 96.4 / 100.0 | 3 | 0/0 | 32/3 |
+| 4 | -100 / 500 | 96.4 / 96.4 / 100.0 | 3 | 0/0 | 20/10 |
+| 4 | 0 / 500 | 96.4 / 96.4 / 100.0 | 3 | 0/0 | 29/1 |
+| 4 | 150 / 500 | 100.0 / 100.0 / 100.0 | 3 | 0/0 | 23/0 |
+| 4 | 450 / 500 | 100.0 / 100.0 / 100.0 | 3 | 0/0 | 17/0 |
+| 4 | 600 / 500 | 100.0 / 100.0 / 100.0 | 3 | 0/0 | 17/1 |
+| 4 | 300 / 0 | 96.4 / 96.4 / 100.0 | 3 | 0/0 | 17/0 |
+| 4 | 300 / 250 | 100.0 / 100.0 / 100.0 | 3 | 0/0 | 23/0 |
+| 4 | 300 / 750 | 96.4 / 96.4 / 100.0 | 3 | 0/0 | 18/3 |
+| 4 | 300 / 1000 | 92.9 / 92.9 / 100.0 | 3 | 0/0 | 24/10 |
+
+For Conversation 1 speaker 7850, clip 2 against anchor clip 0 ranges from
+0.538 to 0.629 across these conditions (float model, three-decimal reporting).
+At pre/tail 300/500 ms it is 0.606; 150/500 gives 0.548, 450/500 gives
+0.544, 300/250 gives 0.566 and 300/750 gives 0.538. The relation is not
+monotonic in added padding; the existing center crop changes which speech and
+context contribute to the fixed model window.
+
+Interpretation: boundaries can materially alter labels without crossing a known
+speaker turn. Removing the clip-mode tail raises pooled in-order accuracy from
+90.370% to 94.815%, but Conversation 4 falls from 100% to 96.4% and
+Conversation 1 shuffled orders with a split rise from 45/200 to 80/200.
+This does not support a universal tail-removal change. Some extra-padding arms
+also improve selected in-order results while sharply increasing shuffled merges.
+None establishes a corrected cut for the original failed microphone session.
+
+Caveats: the Mac model is float and the device trunk quantized; clip mode uses
+perfect manifest segmentation, perturbed here around the usual 300 ms pre-roll
+and 500 ms tail. Duration changes can affect the unchanged 2 s new-speaker
+admission as well as the model window. Shuffles measure order sensitivity, not
+realistic turn order. These known conversations are diagnostic/development data,
+not held-out generalization evidence. No firmware, acoustic model or production
+label policy was changed by this experiment.
+
+Reproduction: run `spkreplay.py` on each of the four manifests at
+`--thresholds 0.6 --min-new-ms 2000 --shuffles 200 --seed 1`, adding the
+`--pre-ms` / `--tail-ms` pairs above. Numeric per-condition artifacts, the frozen
+grid, private runner and model/environment identities remain private;
+no audio, vectors, transcripts or session logs are committed.
 
 ## Technical recordings and pending work
 

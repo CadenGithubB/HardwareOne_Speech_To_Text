@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Synthetic fixture framing and diagnostic parsing, no device/model needed."""
 import math
+import base64
+import json
+import re
 from pathlib import Path
 import struct
 import sys
@@ -18,6 +21,23 @@ def reject(fn):
 def main():
     data=struct.pack('<II',257,4)+b'\0'*514+struct.pack('<4f',.5,.5,.5,.5)
     n,e=p.parse_fixture(data);assert n==257 and len(e)==4
+    # A real cleanup read had valid JSON but debug text inside its base64
+    # payload. Re-read the identical offset; never remove foreign characters.
+    class FakeDevice(p.Device):
+        def __init__(self,replies):self.replies=iter(replies);self.commands=[]
+        def command(self,command,pattern,timeout=20):
+            self.commands.append(command)
+            return re.search(pattern,json.dumps(next(self.replies),separators=(',',':')))
+    valid={'success':True,'size':len(data),'offset':0,'len':len(data),
+           'data':base64.b64encode(data).decode()}
+    bad={**valid,'data':valid['data'][:100]+'[9] I (10) STT: debug'+valid['data'][100:]}
+    d=FakeDevice([bad,valid]);assert d.fixture()==data
+    assert len(d.commands)==2 and d.commands[0]==d.commands[1]
+    d=FakeDevice([bad]*3)
+    try:d.fixture()
+    except RuntimeError:assert len(d.commands)==3
+    else:raise AssertionError('accepted persistent interleaving')
+    d=FakeDevice([{**valid,'len':len(data)-1},valid]);assert d.fixture()==data
     reject(lambda:p.parse_fixture(data[:-1]))
     reject(lambda:p.parse_fixture(b'bad'))
     lines=['[9] I (100) STT: TL spk_fixture_dim n=4','I (101) STT: TL spk_fixture_part i=0 v=0.5 0.5 0.5 0.5 end']

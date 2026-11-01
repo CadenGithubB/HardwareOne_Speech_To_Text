@@ -80,3 +80,35 @@ is 0.642508 on P4 microphone input, 0.632405 on float with identical PCM and
 the old failure cannot be declared a bad cut without its actual PCM. Mac volume was set and verified
 at 50% after this last 75% playback. No further audible playback is planned while
 working through the overnight silent queue.
+
+Completed: production portable segmenter ASan/UBSan audit: 720 chunk-size
+comparisons across 120 seeded configuration/stream combinations, 1,076 reference
+segments, exact source PCM and boundary metadata. Continuous-voice hard-cut and
+partial-end conservation and stopping with a pending quiet-cut suffix passed.
+No segmenter correctness fix is supported by these synthetic results. Existing
+portable streaming ownership/preemption/promotion tests also passed. Actual
+HardwareOne transport/capture and broader code audits remain separate work.
+
+Completed: silent fixed-input P4 frontend reference/candidate benchmark,
+local HardwareOne source d6029017. Production frontend remains unchanged in the
+diagnostic image; the candidate is a separate namespace. Shared PSRAM scratch
+and output addresses, alternating paired order, six target bit-exact checks,
+ten timing pairs per boot and five reboot trials. All 30 target feature checks
+match. Mean saving 0.671467 ms (1.212441%), boot-bootstrap 95% saving
+0.599460–0.743473 ms. This is an isolated frontend result; end-to-end qualification
+is pending. Original app restored/full-slot-verified; owned fixture removed after
+a strict reader-retry fix for interleaved debug output. Final LittleFS free
+6,504,448 B. No reported overruns/watchdogs/fatal markers.
+
+Completed: 44 silent float replay conditions on the four known conversation
+playlists, varying one start/tail extraction boundary at a time with production
+threshold/minimum length unchanged. These are diagnostic sensitivity probes,
+not firmware setting changes, final-partition evaluation or selected gains.
+
+Boundary sensitivity: 135 source phrases, 1,485 embeddings, 8,800 seeded order
+simulations. The control scores 122/135 correct, 127 labelled. Removing the
+clip-mode tail raises pooled correct to 128 and labelled to 130, but Conversation
+4 regresses 100% -> 96.4% and Conversation 1 shuffled splits rise 45/200 ->
+80/200. The 7850 clip 0/2 pair ranges 0.538–0.629 across boundaries with the same
+float model. No universal padding policy or old-cut fault is established. Full
+numeric tables and caveats are in AB_TEST_RESULTS.md; final speakers untouched.

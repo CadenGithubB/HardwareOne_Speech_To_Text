@@ -104,14 +104,28 @@ class Device:
         data=bytearray();size=None
         while size is None or len(data)<size:
             offset=len(data)
-            m=self.command(f'fileread "{FIXTURE}" {offset} 2048 b64',r'\{"success":(?:true|false),[^\r\n]*\}')
-            obj=json.loads(m.group(0))
-            if not obj.get('success'):raise RuntimeError('fixture absent or inaccessible')
-            chunk=base64.b64decode(obj['data'],validate=True)
+            # Asynchronous CLI/debug output can interrupt the JSON data string
+            # while leaving valid JSON. Never strip/repair bytes or accept a
+            # partial chunk: reissue the same read with strict validation.
+            for attempt in range(3):
+                m=self.command(f'fileread "{FIXTURE}" {offset} 2048 b64',r'\{"success":(?:true|false),[^\r\n]*\}')
+                try:
+                    obj=json.loads(m.group(0))
+                    if not obj.get('success'):raise RuntimeError('fixture absent or inaccessible')
+                    chunk=base64.b64decode(obj['data'],validate=True)
+                    if obj['offset']!=offset or len(chunk)!=obj['len']:
+                        raise ValueError('invalid file-read chunk')
+                    if size is not None and obj['size']!=size:
+                        raise ValueError('fixture size changed')
+                    if obj['size']>1048576 or offset+len(chunk)>obj['size']:
+                        raise ValueError('oversized/inconsistent file-read chunk')
+                    if not chunk and not (not validate and offset==0 and obj['size']==0):
+                        raise ValueError('empty file-read chunk')
+                    break
+                except (ValueError,KeyError,TypeError):
+                    if attempt==2:raise RuntimeError('fixture read framing failed after three attempts') from None
             if obj['size']==0 and offset==0 and not chunk and not validate:return b''
-            if obj['offset']!=offset or len(chunk)!=obj['len'] or not chunk:raise RuntimeError('invalid file-read chunk')
             if size is None:size=obj['size']
-            if obj['size']!=size or size>1048576 or offset+len(chunk)>size:raise RuntimeError('fixture changed/oversized')
             data.extend(chunk)
         if validate:parse_fixture(data)
         return bytes(data)

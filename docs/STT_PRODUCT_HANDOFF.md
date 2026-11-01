@@ -258,3 +258,22 @@ cases under normal and ASan/UBSan builds, with no workspace/model/settings
 change. P4 output/performance qualification is pending; no production firmware
 has received it. Additional work targets actual correctness and redundant work,
 not configuration, model or CPU/RAM clock changes.
+
+
+The subsequent silent target frontend microbenchmark completed five reboot
+trials: 30/30 feature checks exact, average computation 55.381373 -> 54.709907 ms
+(-1.212441%; paired boot-bootstrap saving 0.599460–0.743473 ms). This is not a
+qualified end-to-end application win. Original app restored/full-slot-verified,
+owned fixture removed; final free LittleFS 6,504,448 B, logging inactive/PDM.
+A host cleanup read-framing error was fixed with strict bounded re-reads and a
+synthetic regression; no device crash occurred. Portable boundary testing passed
+720 chunk comparisons with exact source PCM, and the existing streaming suite
+passed ThreadSanitizer. See the results report for scope and remaining gates.
+
+The completed 44-condition offline boundary probe adds 1,485 float embeddings
+and 8,800 order simulations on the four known conversations. Padding/cropping
+changes the 7850 clip 0/2 pair from 0.538 to 0.629; effects are nonmonotonic.
+Tail removal improves pooled in-order results but regresses Conversation 4 and
+increases Conversation 1 shuffled splits. It is not a qualified default, a
+production configuration change or evidence of an incorrect original mic cut.
+Final speaker partitions remain unopened. Numeric tables are in the report.

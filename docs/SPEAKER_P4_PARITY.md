@@ -91,3 +91,39 @@ energy envelopes. Neither energy envelopes nor a low correlation are human
 phonetic/voice annotations. Synthetic tests cover retained tails, coverage,
 known waveform delay/polarity, checksum/nonce validation and unnormalized vectors.
 No PCM, voiceprints or raw logs belong in Git or the numeric report.
+
+## Silent frontend performance comparison
+
+The local HardwareOne diagnostic commit d6029017 (based on the exact-PCM
+probe 8692ce8d) compiles the original frontend and the standalone clear-once
+candidate in separate namespaces. The normal model continues to use the
+original frontend. `patches/p4-frontend-bench-8692ce8d.patch` preserves the
+incremental diagnostic source; it is not a production integration patch.
+Both translation units use the same existing `-O2` setting, target clocks and
+feature specification. The original source is byte-identical to the frozen
+92b028c reference used by the host equivalence test.
+
+When the explicitly owned parity fixture exists, the probe first checks exact
+features at six input lengths (1, 2, 257, 400, 16,000 and the fixture length).
+It then warms each implementation eight times and measures ten alternating
+pairs of three computations. Both use the same PSRAM scratch and output
+addresses; allocation, comparisons, logging and the between-pair task delay
+are outside timing. All temporary benchmark allocations are freed before
+normal capture starts. This adds diagnostic work at load and must not be used
+to measure normal load time or overall application RAM.
+
+Run the existing parity lifecycle for five independent boots, keeping all raw
+logs/vectors private and restoring/verifying the original app afterward. Then:
+
+```sh
+python3 tests/test_p4frontendbench.py
+python3 tools/device_tests/speaker/p4frontendbench.py private/.../trial-*
+```
+
+The parser requires all ten pairs and an explicit successful completion for
+each boot, and rejects recorded overruns/watchdog/fatal faults. Its 10,000-sample
+bootstrap (seed 17) resamples whole boots. Timing pairs within one boot are not
+counted as independent reboot trials. The output is numeric summaries only.
+A microbenchmark can establish isolated frontend cost and output equality;
+end-to-end WER/labels, queue/delivery latency, memory peaks and reliability
+remain separate qualification gates.

@@ -194,3 +194,25 @@ clear candidate passes 150 frozen-reference cases and sanitizer checks; target
 output/speed qualification remains pending. No source-level change or host-only
 speed result is treated as an end-to-end P4 win. Subsequent playback uses 50%,
 separate from the historical 75% results, and overnight replay is silent.
+
+### Silent code-only checkpoint, 2026-10-31
+
+The speaker frame-clear candidate preserves 150 host feature cases and 30 P4
+cases. Five matched reboot trials give mean frontend time 55.381373 -> 54.709907
+ms: -1.212441%, paired boot-bootstrap 95% saving 0.599460–0.743473 ms. This is an
+isolated computation saving, not a qualified caption latency/accuracy/RAM win.
+The diagnostic keeps the normal model's original frontend; source, clocks,
+settings and compiler choices are otherwise matched. Original full app slot was
+restored/verified and the temporary SD fixture removed. No observed watchdog,
+overrun or fatal markers; final LittleFS free 6,504,448 B.
+
+Portable segmentation passed 720 chunk comparisons under ASan/UBSan, exact PCM
+source checks, continuous-voice and pending-cut conservation; the unchanged
+streaming suite passed ThreadSanitizer. These checks found no cut/ownership bug
+and do not prove the HardwareOne transport or original failure's missing PCM.
+Next code-only performance work should prioritize the measured pointwise stage,
+including repeated address/division work without changing tile sizes, weights,
+clocks or arithmetic reductions. Frozen/reference fixtures and target matched
+runs are required before claiming a gain. End-to-end qualification remains open. The completed 44-condition known-clip
+boundary probe shows nonmonotonic similarities and cross-conversation tradeoffs;
+no universal boundary policy qualifies from it. See AB_TEST_RESULTS.md.
