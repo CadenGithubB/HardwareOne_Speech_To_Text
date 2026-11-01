@@ -1,0 +1,52 @@
+diff --git a/components/hardwareone/System_STT.cpp b/components/hardwareone/System_STT.cpp
+index dc8a0161..ae7d9a71 100644
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -1125,15 +1125,28 @@ static void sttFeatureWorker(void* context) {
+       // Oldest sample this batch reads (row r: [r*160-161, r*160+160)).
+       const uint64_t lo = start + (done * 160 > 161 ? done * 160 - 161 : 0);
+       const bool safe = lo + kFeRingSamples >= head + kStreamReadSamples;
++      // Incremental DSP never uses conditioned internally. Stage this whole
++      // batch in its existing worker-owned scratch, so retirement cannot wipe
++      // memory while the DSP writes it. No additional stack/heap row buffer.
++      static_assert(sizeof(hw1::stt::FrontendWorkspace::conditioned) >=
++                    kFeBatchRows * kFeRowFloats * sizeof(float));
++      float* const pending = run.feWork->conditioned;
++      bool computed = safe;
+       if (safe)
+         for (size_t r = done; r < end; ++r)
+-          (void)hw1::stt::log_mel_frame_ring(run.feRing, kFeRingSamples - 1, start, len, r,
+-                                             run.fe[idx].rows + r * kFeRowFloats, run.feWork);
++          if (hw1::stt::log_mel_frame_ring(run.feRing, kFeRingSamples - 1, start, len, r,
++                                         pending + (r - done) * kFeRowFloats, run.feWork) != hw1::stt::Status::Ok) {
++            computed = false;
++            break;
++          }
+       portENTER_CRITICAL(&gSTTMux);
+       FeCache& c = run.fe[idx];
+       if (c.gen == gen && c.state == FeState::Live) {
+         // The capture task writes at most one block past the published head.
+-        if (safe && lo + kFeRingSamples >= run.feRingHead + kStreamReadSamples) {
++        if (computed && lo + kFeRingSamples >= run.feRingHead + kStreamReadSamples) {
++          // Publish bytes and committed length together, only for this still
++          // live generation. Orphan/attached retirement can never race a write.
++          memcpy(c.rows + done * kFeRowFloats, pending, (end - done) * kFeRowFloats * sizeof(float));
+           c.frames = end;
+           run.feRowsComputed += static_cast<uint32_t>(end - done);
+         } else {
+diff --git a/components/hardwareone/stt/quartznet_frontend.h b/components/hardwareone/stt/quartznet_frontend.h
+index b9b4ec8e..775bf4bb 100644
+--- a/components/hardwareone/stt/quartznet_frontend.h
++++ b/components/hardwareone/stt/quartznet_frontend.h
+@@ -40,6 +40,11 @@ Status log_mel_frame(const int16_t* pcm, size_t samples, size_t frame, float* ou
+ // (ring_mask + 1 a power of two): the stream ring of the capture pipeline.
+ Status log_mel_frame_ring(const int16_t* ring, size_t ring_mask, uint64_t start, size_t samples,
+                           size_t frame, float* out64, FrontendWorkspace* workspace);
++// These two incremental row routines leave workspace->conditioned untouched
++// except when explicitly used as their output. Its 512 floats may therefore
++// stage up to eight 64-bin rows on the workspace's single owning thread.
++// No other workspace field may alias output; compute_features uses conditioned
++// itself and does not permit this alias. Commit staged rows before its reuse.
+ // compute_features' per-utterance CMVN over finished rows, in place.
+ Status normalize_features(float* output, size_t frames, FrontendWorkspace* workspace,
+                           FrontendTiming* timing=nullptr);

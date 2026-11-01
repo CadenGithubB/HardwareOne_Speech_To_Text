@@ -25,7 +25,8 @@ normal model's weights, tile sizes, compiler options, CPU/RAM clocks, speaker
 frontend/rules and ordinary preview settings remain fixed. This is not a
 production integration patch.
 
-Before live capture or the speaker worker starts, the acoustic `ModelCache`
+While PDM capture is already active, before the normal feature pool and
+speaker worker start, the acoustic `ModelCache`
 replays the privately owned fixed PCM through the production feature, int8 model
 and greedy decoder path. Both modes share the same cache, arena and buffers.
 Four warm-up calls precede three alternating pairs per boot. Nonnull diagnostics

@@ -231,13 +231,17 @@ def tick_offset_summary(rd):
             'median_ms': round(d[len(d) // 2], 2), 'spread_p10_minus_min_ms': round(d[len(d) // 10] - d[0], 2)}
 
 
-def production_command(ser, rd, command, pattern, timeout=15):
+def production_command(ser, rd, command, pattern, timeout=15, health_check=None):
     """Send one command, matching only replies received after it was sent."""
+    if health_check:
+        health_check()
     with rd.lock:
         start = len(rd.history)
     ser.write((command + "\n").encode())
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if health_check:
+            health_check()
         with rd.lock:
             rows = rd.history[start:]
         for row in rows:
@@ -271,11 +275,11 @@ def production_setup(ser, rd, lean_debug=False):
     return token, free
 
 
-def production_drain_one(ser, rd, token):
-    m = production_command(ser, rd, f'stt next {token}', r'\{[^\r\n]*"available":(?:true|false)[^\r\n]*\}')
+def production_drain_one(ser, rd, token, health_check=None):
+    m = production_command(ser, rd, f'stt next {token}', r'\{[^\r\n]*"available":(?:true|false)[^\r\n]*\}', health_check=health_check)
     obj = json.loads(m.group(0))
     if obj.get('available'):
-        production_command(ser, rd, f'stt ack {token} {obj["sequence"]}', r'STT chunk acknowledged|\[CMD\].*stt ack .* -> OK')
+        production_command(ser, rd, f'stt ack {token} {obj["sequence"]}', r'STT chunk acknowledged|\[CMD\].*stt ack .* -> OK', health_check=health_check)
         return 1
     return 0
 

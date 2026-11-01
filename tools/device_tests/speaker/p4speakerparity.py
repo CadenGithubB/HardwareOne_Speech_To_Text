@@ -6,6 +6,8 @@ SD, uploads it and verifies it. cleanup FIXTURE OUTDIR removes only the owned,
 content-matching fixture. run FIXTURE OUTDIR --trials 5 reads it before
 each trial, starts normal STT on PDM, waits for diagnostic vector output, stops
 and drains. It requires the explicitly labelled diagnostic app, not production.
+Mid-run resets invalidate the old run token; failed attempts retain failure.json.
+A success row is written only after final reader/context lifecycle checks.
 Credentials come only from STT_TEST_USER/STT_TEST_PASSWORD. Raw logs/vectors
 stay private; stdout contains status/counters/cosines only.
 """
@@ -73,13 +75,14 @@ def trial_ready(types,lines):
 
 
 class Device:
-    def __init__(self,out):self.out=out;self.ser=None;self.rd=None;self.token=None
+    def __init__(self,out):self.out=out;self.ser=None;self.rd=None;self.token=None;self.output_created=False
     def __enter__(self):
         import run_session as h
         if os.environ.get('UNIT_MAC',MAC)!=MAC:raise RuntimeError('wrong authorized MAC')
         os.environ['UNIT_MAC']=MAC
         self.h=h
         self.out.mkdir(parents=True,exist_ok=False,mode=0o700)
+        self.output_created=True
         try:
             self.ser,self.rd,self.boot=h.open_and_boot(h.resolve_port(),self.out)
             time.sleep(20)
@@ -95,7 +98,15 @@ class Device:
         except BaseException:
             self.__exit__(None,None,None);raise
     def command(self,command,pattern,timeout=20):
-        return self.h.production_command(self.ser,self.rd,command,pattern,timeout)
+        return self.h.production_command(self.ser,self.rd,command,pattern,timeout,health_check=self.check_health)
+    def check_health(self):
+        with self.rd.lock:
+            boots=len(self.rd.boot_marks);fatal=len(self.rd.fatal);error=bool(self.rd.error)
+        if boots>self.h.allowed_boots(self.boot) or fatal or error:
+            # A reboot invalidates the authenticated run/token. Do not issue a
+            # second stop against that old identity while unwinding the context.
+            self.token=None
+            raise RuntimeError(f'device lifecycle fault: boots={boots} fatal={fatal} reader_error={int(error)}')
     def free(self):
         n=int(self.command('fsusage json',r'"freeBytes":(\d+)').group(1))
         if n<2097152:raise RuntimeError('LittleFS below 2 MiB')
@@ -138,7 +149,7 @@ class Device:
         self.command(f'stt stop {token}',r'STT request accepted',20)
         deadline=time.monotonic()+90
         while time.monotonic()<deadline:
-            self.h.production_drain_one(self.ser,self.rd,token)
+            self.h.production_drain_one(self.ser,self.rd,token,health_check=self.check_health)
             m=self.command(f'stt status {token}',r'\{[^\r\n]*"state":[^\r\n]*\}')
             obj=json.loads(m.group(0))
             if obj.get('state') in ('done','failed','cancelled'):
@@ -148,9 +159,10 @@ class Device:
                 return obj
             time.sleep(.25)
         raise RuntimeError('STT drain timed out')
-    def __exit__(self,*_):
+    def __exit__(self,exc_type=None,exc=None,tb=None):
         try:
             if self.token:self.stop()
+            if exc_type is None and self.rd:self.check_health()
         finally:
             if self.rd:self.rd.stop()
             if self.ser:self.ser.close()
@@ -208,34 +220,50 @@ def main():
     rows=[]
     for i in range(a.trials):
         out=root/(time.strftime('trial-%Y%m%d-%H%M%S')+f'-{i}')
-        with Device(out) as d:
-            if d.fixture()!=fixture:raise RuntimeError('device fixture changed since download')
-            d.start();deadline=time.monotonic()+90;vector=None
-            while time.monotonic()<deadline:
+        d=Device(out)
+        try:
+            with d:
+                if d.fixture()!=fixture:raise RuntimeError('device fixture changed since download')
+                d.start();deadline=time.monotonic()+90;vector=None
+                while time.monotonic()<deadline:
+                    with d.rd.lock:history=list(d.rd.history)
+                    if d.rd.fatal or len(d.rd.boot_marks)>d.h.allowed_boots(d.boot):raise RuntimeError('device fault')
+                    vector=diagnostic_vector(history)
+                    if vector is not None:break
+                    time.sleep(.1)
+                if vector is None:raise RuntimeError('no diagnostic fixture vector; diagnostic app required')
+                # Preserve the measured vector even if subsequent lifecycle checks fail.
+                (out/'embedding.json').write_text(json.dumps({'device_unit':vector,
+                    'cosine_vs_fixture_reference':cosine(vector,expected)}))
+                if not d.h.wait_for(lambda: trial_ready(d.rd.first_tl,list(d.rd.history)),180):
+                    raise RuntimeError('normal STT warm/capture readiness timed out')
                 with d.rd.lock:history=list(d.rd.history)
-                if d.rd.fatal or len(d.rd.boot_marks)>d.h.allowed_boots(d.boot):raise RuntimeError('device fault')
-                vector=diagnostic_vector(history)
-                if vector is not None:break
-                time.sleep(.1)
-            if vector is None:raise RuntimeError('no diagnostic fixture vector; diagnostic app required')
-            # Preserve the measured vector even if subsequent lifecycle checks fail.
-            (out/'embedding.json').write_text(json.dumps({'device_unit':vector,
-                'cosine_vs_fixture_reference':cosine(vector,expected)}))
-            if not d.h.wait_for(lambda: trial_ready(d.rd.first_tl,list(d.rd.history)),180):
-                raise RuntimeError('normal STT warm/capture readiness timed out')
-            with d.rd.lock:history=list(d.rd.history)
-            fixture_cos=fixture_summary_cosine(history)
-            if fixture_cos is None or abs(fixture_cos-cosine(vector,expected))>0.00006:
-                raise RuntimeError('emitted vector disagrees with firmware fixture cosine')
-            snapshot=json.loads(d.command(f'stt status {d.token}',r'\{[^\r\n]*"state":[^\r\n]*\}').group(0))
-            if snapshot.get('source')!='pdm' or snapshot.get('transcriptEnabled'):
-                raise RuntimeError('unexpected capture source or transcript saving enabled')
-            state=d.stop();free=d.free();d.command('log status',r'System logging is INACTIVE')
-            row={'trial':i,'samples':samples,'dim':len(vector),'cosine_vs_fixture_reference':cosine(vector,expected),'firmware_fixture_cosine':fixture_cos,
-                 'littlefs_before':d.free_before,'littlefs_after':free,'audio_overruns':state.get('audioOverruns',0),
-                 'watchdog_warnings':len(d.rd.watchdogs),'fatal_markers':len(d.rd.fatal),'device_unit':vector}
-            (out/'result.json').write_text(json.dumps(row));rows.append(row)
+                fixture_cos=fixture_summary_cosine(history)
+                if fixture_cos is None or abs(fixture_cos-cosine(vector,expected))>0.00006:
+                    raise RuntimeError('emitted vector disagrees with firmware fixture cosine')
+                snapshot=json.loads(d.command(f'stt status {d.token}',r'\{[^\r\n]*"state":[^\r\n]*\}').group(0))
+                if snapshot.get('source')!='pdm' or snapshot.get('transcriptEnabled'):
+                    raise RuntimeError('unexpected capture source or transcript saving enabled')
+                state=d.stop();free=d.free();d.command('log status',r'System logging is INACTIVE')
+                row={'trial':i,'samples':samples,'dim':len(vector),'cosine_vs_fixture_reference':cosine(vector,expected),'firmware_fixture_cosine':fixture_cos,
+                     'littlefs_before':d.free_before,'littlefs_after':free,'audio_overruns':state.get('audioOverruns',0),
+                     'watchdog_warnings':len(d.rd.watchdogs),'fatal_markers':len(d.rd.fatal),'device_unit':vector}
+            # Reader is now joined. Do not persist a successful row until the
+            # context and its final lifecycle checks have completed.
+            d.check_health()
+            row.update(watchdog_warnings=len(d.rd.watchdogs),fatal_markers=len(d.rd.fatal))
+            with (out/'result.json').open('x') as f:f.write(json.dumps(row))
+            rows.append(row)
             print(json.dumps({k:v for k,v in row.items() if k!='device_unit'}),flush=True)
+        except BaseException as exc:
+            failure={'status':'failed','exception_type':type(exc).__name__,'message':str(exc),
+                     'samples':samples,'dim':len(expected)}
+            if d.rd:
+                failure.update(boot_marks=len(d.rd.boot_marks),fatal_markers=len(d.rd.fatal),
+                               watchdog_warnings=len(d.rd.watchdogs),reader_error=bool(d.rd.error))
+            if d.output_created:
+                with (out/'failure.json').open('x') as f:f.write(json.dumps(failure))
+            raise
     (root/'results.json').write_text(json.dumps({'fixture_sha256':hashlib.sha256(fixture).hexdigest(),'trials':rows}))
 
 

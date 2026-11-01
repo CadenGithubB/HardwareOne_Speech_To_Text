@@ -4,6 +4,8 @@ import math
 import base64
 import json
 import re
+import threading
+from types import SimpleNamespace
 from pathlib import Path
 import struct
 import sys
@@ -21,6 +23,21 @@ def reject(fn):
 def main():
     data=struct.pack('<II',257,4)+b'\0'*514+struct.pack('<4f',.5,.5,.5,.5)
     n,e=p.parse_fixture(data);assert n==257 and len(e)==4
+    # A real post-stop WDT reboot used to become an opaque command timeout and
+    # a second stop with an invalid token. Detect it throughout command polling.
+    d=p.Device(Path('unused'));d.h=SimpleNamespace(allowed_boots=lambda _:1);d.boot={}
+    d.rd=SimpleNamespace(lock=threading.Lock(),boot_marks=[1],fatal=[],error=None)
+    d.token='test';d.check_health();assert d.token=='test'
+    d.rd.boot_marks.append(2)
+    try:d.check_health()
+    except RuntimeError as exc:assert 'boots=2' in str(exc) and d.token is None
+    else:raise AssertionError('accepted an unexpected reboot')
+    closed=[];d.rd.stop=lambda:closed.append('reader');d.ser=SimpleNamespace(close=lambda:closed.append('serial'))
+    try:d.__exit__()
+    except RuntimeError:assert closed==['reader','serial'] and d.token is None
+    else:raise AssertionError('context exit ignored a reset')
+    closed.clear();d.rd.boot_marks=[1];d.__exit__();d.check_health()
+    assert closed==['reader','serial']
     # A real cleanup read had valid JSON but debug text inside its base64
     # payload. Re-read the identical offset; never remove foreign characters.
     class FakeDevice(p.Device):

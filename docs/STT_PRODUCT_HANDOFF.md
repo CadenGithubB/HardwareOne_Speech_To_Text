@@ -288,3 +288,34 @@ slot was restored/verified and owned fixture removed; final probe LittleFS free
 complete export-fixture/length coverage remain open; no end-to-end gain is
 claimed. The active queue next examines feature-row ownership and actual cache
 measurement. Neither source suspicion establishes the cause of past faults.
+
+
+## Feature-cache ownership checkpoint
+
+The real HardwareOne row-writer/retirement race is reproduced on Mac and P4.
+Normal repair 3fff3013 is a two-file patch: stage eight rows in existing worker
+scratch, then copy/publish only for the same live generation under lock. The
+shared frontend alias contract passes 1,251 host rows; normal production portable
+StreamPipeline was already using private row publication. Forced P4 checks pass
+42/42 across seven boots; both versions match 1,946 normal rows and use the same
+3,072-byte task stack with matching 2,624–2,628 B normal-case headroom. The repair
+leaves zero stale cache values versus 512 in the old late-write schedules.
+
+Application qualification is incomplete. Five lifecycles completed, two failed
+after STT stop despite all ownership checks passing: one hardware-watchdog reset
+(0x7), one core-0 load-access fault in heap allocation (MCAUSE 5, MEPC 0x4ff37390,
+MTVAL 0x0029607c). The intended matrix has four clean runs and two failed
+attempts, plus one separate clean smoke run. No clean subset is substituted for
+the full failure history. There is no established WER benefit or link to prior
+crashes. The fix is prepared for review, not merged or left installed. The next
+priority is teardown-phase/heap-integrity evidence; a live-ring concurrency
+audit remains separate. See AB_TEST_RESULTS.md for numeric details and caveats.
+
+The harness now rejects resets throughout command/drain/status polling,
+invalidates stale tokens and preserves failure records. Both interrupted blocks
+removed the owned fixture and restored/verified the full original app slot.
+Latest original-app probe: 6,230,016 B LittleFS/logging inactive/PDM/model
+header/footer unchanged, no new watchdog/fatal markers. Future playback remains
+50%; this block was silent. Timeline/source review corrected earlier fixture
+startup wording: PDM capture is already active, before the normal feature pool
+and speaker worker start. Numeric historical results are unchanged.

@@ -32,12 +32,13 @@ private and are not included here.
 
 ## Comparisons
 
-| Comparison | Valid sessions per arm | Outcome |
+| Comparison | Evidence / sample counts | Outcome |
 | --- | ---: | --- |
 | Debug vs lean logging | 5 / 5 | No clear difference; fault-affected attempts retained separately |
 | Preview cadence | 5 / 5 | Fewer previews, later first preview; not a qualified win |
 | Speaker labels and conversation accuracy | 5 / 5 standard; 7 conversation runs | Speaker-off is not a qualified replacement; speaker diagnostics below |
 | Pointwise kernels and traffic | 1 profile; 5 reboot comparisons | Address-walk candidate preserves hashes, no measurable gain; traffic remains unmeasured |
+| Feature-cache ownership | 7 forced-schedule boots; 5 complete lifecycles, 2 faults | Narrow repair passes 42 checks; application qualification incomplete |
 | RAM attribution and right-sizing | 5 / 5 speaker on/off; phase observations | Sampled speaker attribution; transient peaks and resizing pending |
 | LM strength and technical vocabulary | 5 technical recordings; no strength A/B | Descriptive WER recorded; no configuration tuning in the code-only queue |
 
@@ -1395,8 +1396,8 @@ The candidate is rejected for promotion on the current evidence.
 
 **Limits:** this is one input/shape with full-model equality against the original
 kernel path, not the complete export-fixture/length suite or live WER testing.
-The acoustic replay uses greedy decoding without the LM and runs before live
-capture/speaker-worker concurrency. End-to-end delivery and ordinary-use fault
+The acoustic replay uses greedy decoding without the LM and runs with background PDM capture already active, before the normal
+capture-feature pool and speaker worker start. End-to-end delivery and ordinary-use fault
 rates are not measured. Both modes share hashes, counters, heap monitoring and
 extra probe code; code placement/instrumentation may affect cache behavior.
 Scoped heap minima include other firmware tasks and are not exclusive allocation
@@ -1410,6 +1411,137 @@ watchdog/fatal markers. Only the app at the verified 0x10000 address was flashed
 Interpretation: this address-calculation shortcut is not a useful demonstrated
 gain. Further kernel work should measure cache/bus behavior and attack larger
 work or data movement, rather than extrapolating from simpler source code.
+
+## Feature-cache ownership repair and shutdown faults
+
+**Confirmed bounded correctness defect; application qualification incomplete.**
+The HardwareOne feature task computes an eight-row batch directly into cache
+storage outside `gSTTMux`. Orphan retirement and attached-cache release can wipe
+that same uncommitted region. A late DSP completion writes it again after the
+cache is marked `FeState::Free` for reuse (its storage remains allocated); the
+later generation/state check rejects publication but
+cannot undo those writes. This establishes an ownership/data-race defect, not
+that a wrong committed prefix was delivered or that it caused earlier crashes.
+The forced retirement schedules do not deallocate storage before the worker
+joins; no out-of-bounds access or heap use-after-free is demonstrated here.
+
+### Host reproduction and narrow repair
+
+The tests compile the real extracted HardwareOne worker, wipe and retirement
+functions with host lock/task adapters and the actual shared acoustic frontend.
+Source binding verifies the aa6508fd reference and current candidate; the DSP
+implementation is byte-identical in both repositories (SHA-256
+09073499b5b7a6af556c90afbde9bec60c1e46030f512c2f665ef904e1fb649a).
+The fixed ring, 1,024-sample capture-block margin and controlled preemption
+isolate cache ownership from the separate ring-overwrite question.
+
+| Host schedule | Original | Candidate |
+|---|---|---|
+| Late orphan retirement | 512 nonzero values after wipe; 0 committed rows | 0 nonzero values; 0 committed rows |
+| Late attached release | 512 nonzero values after wipe; 0 committed rows | 0 nonzero values; 0 committed rows |
+| Overlap under ThreadSanitizer | Data race detected in both retirement paths | Both paths pass |
+| Normal live capture | 10 committed, byte-identical reference rows | Same 10 rows, byte-identical |
+| Injected invalid first DSP row | 10 rows committed, 1 wrong row; error ignored | 0 rows committed; overrun/fallback flagged |
+
+Local HardwareOne fix 3fff3013 changes only the worker and a shared API comment:
+21 added / 3 removed lines in two files. It stages rows in the existing,
+worker-owned `FrontendWorkspace::conditioned[512]`, then under the lock checks
+the original live generation, copies the batch and publishes its count together.
+A failed DSP call cannot publish uninitialized staging data. Batch size and
+publication granularity stay unchanged. No extra row-buffer allocation or stack
+buffer is added; the configured 3,072-byte task stack, priority/core, model,
+feature arithmetic, thresholds, cadence and clocks are unchanged. The normal
+patch applies directly to aa6508fd without enabling diagnostics.
+
+The explicit scratch-alias contract first passed 15 standalone ASan/UBSan cases,
+1,251 rows, including short/partial lengths and physical ring wrap. Direct,
+ring and privately staged outputs are byte-identical. The portable standalone
+`StreamPipeline` already stages private rows and commits under its lock; the
+older HardwareOne path needed the repair. No whole-app synchronization is made.
+
+### Real P4 tasks: all observations, including failed lifecycles
+
+Temporary diagnostic ebe29cdf adds the original worker as positive control and
+a keyed before-DSP scheduling gate. App: 6,032,832 B, SHA-256
+2037418536e564af428225eb65c8b3f7b94f21f7593830efb6ccfed2d625687c.
+Normal fix source, diagnostic source, matching app/ELF/map/build metadata and raw
+results stay private; reproducible patches/tests are in
+`tools/device_tests/feature_cache/`.
+
+A startup/source audit clarified placement: PDM capture is already active, while
+the normal capture-feature pool and speaker worker have not started. Earlier
+notes described fixture diagnostics as before capture; wording is corrected,
+not the numerical measurements. The synthetic feature tasks use the real
+core 0 / priority 1 / 3,072-byte stack, the same 44,560-sample owned input and a
+ring start at absolute sample 65,520. No audible playback is involved.
+
+One smoke reboot and six matrix/replacement attempts ran: seven boots, 42 forced
+cases. **All 42 ownership checks passed before shutdown; five lifecycles
+completed and two failed.** The planned matrix has four complete lifecycles
+and two failed attempts, so it is not presented as five clean matrix runs.
+After the replacement failed, unchanged retries stopped; no five-clean-matrix
+subset is reported.
+
+| P4 case | Runs per version | Committed rows per run | Original post-retirement nonzero | Candidate post-retirement nonzero | Normal rows equal per version, total |
+|---|---:|---:|---:|---:|---:|
+| Normal | 7 | 278 | n/a | n/a | 1,946 |
+| Forced late orphan | 7 | 0 | 512 each | 0 each | n/a |
+| Forced late attached release | 7 | 0 | 512 each | 0 each | n/a |
+
+All 3,892 normal row comparisons across both versions match the unchanged DSP.
+Normal-case stack headroom is 2,624–2,628 B in both versions; paused late cases
+report 2,720–2,724 B in both. ESP-IDF's high-water API reports bytes. The observed
+normal-case stack usage is therefore 444–448 B of the same 3,072-byte allocation;
+there is no measured stack-headroom difference in this probe. This is not a
+whole-application RAM peak or performance comparison. The speaker fixture
+cosine repeats at 0.9928348557423828; no speaker rule/model change is involved.
+
+### Shutdown failures retained
+
+| Attempt | Ownership cases | Normal capture feature rows / speaker jobs | Failure |
+|---|---:|---:|---|
+| Matrix fifth | 6/6 passed | 0 / 0 | Reset reason 0x7, HP_SYS_HP_WDT_RESET, about 4,654 ms after stop |
+| Replacement | 6/6 passed | 0 / 0 | Core 0 load-access fault; MCAUSE 0x5, MTVAL 0x0029607c; software reset 0xc |
+
+The first failure has no panic record or preceding task-watchdog warning line.
+The replacement panic occurs about 257 ms after stop and 202 ms after the
+speaker-worker completion summary. Matching-ELF symbolication maps MEPC
+0x4ff37390 to `tlsf_block_size_max` / `adjust_request_size` / `tlsf_malloc`
+(`tlsf_control_functions.h:277,292`, `tlsf.c:437`), RA 0x4ff36df6 to
+`multi_heap_malloc_impl` (`multi_heap.c:216`). These identify the observed heap
+allocation fault, not its cause. Raw registers/stacks/logs stay
+private. No assertion identifier was emitted for this load-access fault.
+
+Both failures occur after the feature and speaker workers' completion summaries,
+before terminal STT completion was observed. The speaker summary precedes
+destruction of its model and buffers; no later teardown-phase markers exist.
+Model release, backend teardown, buffer freeing, completion publication and task
+reclamation need instrumentation. The observed allocation fault does not identify
+where the invalid state originated. No causal link is established between this fault, the fixed
+cache race, extra diagnostic tasks or earlier campaign assertions. The real
+capture cache computed zero rows in these two stop failures. This diagnostic
+stress sample does not establish ordinary-use crash frequency.
+
+The known-PCM harness now checks reader/fatal/reset state throughout command,
+next/ack and stop/status polling, invalidates old run tokens on reset and retains
+`failure.json`. Success is persisted only after context/reader shutdown checks.
+Synthetic cases cover rebooted replies/acks and context cleanup. The replacement
+fault was detected immediately instead of timing out and retrying a stale stop.
+The numeric ownership loader rejects a failed-lifecycle marker even if case
+records passed. Faulted boots are retained separately from completed lifecycles.
+
+**Status:** the forced-schedule repair is supported by host and P4 evidence;
+no WER improvement, ordinary-use reliability gain or fully qualified firmware
+replacement is claimed. Application qualification remains incomplete. The next
+step is numeric teardown-phase/heap-integrity instrumentation, not more unchanged
+retries or promotion of this image. Direct-ring overwrite concurrency is a
+separate remaining audit.
+
+After both interrupted blocks, the owned SD fixture was removed and the original
+7,426,048-byte app slot restored/full-slot-verified. Final healthy original-app
+probe: 6,230,016 B LittleFS free, logging inactive, PDM preferred, speaker model
+header/footer unchanged, zero new watchdog/fatal markers. No unqualified image
+is left installed. Future playback remains 50%; these tests were silent.
 
 ## Technical recordings and pending work
 

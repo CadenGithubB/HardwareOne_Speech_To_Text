@@ -1,0 +1,288 @@
+diff --git a/components/hardwareone/System_STT.cpp b/components/hardwareone/System_STT.cpp
+index ae7d9a71..da1106aa 100644
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -24,6 +24,9 @@
+ #include <algorithm>
+ #ifdef ESP_PLATFORM
+ #include "esp_log.h"
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++#include "esp_timer.h"
++#endif
+ #endif
+ #include <cmath>
+ #include <cstring>
+@@ -771,6 +774,25 @@ struct StreamRun {
+ #endif
+ #endif
+ };
++#if HW1_STT_CAPTURE_FEATURES && HW1_STT_SPEAKER_DIAGNOSTICS
++// Synthetic known-input probe only. Normal runs never match this identity.
++static StreamRun* gFeatureProbeRun = nullptr;
++static bool gFeatureProbePause = false, gFeatureProbePaused = false, gFeatureProbeResume = false;
++static void sttFeatureProbeGate(StreamRun& run) {
++  portENTER_CRITICAL(&gSTTMux);
++  const bool pause = gFeatureProbeRun == &run && gFeatureProbePause;
++  if (pause) gFeatureProbePaused = true;
++  portEXIT_CRITICAL(&gSTTMux);
++  if (!pause) return;
++  for (;;) {
++    portENTER_CRITICAL(&gSTTMux);
++    const bool resume = gFeatureProbeResume;
++    portEXIT_CRITICAL(&gSTTMux);
++    if (resume) break;
++    vTaskDelay(1);
++  }
++}
++#endif
+ // Timeline level samples: written by the capture task under gSTTMux, printed
+ // by the STT worker (never by the real-time capture task).
+ #ifdef ESP_PLATFORM
+@@ -1132,6 +1154,9 @@ static void sttFeatureWorker(void* context) {
+                     kFeBatchRows * kFeRowFloats * sizeof(float));
+       float* const pending = run.feWork->conditioned;
+       bool computed = safe;
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++      sttFeatureProbeGate(run);
++#endif
+       if (safe)
+         for (size_t r = done; r < end; ++r)
+           if (hw1::stt::log_mel_frame_ring(run.feRing, kFeRingSamples - 1, start, len, r,
+@@ -1162,6 +1187,9 @@ static void sttFeatureWorker(void* context) {
+   portEXIT_CRITICAL(&gSTTMux);
+   vTaskDelete(nullptr);
+ }
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++#include "stt/feature_ownership_reference.h"
++#endif
+ // Capture task, per block: copy PCM into the stream ring (before the
+ // segmenter sees it) ...
+ static void sttFeatureRingWrite(StreamRun& run, int16_t* ring, const int16_t* block, size_t count) {
+@@ -1653,6 +1681,9 @@ static void sttFeatureStop(StreamRun& run) {
+   for (auto& c : run.fe)
+     if (c.rows) { sttWipe(c.rows, kFeMaxRows * kFeRowFloats * sizeof(float)); free(c.rows); c.rows = nullptr; }
+ }
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++#include "stt/feature_ownership_probe.h"
++#endif
+ #endif
+ #if HW1_STT_SPEAKER_LABELS
+ static void sttStartSpeakers(STTLocalSession& backendSession, STTToken token,
+@@ -2493,6 +2524,17 @@ static void sttContinuousWorker(void*) {
+ 
+ } // namespace
+ 
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++extern "C" bool hw1_stt_feature_ownership_probe(const int16_t* pcm, size_t samples) {
++#if HW1_STT_CAPTURE_FEATURES
++  return sttFeatureOwnershipProbe(pcm, samples);
++#else
++  (void)pcm; (void)samples;
++  return false;
++#endif
++}
++#endif
++
+ static bool sttBeginMode(STTOwner owner, uint32_t captureMs, bool continuous,
+                          STTToken* token, char* error, size_t errorCap,
+                          const TranscriptOptions* suppliedOptions = nullptr,
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index 402a24f3..a44bc774 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -34,6 +34,9 @@ using hw1::stt::sttPsramFree;
+ #include "stt/stt_lm.h"
+ #include <algorithm>
+ #endif
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++extern "C" bool hw1_stt_feature_ownership_probe(const int16_t*, size_t);
++#endif
+ namespace {
+ // Selection pairs the fixed path with its generated, SHA-pinned identity.
+ // Explicit path overrides remain available to standalone deployment experiments.
+@@ -406,6 +409,10 @@ float speakerFixtureCosine(SpeakerState& s) {
+     }
+     if(cos>-2.0f && !gSpeakerFixture) { gSpeakerFixture=buf; gSpeakerFixtureBytes=bytes; buf=nullptr; }
+     heap_caps_free(buf);
++    if(gSpeakerFixture) {
++        uint32_t n=0;memcpy(&n,gSpeakerFixture,4);
++        (void)hw1_stt_feature_ownership_probe(reinterpret_cast<const int16_t*>(gSpeakerFixture+8),n);
++    }
+     return cos;
+ }
+ #endif
+diff --git a/components/hardwareone/stt/feature_ownership_probe.h b/components/hardwareone/stt/feature_ownership_probe.h
+new file mode 100644
+index 00000000..562f2810
+--- /dev/null
++++ b/components/hardwareone/stt/feature_ownership_probe.h
+@@ -0,0 +1,109 @@
++#pragma once
++// Temporary known-input probe, called before normal capture/feature workers.
++// Uses real feature tasks at their original priority/core/3072-byte stack.
++static bool sttFeatureOwnershipProbe(const int16_t* pcm, size_t samples) {
++  if (!pcm || samples < 1280 || samples > kFeRingSamples - kStreamReadSamples || samples > kStreamSamples) {
++    ESP_LOGE("STT", "TL feown_done ok=0 cases=0 end");
++    return false;
++  }
++  bool all = true;
++  unsigned cases = 0;
++  for (unsigned mode = 0; mode < 2; ++mode) {
++    for (unsigned kind = 0; kind < 3; ++kind) {
++      const int64_t begin = esp_timer_get_time();
++      auto* memory = ps_alloc(sizeof(StreamRun), AllocPref::RequirePSRAM, "stt.fe_probe");
++      StreamRun* run = memory ? new(memory) StreamRun : nullptr;
++      auto* compare = static_cast<hw1::stt::FrontendWorkspace*>(ps_alloc(sizeof(hw1::stt::FrontendWorkspace), AllocPref::RequirePSRAM, "stt.fe_probe"));
++      bool ok = run && compare;
++      size_t nonzero = 0, equal = 0, committed = 0, stackFree = 0;
++      if (run) {
++        run->feRing = static_cast<int16_t*>(ps_alloc(kFeRingSamples * sizeof(int16_t), AllocPref::RequirePSRAM, "stt.fe_probe"));
++        run->feWork = static_cast<hw1::stt::FrontendWorkspace*>(ps_alloc(sizeof(*run->feWork), AllocPref::RequirePSRAM, "stt.fe_probe"));
++        run->fe[0].rows = static_cast<float*>(ps_alloc(kFeMaxRows * kFeRowFloats * sizeof(float), AllocPref::RequirePSRAM, "stt.fe_probe"));
++        ok = ok && run->feRing && run->feWork && run->fe[0].rows;
++      }
++      if (ok) {
++        memset(run->feRing, 0, kFeRingSamples * sizeof(int16_t));
++        memset(run->feWork, 0, sizeof(*run->feWork));
++        memset(compare, 0, sizeof(*compare));
++        memset(run->fe[0].rows, 0, kFeMaxRows * kFeRowFloats * sizeof(float));
++        constexpr uint64_t start = 65520; // Exercise a physical ring wrap.
++        for (size_t i = 0; i < samples; ++i) run->feRing[(start + i) & (kFeRingSamples - 1)] = pcm[i];
++        run->fe[0].start = start; run->fe[0].gen = 13; run->fe[0].state = FeState::Live;
++        run->feLive = 0; run->feLiveLen = samples; run->feRingHead = start + samples;
++        run->feRingStart = start; run->feRingStarted = true;
++        portENTER_CRITICAL(&gSTTMux);
++        gFeatureProbeRun = run; gFeatureProbePause = kind != 0;
++        gFeatureProbePaused = false; gFeatureProbeResume = false;
++        run->feRunning = true;
++        portEXIT_CRITICAL(&gSTTMux);
++        const auto worker = mode ? sttFeatureWorker : sttFeatureWorkerReference;
++        if (xTaskCreatePinnedToCore(worker, "stt_fe_probe", kFeStackBytes, run, 1, &run->feTask, 0) != pdPASS) {
++          run->feRunning = false;
++          ok = false;
++        } else {
++          xTaskNotifyGive(run->feTask);
++          bool ready = false;
++          const int64_t deadline = esp_timer_get_time() + 10000000;
++          while (esp_timer_get_time() < deadline) {
++            portENTER_CRITICAL(&gSTTMux);
++            ready = kind ? gFeatureProbePaused : run->fe[0].frames == samples / 160;
++            portEXIT_CRITICAL(&gSTTMux);
++            if (ready) break;
++            vTaskDelay(1);
++          }
++          ok = ready;
++          // Task cannot delete itself until feStop: the handle is still live.
++          stackFree = uxTaskGetStackHighWaterMark(run->feTask);
++          ok = ok && stackFree > 128;
++          if (kind == 0 && ready) {
++            float expected[kFeRowFloats];
++            for (size_t r = 0; r < samples / 160; ++r) {
++              const bool computed = hw1::stt::log_mel_frame_ring(run->feRing, kFeRingSamples - 1, start, samples, r, expected, compare) == hw1::stt::Status::Ok;
++              if (computed && !memcmp(expected, run->fe[0].rows + r * kFeRowFloats, sizeof(expected))) ++equal;
++            }
++            ok = ok && equal == samples / 160;
++          } else if (kind && ready) {
++            portENTER_CRITICAL(&gSTTMux);
++            run->fe[0].state = kind == 1 ? FeState::Orphan : FeState::Attached;
++            run->feLive = -1;
++            portEXIT_CRITICAL(&gSTTMux);
++            if (kind == 1) sttFeatureRetireOrphans(*run);
++            else sttFeatureRelease(*run, 0, 13);
++          }
++          // Unblock a paused batch, then join without freeing its storage.
++          portENTER_CRITICAL(&gSTTMux);
++          gFeatureProbeResume = true;
++          run->feStop = true;
++          portEXIT_CRITICAL(&gSTTMux);
++          for (;;) {
++            portENTER_CRITICAL(&gSTTMux);
++            const bool running = run->feRunning;
++            portEXIT_CRITICAL(&gSTTMux);
++            if (!running) break;
++            vTaskDelay(1);
++          }
++          committed = run->fe[0].frames;
++          for (size_t i = 0; i < kFeMaxRows * kFeRowFloats; ++i) nonzero += run->fe[0].rows[i] != 0;
++          if (kind) ok = ok && committed == 0 && run->fe[0].state == FeState::Free && run->fe[0].gen == 14 && (mode ? nonzero == 0 : nonzero > 0);
++          else ok = ok && committed == samples / 160 && run->feOverruns == 0;
++        }
++      }
++      portENTER_CRITICAL(&gSTTMux);
++      gFeatureProbeResume = true;
++      portEXIT_CRITICAL(&gSTTMux);
++      if (run) sttFeatureStop(*run); // Original stop/join/wipe/free path.
++      portENTER_CRITICAL(&gSTTMux);
++      gFeatureProbeRun = nullptr; gFeatureProbePause = false;
++      portEXIT_CRITICAL(&gSTTMux);
++      if (run) { run->~StreamRun(); free(run); }
++      if (compare) { sttWipe(compare, sizeof(*compare)); free(compare); }
++      all = all && ok; ++cases;
++      ESP_LOGI("STT", "TL feown_case mode=%u kind=%u ok=%u rows=%u nonzero=%u equal=%u stack_free=%u ms=%lu end",
++               mode, kind, unsigned(ok), unsigned(committed), unsigned(nonzero), unsigned(equal), unsigned(stackFree), (unsigned long)((esp_timer_get_time() - begin) / 1000));
++      vTaskDelay(2); // Allow idle-task TCB/stack reclamation between cases.
++    }
++  }
++  ESP_LOGI("STT", "TL feown_done ok=%u cases=%u samples=%u stack_bytes=%u end", unsigned(all), cases, unsigned(samples), unsigned(kFeStackBytes));
++  return all;
++}
+diff --git a/components/hardwareone/stt/feature_ownership_reference.h b/components/hardwareone/stt/feature_ownership_reference.h
+new file mode 100644
+index 00000000..85f1dbcc
+--- /dev/null
++++ b/components/hardwareone/stt/feature_ownership_reference.h
+@@ -0,0 +1,54 @@
++// Diagnostic-only positive control: original aa6508fd feature worker.
++static void sttFeatureWorkerReference(void* context) {
++  auto& run = *static_cast<StreamRun*>(context);
++  bool stop = false;
++  while (!stop) {
++    (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
++    for (;;) {
++      int idx = -1;
++      uint32_t gen = 0;
++      uint64_t start = 0, head = 0;
++      size_t done = 0, len = 0;
++      portENTER_CRITICAL(&gSTTMux);
++      stop = run.feStop;
++      if (run.feLive >= 0 && run.fe[run.feLive].state == FeState::Live && !run.fe[run.feLive].overrun) {
++        idx = run.feLive;
++        gen = run.fe[idx].gen; start = run.fe[idx].start; done = run.fe[idx].frames;
++        len = run.feLiveLen;
++      }
++      head = run.feRingHead;
++      portEXIT_CRITICAL(&gSTTMux);
++      if (stop || idx < 0) break;
++      const size_t stable = len >= 320 ? std::min(len / 160, kFeMaxRows) : 0;
++      if (done >= stable) break;
++      const size_t end = std::min(stable, done + kFeBatchRows);
++      // Oldest sample this batch reads (row r: [r*160-161, r*160+160)).
++      const uint64_t lo = start + (done * 160 > 161 ? done * 160 - 161 : 0);
++      const bool safe = lo + kFeRingSamples >= head + kStreamReadSamples;
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++      sttFeatureProbeGate(run);
++#endif
++      if (safe)
++        for (size_t r = done; r < end; ++r)
++          (void)hw1::stt::log_mel_frame_ring(run.feRing, kFeRingSamples - 1, start, len, r,
++                                             run.fe[idx].rows + r * kFeRowFloats, run.feWork);
++      portENTER_CRITICAL(&gSTTMux);
++      FeCache& c = run.fe[idx];
++      if (c.gen == gen && c.state == FeState::Live) {
++        // The capture task writes at most one block past the published head.
++        if (safe && lo + kFeRingSamples >= run.feRingHead + kStreamReadSamples) {
++          c.frames = end;
++          run.feRowsComputed += static_cast<uint32_t>(end - done);
++        } else {
++          c.overrun = true;
++          ++run.feOverruns;
++        }
++      }
++      portEXIT_CRITICAL(&gSTTMux);
++    }
++  }
++  portENTER_CRITICAL(&gSTTMux);
++  run.feRunning = false;
++  portEXIT_CRITICAL(&gSTTMux);
++  vTaskDelete(nullptr);
++}

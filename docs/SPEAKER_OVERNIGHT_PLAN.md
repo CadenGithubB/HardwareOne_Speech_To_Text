@@ -131,14 +131,47 @@ improvement. Headroom observations match; no reported watchdogs/overruns/fatal
 markers. Candidate rejected for promotion. Fixture removed, original app restored
 and full-slot-verified, final probe LittleFS free 6,422,528 B/logging off/PDM.
 
-Next bounded ownership audit: HardwareOne System_STT.cpp's feature worker writes
-rows outside gSTTMux, while sttFeatureRetireOrphans/sttFeatureRelease wipe those
-rows outside that lock. A source-level race is suspected, not reproduced or tied
-to the historical allocator faults. Extract the real worker/retirement code with
-host lock/task stubs and a barrier around the real log_mel_frame_ring call;
-run ThreadSanitizer before proposing a fix. Standalone StreamPipeline instead
-computes a private row and commits it under its lock. Keep physical ring access
-and committed-prefix ownership separate in any conclusion.
+Completed ownership audit: the actual HardwareOne writer and retirement paths
+reproduced late cache writes in host tests. Both old orphan/attached paths leave
+512 nonzero values in logically free (still allocated) cache storage; both race
+under ThreadSanitizer. Normal fix 3fff3013 stages batches in existing conditioned
+scratch, then copies/publishes under the generation/state lock. Candidate host
+paths are race-free in this test, preserve normal rows and reject an injected
+DSP failure without publishing. Shared DSP alias tests: 15 cases / 1,251 rows.
+
+P4 diagnostic ebe29cdf used real tasks at the original core/priority/3,072-byte
+stack. Seven boots ran 42 forced cases, all checks passed before shutdown;
+both versions match 1,946 normal rows each and stack headroom 2,624–2,628 B.
+Old late cases leave 512 values; repaired cases leave zero. However only five
+lifecycles completed (one smoke + four matrix). Two additional matrix/replacement
+attempts failed after normal STT stop: reset 0x7 HP_SYS_HP_WDT_RESET; then CPU0
+load-access fault, MCAUSE 5, MEPC 0x4ff37390 inside tlsf_malloc, MTVAL 0x0029607c.
+Both real capture feature counts and speaker jobs were zero in those failures.
+The planned five-clean-matrix requirement is incomplete. Unchanged retries
+stopped; this is not a fully qualified application update or a measured WER gain.
+Both blocks restored/full-slot-verified the original app and removed owned
+fixtures. Last healthy original-app probe: 6,230,016 B LittleFS/logging off/PDM,
+model header/footer unchanged, no new watchdog/fatal markers.
+
+Next priority: instrument teardown phases and heap integrity around speaker
+model destruction, work/centroid/job/blob release, backend reset, audio-buffer
+freeing, completion publication and task reclamation. The last available summary
+is spk_end (worker joined, model not yet destroyed). Neither a watchdog with no
+panic record nor the later allocation fault identifies where the invalid state starts.
+Separate ordinary teardown from load-time self-test/fixture and synthetic-task
+workloads in controlled diagnostics, with logs retained. Keep both failed
+attempts, test source/conditions and matching ELF. Do not call
+the new ownership fix the cause or cure of these shutdown faults. The harness
+now checks resets during command/next/ack/stop/status and stores failure records;
+its replacement trial proved fast detection rather than stale-token retries.
+
+Separate remaining concurrency audit: the HardwareOne feature worker still
+reads the live ring outside the producer's lock. Force a wrap/overwrite schedule
+with the actual ring writer before deciding if another fix is needed. The
+portable pipeline already copies a stable private window. A 512-sample snapshot
+would use 1,024 bytes of the existing task stack; measure actual high-water and
+critical-section cost, retain batch/cadence settings and prove feature equality
+before any promotion. Do not conflate this question with cache-row retirement.
 
 Next traffic measurement: the local IDF 5.5.5 hw_ver3 cache_reg.h exposes L1
 DBUS0/1 access counters. The designated chip reports revision v3.2, and the
@@ -154,10 +187,12 @@ explicit 75 and remain unchanged. This default does not start playback or set
 volume; it prevents future default invocations from expecting an obsolete level.
 
 Build continuity: the active local HardwareOne source is
-`codex/stt-ab-pointwise` at c6252b6e. Its prepared SDK override uses patch SHA
-710aa9beda822bf9c1844d292ad323ccab179198d4885f0bcccef9ba9b59f2f7 and tree SHA
-38fe78ed779f143dc413a7947b6c59b006abccd25d6d5ff62946be2a7df09ed1.
-After switching source branches, verify/restage the matching reviewed SDK rather
-than building against that experimental override silently. The original SDK
-patch remains preserved by Git; selected matching app/debug/source evidence is
-already archived privately. Keep the owned profile build only while still used.
+`codex/stt-ab-feature-ownership` at ebe29cdf; 3fff3013 is the normal two-file
+repair. The prepared SDK was restored and verified to the original reviewed
+patch SHA 0dc9782643ce3d2332b2c4a54624fce27150736314d065b48b55d5cf2a54d593
+and tree SHA b217d41df9f399d7958496ae62f075cfbc8adecd222f9fe9c03064a452ddcd2c.
+The pointwise experimental SDK is not active. Selected matching normal-fix and
+probe app/debug/source artifacts are archived privately. The same owned profile
+build stays active for teardown diagnostics; do not silently mix SDK/source
+branches. An extra replacement script was prepared but not run after the second
+shutdown fault, then removed as unused temporary work.

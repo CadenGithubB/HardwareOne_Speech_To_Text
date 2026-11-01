@@ -225,3 +225,14 @@ measured headroom matches and the original app is restored. The next bounded
 code audit concerns feature-row writer/retirement ownership; the next profiling
 gap is actual cache/bus behavior. Neither has a reproduced result yet. No tile,
 model, production cadence or CPU/RAM timing change is proposed from this result.
+
+
+A confirmed cache-row ownership repair is now prepared (HardwareOne 3fff3013):
+private staging in existing workspace plus locked generation-checked batch
+publication. Host race controls and 42 forced P4 checks support the narrow fix;
+normal features remain byte-identical with no new workspace allocation and no
+measured stack-headroom change. This is not an application qualification:
+two shutdown faults remain in seven diagnostic boots (one watchdog reset, one
+core-0 heap-allocation load-access fault). The next priority is instrumenting
+teardown and heap integrity, with all failures retained. Direct-ring concurrency
+and cache/PSRAM traffic remain separate gaps. The original app is restored.

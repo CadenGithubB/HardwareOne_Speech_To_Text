@@ -40,6 +40,11 @@ Status log_mel_frame(const int16_t* pcm, size_t samples, size_t frame, float* ou
 // (ring_mask + 1 a power of two): the stream ring of the capture pipeline.
 Status log_mel_frame_ring(const int16_t* ring, size_t ring_mask, uint64_t start, size_t samples,
                           size_t frame, float* out64, FrontendWorkspace* workspace);
+// These two incremental row routines leave workspace->conditioned untouched
+// except when explicitly used as their output. Its 512 floats may therefore
+// stage up to eight 64-bin rows on the workspace's single owning thread.
+// No other workspace field may alias output; compute_features uses conditioned
+// itself and does not permit this alias. Commit staged rows before its reuse.
 // compute_features' per-utterance CMVN over finished rows, in place.
 Status normalize_features(float* output, size_t frames, FrontendWorkspace* workspace,
                           FrontendTiming* timing=nullptr);

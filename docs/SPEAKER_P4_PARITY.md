@@ -109,7 +109,8 @@ It then warms each implementation eight times and measures ten alternating
 pairs of three computations. Both use the same PSRAM scratch and output
 addresses; allocation, comparisons, logging and the between-pair task delay
 are outside timing. All temporary benchmark allocations are freed before
-normal capture starts. This adds diagnostic work at load and must not be used
+the normal capture-feature pool and speaker worker start. Background PDM capture
+is already active during the fixture diagnostic. This adds diagnostic work at load and must not be used
 to measure normal load time or overall application RAM.
 
 Run the existing parity lifecycle for five independent boots, keeping all raw
