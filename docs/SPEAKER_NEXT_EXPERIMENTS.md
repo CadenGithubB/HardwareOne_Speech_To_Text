@@ -263,3 +263,16 @@ is close on audited speech; full device quantization parity remains open.
 Neither selector passes development validation, so the newly frozen final
 speaker partition remains unscored and HardwareOne integration has not begun.
 No other roadmap approach is claimed complete by this experiment.
+
+
+## Target-path and exact-input checkpoint
+
+The following [P4 diagnostic round](SPEAKER_P4_PARITY.md) measured five fixed
+inputs across 25 reboots and captured four exact microphone inputs. Results are
+in AB_TEST_RESULTS.md: target numerical differences can flip a borderline match,
+and microphone-channel changes do not uniformly reduce same-speaker similarity.
+The replay now respects retained speaker sample counts. Actual failure-case PCM
+and broader target evaluation remain gaps; timestamp projections alone cannot
+establish a bad cut. The [overnight queue](SPEAKER_OVERNIGHT_PLAN.md) adds code-only
+correctness/performance work with unchanged models/settings/clocks. No selector
+or speaker rule is qualified by these diagnostics.

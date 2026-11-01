@@ -7,7 +7,8 @@ clusterer, to separate limits of the model and voices from the device's playback
 Segments: by default every playlist clip is one phrase (perfect segmentation), cut with the device's 300 ms
 pre-roll and 500 ms trimmed tail (--pre-ms, --tail-ms), whose length also counts toward the new-speaker
 minimum. With --session, the phrases the device actually clustered (TL spk label lines, in sequence order)
-are cut at their played spans (analysis.json span_play_s) and given the device's logged phrase length.
+start at their captured played-span start, end after the logged speaker sample count
+(retained prefix after tail trimming), and retain that count for clustering.
 Audio comes from the manifest's wav (or --wav), resampled to 16 kHz int16 as the device receives it.
 
 Embeddings: tools/stt_p4/speaker export_speaker.feats_for (the device front end's centre crop and
@@ -136,6 +137,20 @@ class Clusterer:
         return results
 
 
+def session_span(row):
+    """Speaker input is the captured prefix of phraseSamples, before center crop.
+
+    TL seg a0/a1 describe capture; sttSpeakerSubmit receives retainedSamples
+    after tail trimming. Do not embed the discarded captured tail.
+    """
+    a,b=row['span_play_s'];n=row.get('samples')
+    if not isinstance(n,int) or n<=0 or b<=a:
+        raise ValueError('invalid speaker input length/span')
+    if n>round((b-a)*SR)+16:  # logged millisecond positions can round by one ms
+        raise ValueError('speaker input exceeds captured span')
+    return (a,a+n/SR)
+
+
 def segments(man, session, min_new, pre, tail):
     """Phrases to replay, in order, and how many device label lines could not be cut."""
     if session is None:
@@ -146,7 +161,8 @@ def segments(man, session, min_new, pre, tail):
     rows = [r for r in rows if r['pipeline'] == 'labelled']
     keep = [r for r in rows if r.get('span_play_s')]
     return [{'id': r['seq'], 'clips': r['clips'], 'ref': r['ref'], 'mixed': r['mixed'], 'device': r,
-             'span': tuple(r['span_play_s']), 'samples': r['samples']} for r in keep], len(rows) - len(keep)
+             'span': session_span(r), 'captured_span': tuple(r['span_play_s']),
+             'samples': r['samples']} for r in keep], len(rows) - len(keep)
 
 
 def score(segs, assigns):
@@ -249,6 +265,12 @@ def replay(manifest, session=None, wav=None, thresholds=None, min_new=32000, pre
            'session': str(session) if session else None, 'phrases': len(segs), 'min_new_samples': min_new,
            'warnings': warnings, 'similarity': pair_similarity(segs, embs, thresholds[0]),
            'first_phrases': first_phrases(segs, embs, min_new), 'thresholds': {}}
+    if session:
+        removed=[max(0,(s['captured_span'][1]-s['span'][1])*1000) for s in segs]
+        out['session_input']={'span_source':'speaker_samples',
+            'tail_trimmed_phrases':sum(v>1 for v in removed),
+            'removed_tail_ms_total':round(sum(removed),3),
+            'removed_tail_ms_max':round(max(removed,default=0),3)}
     with tempfile.TemporaryDirectory(prefix='spkreplay-') as tmp:
         clusterer = Clusterer(tmp)
         for th in thresholds:

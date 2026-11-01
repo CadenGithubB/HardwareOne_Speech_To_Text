@@ -1,0 +1,122 @@
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index ae77a922..59b9ecfc 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -5,6 +5,10 @@
+ #include <new>
+ #if defined(CONFIG_IDF_TARGET_ESP32P4)
+ #include "System_VFS.h"
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++#include "System_Mutex.h"
++#include "mbedtls/sha256.h"
++#endif
+ #include "stt/quartznet_runtime.h"
+ #include "stt/stt_model_selection.h"
+ #include "esp_log.h"
+@@ -351,7 +355,7 @@ bool readFully(File& file,uint8_t* dest,size_t bytes) {
+     return true;
+ }
+ constexpr const char* kSpeakerPath="/sd/STT Models/speaker.spk";
+-constexpr const char* kSpeakerFixturePath="/sd/STT Models/speaker_fixture.bin";
++constexpr const char* kSpeakerFixturePath="/sd/STT Models/codex_speaker_parity.bin";
+ constexpr size_t kSpeakerMaxBytes=16u<<20, kSpeakerArenaEstimate=1u<<20, kSpeakerKeepFree=3u<<20;
+ // Diagnostics: the fixture (PCM + the Mac's embedding) kept in PSRAM, re-embedded before every background
+ // job: a cosine below ~0.99 during a session means the trunk's result was corrupted (e.g. PIE state across a
+@@ -385,6 +389,23 @@ float speakerFixtureCosine(SpeakerState& s) {
+             double dot=0,a=0,b=0;
+             for(size_t i=0;i<dim;++i) { dot+=double(s.embedding[i])*want[i]; a+=double(s.embedding[i])*s.embedding[i]; b+=double(want[i])*want[i]; }
+             cos=a>0 && b>0 ? float(dot/std::sqrt(a*b)) : -3.0f;
++            // Diagnostic-only known-PCM vector, in bounded numeric chunks.
++            // This lets the host measure quantization separately from mic,
++            // playback and phrase-boundary differences. Never enabled normally.
++            if(cos>-2.0f && a>0) {
++                const double inv=1.0/std::sqrt(a);
++                ESP_LOGI("STT","TL spk_fixture_dim n=%lu",(unsigned long)dim);
++                for(size_t start=0;start<dim;start+=8) {
++                    char values[384];size_t used=0;
++                    for(size_t j=start;j<std::min(start+8,size_t(dim));++j) {
++                        const int n=snprintf(values+used,sizeof(values)-used,"%s%.9g",
++                                             j==start ? "" : " ",double(s.embedding[j])*inv);
++                        if(n<0 || size_t(n)>=sizeof(values)-used) { used=0;break; }
++                        used+=size_t(n);
++                    }
++                    if(used)ESP_LOGI("STT","TL spk_fixture_part i=%u v=%s end",unsigned(start),values);
++                }
++            }
+         }
+     }
+     if(cos>-2.0f && !gSpeakerFixture) { gSpeakerFixture=buf; gSpeakerFixtureBytes=bytes; buf=nullptr; }
+@@ -410,6 +431,50 @@ void speakerPostLabel(SpeakerState& s,uint32_t seq,int8_t speaker) {
+     if(!s.labels || xQueueSend(s.labels,&m,0)!=pdTRUE)
+         ESP_LOGW("STT","TL spk_result_lost seq=%lu spk=%d",(unsigned long)seq,int(speaker));
+ }
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++// Bounded, explicitly armed test capture only. An authenticated host exclusively
++// creates each 32-byte nonce/sequence arm file first. Never create a file here,
++// never overwrite a completed capture, and never write the model directory.
++void speakerCapturePcm(const SpeakerState& s,const SpeakerJob& job,const int16_t* pcm) {
++    if(job.seq<1 || job.seq>6 || !pcm || !job.samples || job.samples>47840 || s.model.info().dim>1024)return;
++    char path[96];snprintf(path,sizeof(path),"/sd/logging_captures/codex_spk_pcm_%lu.bin",(unsigned long)job.seq);
++    const auto auth=VFS::systemAuth(VFS::captureScopeFor(String(path)),"stt.speaker_pcm_diagnostic");
++    FsLockGuard lock("stt.speaker_pcm_diagnostic",pdMS_TO_TICKS(100));
++    if((!lock.held && !isFsLockedByCurrentTask()) || !VFS::isSDWritable())return;
++    File armFile=VFS::openGuarded(path,"r",auth);
++    if(!armFile || armFile.isDirectory() || armFile.size()!=32)return;
++    uint8_t arm[32]={};const bool read=readFully(armFile,arm,sizeof(arm));armFile.close();
++    uint32_t seq=0,limit=0;memcpy(&seq,arm+24,4);memcpy(&limit,arm+28,4);
++    uint8_t nonce=0;for(size_t i=8;i<24;++i)nonce|=arm[i];
++    if(!read || memcmp(arm,"SPKARM1",8) || !nonce || seq!=job.seq || limit!=47840)return;
++    if(!VFS::canWriteGuarded(path,auth))return;
++    // The lock spans the arm check and write. Only the pre-existing armed file
++    // can change; an interrupted output is retained for host-side inspection.
++    File f=VFS::openGuarded(path,"w",auth,false);
++    if(!f)return;
++    uint8_t header[40];memcpy(header,"SPKPCM1",8);memcpy(header+8,arm+8,16);
++    const uint32_t fields[4]={job.seq,job.phraseSamples,job.samples,uint32_t(s.model.info().dim)};
++    memcpy(header+24,fields,sizeof(fields));
++    const size_t pcmBytes=size_t(job.samples)*2,embeddingBytes=size_t(fields[3])*4;
++    uint8_t digest[32];mbedtls_sha256_context hash;mbedtls_sha256_init(&hash);
++    bool hashOk=mbedtls_sha256_starts(&hash,0)==0;
++    if(hashOk)hashOk=mbedtls_sha256_update(&hash,header,sizeof(header))==0;
++    if(hashOk)hashOk=mbedtls_sha256_update(&hash,reinterpret_cast<const uint8_t*>(pcm),pcmBytes)==0;
++    if(hashOk)hashOk=mbedtls_sha256_update(&hash,reinterpret_cast<const uint8_t*>(s.embedding),embeddingBytes)==0;
++    if(hashOk)hashOk=mbedtls_sha256_finish(&hash,digest)==0;
++    mbedtls_sha256_free(&hash);
++    const int64_t start=esp_timer_get_time();
++    bool ok=hashOk && f.write(header,sizeof(header))==sizeof(header);
++    if(ok)ok=f.write(reinterpret_cast<const uint8_t*>(pcm),pcmBytes)==pcmBytes;
++    if(ok)ok=f.write(reinterpret_cast<const uint8_t*>(s.embedding),embeddingBytes)==embeddingBytes;
++    if(ok)ok=f.write(digest,sizeof(digest))==sizeof(digest);
++    f.flush();const size_t size=f.size();f.close();
++    ok=ok && size==sizeof(header)+pcmBytes+embeddingBytes+sizeof(digest);
++    ESP_LOGI("STT","TL spk_pcm seq=%lu ok=%d samples=%lu retained=%lu bytes=%u write_us=%lu",
++             (unsigned long)job.seq,ok?1:0,(unsigned long)job.samples,(unsigned long)job.phraseSamples,
++             unsigned(size),(unsigned long)(esp_timer_get_time()-start));
++}
++#endif
+ // One label: embed + cluster + the TL lines (spk: label; spkt: sections; spke: the unit embedding as int8 x127,
+ // base64, for offline threshold tuning on device voiceprints).
+ void speakerLabelAndLog(SpeakerState& s,const SpeakerJob& job,const int16_t* pcm) {
+@@ -458,6 +523,9 @@ void speakerLabelAndLog(SpeakerState& s,const SpeakerJob& job,const int16_t* pcm
+                  unsigned(dip),unsigned(module),unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)),
+                  unsigned(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)));
+     }
++    // Capture only after embedding, assignment and publication, never in the
++    // real-time microphone task. Diagnostic I/O is not a performance benchmark.
++    speakerCapturePcm(s,job,pcm);
+ #endif
+ }
+ void speakerTask(void* arg) {
+diff --git a/components/hardwareone/System_STTLocal.h b/components/hardwareone/System_STTLocal.h
+index fc226894..79a1869f 100644
+--- a/components/hardwareone/System_STTLocal.h
++++ b/components/hardwareone/System_STTLocal.h
+@@ -73,7 +73,7 @@ STTLocalCallBudget sttLocalCallBudget(size_t samples, const STTLocalSession* ses
+ // and every 16th job (TL spkfix), per-phrase voiceprints (TL spke), ESP-DL kernel
+ // binds (TL kbind) and per-layer internal-RAM dips (TL spkram). 1 to enable.
+ #ifndef HW1_STT_SPEAKER_DIAGNOSTICS
+-#define HW1_STT_SPEAKER_DIAGNOSTICS 0
++#define HW1_STT_SPEAKER_DIAGNOSTICS 1
+ #endif
+ struct STTSpeakerStatus {
+   bool ready = false;

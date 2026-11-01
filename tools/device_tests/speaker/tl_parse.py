@@ -36,6 +36,8 @@ def parse_line(text):
     t = clean(text)
     # loglink adds its own queue timestamp before the original ESP-IDF line.
     t = re.sub(r'^\[\d+\] (?=[IWEDV] \()', '', t)
+    # A pending CLI prompt can precede an otherwise intact ESP-IDF line.
+    t = re.sub(r'^\$ \[[^\]\r\n]{1,32}\] (?=[IWEDV] \()', '', t)
     out = {'tick': None, 'level': None, 'tag': None, 'msg': t, 'tl': None}
     m = LOG.match(t)
     if m:

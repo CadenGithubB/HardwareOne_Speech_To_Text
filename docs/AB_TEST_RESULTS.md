@@ -875,6 +875,256 @@ The final-test speaker partition is being preserved because neither development 
 
 Verification: the actual native selector and frontend passed AddressSanitizer/UndefinedBehaviorSanitizer bounds and finite-output cases; synthetic tests cover silence fallback, activity selection, trimming, deterministic disjoint partitions, exact store roots and bootstrap direction. Numerical float parity was measured separately. No real-time P4 or quantized-path qualification is implied. Raw audio, voiceprints, partitions and detailed numeric artifacts remain in ignored private storage.
 
+### Known-PCM P4 speaker parity and fresh baseline
+
+Following the offline window experiment, the original P4 app was verified over
+its complete 7,426,048-byte slot before additional testing. Its SHA-256 is
+`bc86107c5483d93225fef821c306686849786b1518f287ae5e2fafc8ba2231a8`.
+The actual SD model is 1,994,544 bytes (w8a16 trunk plus float projection head);
+its header reports threshold
+0.6000000238418579 and minimum new-speaker duration 2,000 ms. Header/footer
+bytes match the local export. No model file was written.
+
+A fresh original-firmware Conversation 1 run, session `20261031-192829_s1`,
+completed on onboard PDM at Mac volume 75%. The final analyser has 41 scored
+phrases: 41/41 correct and labelled, two clusters, zero unknowns, zero lost
+results; firmware submitted/labelled/skipped = 41/41/0. Median/maximum
+submit-to-label lag is 1,919/9,951 ms and median capture-end-to-label delay is
+3,057 ms. Alignment delta is 0 ms and median text similarity 0.91. There were
+zero reported overruns, watchdog warnings or fatal markers, and normal drain
+completed with zero pending results. This is one additional baseline run, not
+an improvement comparison or an ordinary-use reliability estimate.
+
+The analyser initially missed two complete segment log lines after a pending
+CLI prompt. `tl_parse.py` now removes that specific prompt only when a complete
+ESP log follows; a synthetic test also rejects ordinary prompts and JSON text.
+After re-analysis, the scored denominator is 41 rather than 39. Historical
+sessions and published historical scores were not regenerated.
+
+For the identical-PCM test, local HardwareOne diagnostic commits f91cd415 and
+0637d23f derive from aa6508fd. They enable existing probes, use a separately owned
+SD fixture and emit normalized embeddings; the model, speaker policy and audio
+algorithms are unchanged. The final diagnostic app is 6,029,744 bytes, SHA-256
+`d9fb82cdf20bc4e77e3f016956ff3e5da00ef6fa02e727e015a9cfbfebe312af`.
+Only the verified app partition at 0x10000 was flashed. This diagnostic has extra
+work and is not a performance candidate. Source patches and reproduction are
+in [SPEAKER_P4_PARITY.md](SPEAKER_P4_PARITY.md); source bundles, app images,
+PCM, vectors and logs remain private. No HardwareOne branch is pushed.
+
+The reference fixture contains 44,560 PCM samples and 512-dimensional vectors.
+Its original exported expected vector is host-simulated quantized, not float.
+The experiment recomputes the float reference using the unchanged checkpoint
+and verifies that its projection head equals the shipped model's head. Float
+versus simulated-quantized cosine is 0.996255194. Across five successful P4
+reboot trials, P4 versus float cosine is 0.992834856 and P4 versus simulated
+quantized is 0.996645133; all five emitted vectors agree exactly at logged
+precision (all ten pairwise reboot cosines = 1.0). These are same-input vector
+comparisons, not speaker accuracy. The P4/float comparison combines quantization
+with target frontend, pooling and kernel arithmetic; it does not isolate every
+source of numerical difference. The simulated-quantized reference is not a
+bit-exact P4 oracle.
+
+Two harness issues were corrected and excluded from successful-trial counts:
+requesting stop before normal warm/capture readiness caused one stop timeout;
+long vector log lines were truncated, sometimes leaving a parseable final
+number. The final format uses eight-value chunks with an explicit end marker,
+unit-norm validation, complete indices and agreement with the firmware cosine.
+The harness also awaits the load-summary line after the vector; that line can
+arrive later. Synthetic cases cover truncation, ANSI wrapping, missing chunks
+and delayed summary readiness. Two initial long-line runs stopped cleanly but
+their vectors are excluded; an interrupted next boot and the summary-race
+attempt are also excluded. Each recovery preserved the original rollback.
+
+Source inspection at aa6508fd shows continuous STT reads `audioReadPcm` directly.
+The normal microphone recording path additionally calls `micProcessForSource`
+and `applyMicAudioProcessing` (filtering, pre-emphasis, software gain/clipping).
+A recording from that path would therefore not be an identical STT-PCM capture.
+This source finding does not exclude lower-level PDM processing or quantify
+physical microphone/channel effects.
+
+The float checkpoint contains 1,437,078 parameters: 5,748,312 parameter bytes,
+plus 17,312 buffer bytes. These are tensor payloads, not a P4 runtime allocation
+measurement. The shipped mixed-precision file is 1,994,544 bytes. Existing normal
+P4 tests measured approximately 3.3 MB additional PSRAM with speaker support and
+1.7–2.1 s median speaker-label delay across standard-playlist sessions. There is
+no same-P4 float runtime/RAM benchmark; Mac timing cannot supply that comparison.
+
+| Fixed PCM input | Samples | Trials | P4 vs float cosine, min = median = max |
+| --- | ---: | ---: | ---: |
+| export_reference | 44560 | 5 | 0.992834856 |
+| session_seq1 | 56000 | 5 | 0.992231570 |
+| session_seq3 | 43840 | 5 | 0.988928869 |
+| clip0 | 64080 | 5 | 0.988936040 |
+| clip2 | 58400 | 5 | 0.990130057 |
+
+All 25 corrected trials completed with zero reported audio overruns, watchdog
+warnings and fatal markers. For each input all five emitted vectors match at
+logged precision (ten pairwise reboot cosines per input = 1.0). Five reboots of
+one input are repeatability trials, not five independent voices.
+
+| Speaker 7850 input pair | Mac float | P4, all five pairs | P4 minus float | P4 at/above 0.600 |
+| --- | ---: | ---: | ---: | ---: |
+| First-session captured-span excerpts, seq 1/3 | 0.564850450 | 0.574662089 | +0.009811639 | 0/5 |
+| Clean clips 0/2 | 0.605987318 | 0.595827872 | -0.010159446 | 0/5 |
+
+Findings: the captured-span pair stays below threshold on both paths; the P4
+increases its similarity. The clean-clip pair moves from just above threshold
+on Mac to just below it on P4. Thus the target path can flip a borderline
+single-anchor match, and signed similarity changes are not uniformly negative.
+This does not measure different-speaker overlap or establish a new threshold.
+The earlier corpus threshold/rule tradeoffs still prohibit declaring a lower
+threshold a qualified fix.
+
+The session diagnostic fixtures used 56,000/43,840 samples cut from captured
+spans; original firmware speaker inputs were 52,000/39,200 samples. They are
+identical-input Mac/P4 tests of those clean excerpts, not a reconstruction of
+original microphone PCM or its trimmed speaker input. The following boundary
+audit corrects that replay mismatch. The original device sequence 3 similarity
+was 0.558; the comparisons above cannot assign its remaining difference to the
+microphone, timing or numerical path individually.
+
+Each temporary SD fixture was owned, read-back verified and removed. LittleFS
+remained above 6,582,272 B during the successful trial measurements; final probe
+reported 6,569,984 B free, system file logging inactive and PDM preferred. The
+original complete app slot was restored and digest-verified again. Final model
+header/footer still matched the local export. No firmware improvement or
+window selector was left enabled.
+
+
+
+### Speaker boundary and exact-PCM audit
+
+The boundary audit found a replay reconstruction error: `TL seg` spans describe
+captured audio, but `sttSpeakerSubmit` receives `retainedSamples`, after optional
+tail trimming and before its center crop. Historical session replay embedded
+the longer captured span while using the shorter logged sample count only for
+clustering. `spkreplay.py` now embeds the retained prefix; synthetic cases cover
+that difference and reject lengths exceeding capture. `spkcuts.py` separately
+reports captured, retained and model-selected spans, including manifest-speaker
+mixing and coverage. Its speech envelopes are energy estimates, not phonetic
+annotations, and timestamps alone cannot prove a cut removed a phoneme.
+
+Six sessions were re-analysed/replayed in a separate private audit tree; original
+historical records were preserved. Conversation 3 recovers a previously missed
+segment (46 replayed phrases rather than 45). These corrected inputs supersede
+the interpretation of historical session replay as exact speaker-span replay;
+old numeric tables remain historical results for their actual longer inputs.
+Historical clean/corpus rule comparisons and their no-qualified-candidate
+conclusion are not changed by this session-only reconstruction fix.
+
+| Session | Corrected phrases | Trimmed captured tails | Accuracy / coverage % | Labelled accuracy % | Device decisions agreeing | First divergence seq | Mixed selected model windows |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 20261031-162708_s1 | 41 | 21 | 65.9 / 68.3 | 96.4 | 38 | 13 | 0 |
+| 20261031-164427_s1 | 41 | 21 | 65.9 / 68.3 | 96.4 | 29 | 4 | 0 |
+| 20261031-163129_s1 | 39 | 17 | 94.9 / 94.9 | 100.0 | 23 | 3 | 0 |
+| 20261031-163552_s1 | 46 | 27 | 84.4 / 93.3 | 90.5 | 41 | 9 | 1 |
+| 20261031-164012_s1 | 33 | 14 | 97.0 / 97.0 | 100.0 | 30 | 5 | 0 |
+| 20261031-192829_s1 | 41 | 21 | 58.5 / 61.0 | 96.0 | 24 | 3 | 0 |
+
+The original Conversation 1 sequence 3 mapped model span is 20.399–22.849 s
+(39,200 samples), one manifest speaker, with no cross-turn mixing. The estimated
+speech envelope is 20.285–22.325 s, so the timestamp projection starts 114 ms
+after its estimated onset. The source interval is an energy envelope and the
+mapping has timing uncertainty; this does not establish a defective cut.
+Corrected clean float similarity to sequence 1 is about 0.552, versus the
+original device's 0.558. The fresh sequence 3 retained span is 20.034–22.744 s
+(43,360 samples); it contains the complete estimated envelope and correct clean
+float replay gives about 0.599, while the original-firmware device scored 0.656.
+These differences motivated capturing actual input rather than relying on
+projected clean spans.
+
+#### Bounded exact microphone-input capture
+
+Local diagnostic source 8692ce8d (based on aa6508fd plus the parity probes)
+writes only explicitly host-created, nonce-armed files for selected sequences.
+It captures the exact model-input PCM and raw FC vector after label publication,
+adds SHA-256, uses the guarded SD captures scope and filesystem lock, and never
+writes model assets or enables system file logging. The four writes took
+28,086 / 28,039 / 26,854 / 28,428 microseconds. This instrumentation is not a
+performance candidate. App size is 6,031,008 B, SHA-256
+`dfc9ca8cc825f18f3cebaa3d5486dbf094ded03e57143aa36bf723c12197350e`.
+Source is preserved in the private bundle and the reproducible source patch.
+
+Session `20261031-203539_s1` completed at 75% Mac volume on onboard PDM: 40/40
+scored phrases correctly labelled, two clusters, zero unknowns, zero reported
+overruns/watchdogs/fatal markers; submitted/labelled/skipped = 40/40/0, complete
+drain and zero pending results. All four packet checksums passed. The initial
+reader incorrectly expected unit vectors; the raw FC norms were 7.824417,
+7.389736, 7.887817 and 7.755696. The reader now accepts finite nonzero vectors;
+cosine consumers normalize. A synthetic case covers unnormalized vectors.
+Cleanup preserved the packets before removing every owned SD file, so no second
+playback was required to recover this reader error.
+
+Waveform alignment uses 100–3,500 Hz filtering and normalized correlation over
+a fixed ±1 s search, trimming 40 ms edges. The preselected confidence cutoff is
+0.25 and excludes search-edge peaks. Synthetic tests cover known delay, gain,
+polarity and silence. Sequences 1/2/3 match with correlations
+0.312668 / 0.339142 / 0.385382, and runner-up peaks outside ±50 ms are
+0.030976 / 0.028071 / 0.049577. All indicate polarity -1. Sequence 4's 0.215490
+peak is below the fixed cutoff; no aligned-clean embedding is reported for it.
+The four captured PCM inputs have zero clipped samples.
+
+For sequence 3, the waveform-matched model span is 19.9860625–22.8060625 s.
+Its estimated speech envelope is 20.285–22.325 s: approximately 299 ms before
+onset and 481 ms after the end, with no other manifest speaker. Sequence 1's
+matched span is 6.1984375–9.1884375 s, covering its 6.36–8.78 s envelope. This
+successful recording has no onset/end loss for either short reference clip.
+It cannot establish that the original unsuccessful recording had correct cuts,
+because that earlier microphone PCM was not saved. Console/alignment projections
+are measurably different from direct waveform alignment and must not be treated
+as exact audio timing.
+
+| Sequence | P4 vs Mac float, identical microphone PCM | Mac float microphone vs aligned-clean embedding |
+| --- | ---: | ---: |
+| 1 | 0.991661740 | 0.784096972 |
+| 2 | 0.994556282 | 0.861571972 |
+| 3 | 0.992436686 | 0.801331974 |
+| 4 | 0.996272265 | not reported: alignment below cutoff |
+
+| Pair seqs, reference IDs | P4 microphone similarity | Mac float microphone | Mac float aligned clean |
+| --- | ---: | ---: | ---: |
+| 1/2, 7850/6241 | 0.324255997 | 0.331406286 | 0.355396948 |
+| 1/3, 7850/7850 | 0.642508423 | 0.632405133 | 0.585196339 |
+| 1/4, 7850/6241 | 0.356948406 | 0.349950865 | not reported |
+| 2/3, 6241/7850 | 0.371403994 | 0.348822583 | 0.297536528 |
+| 2/4, 6241/6241 | 0.778283005 | 0.787568298 | not reported |
+| 3/4, 7850/6241 | 0.348380124 | 0.347769549 | not reported |
+
+Findings: the critical 7850 pair matches on P4 (0.642508) and Mac using identical
+microphone PCM (0.632405), but falls below 0.6 on the waveform-aligned clean
+reference (0.585196). The physical signal path substantially changes embeddings
+without uniformly reducing same-speaker similarity. P4/float numerical changes
+and signal-path changes must be measured separately. These four inputs/two
+reference IDs do not establish corpus-wide separation or a qualified fix.
+No captured evidence here supports the original sequence 3 spanning two turns;
+actual failure-case PCM remains necessary to establish missing-onset causation.
+
+All four owned files and the newly created empty capture directory were removed.
+The original entire app slot was restored and digest-verified. Final probe:
+6,520,832 B LittleFS free, logging inactive, PDM preferred, original model
+header/footer unchanged and no watchdog/fatal markers. The user subsequently
+requested 50% playback; Mac output was set and verified at 50%, unmuted. Future
+50% runs are a separate condition; they are not pooled with these 75% recordings.
+Overnight work continues silently under [SPEAKER_OVERNIGHT_PLAN.md](SPEAKER_OVERNIGHT_PLAN.md).
+
+### First code-only frontend candidate (host checkpoint)
+
+The standalone frontend now has a candidate that clears its frame buffer once
+per computation rather than once per frame. FFT reads do not modify that buffer,
+and every window sample is replaced each frame. The model, arithmetic order,
+output shape, workspace size and settings are unchanged. A frozen 92b028c
+reference validates 150 cases across three feature specifications and silence,
+DC, full-scale alternation, seeded noise and sine inputs, including repeated
+long/short calls. Features are byte-identical in normal and ASan/UBSan builds.
+
+On Mac, after 60 warm-up calls per implementation, ten alternating matched
+pairs of 30 computations each gave median 593.3105 µs reference and 587.0875 µs
+candidate. Mean paired difference is -5.8042 µs, bootstrap 95% interval
+[-6.8480, -4.6905] µs (10,000 resamples, seed 17). This is a small host frontend
+result on one fixed synthetic input, not target embedding speed or end-to-end
+caption latency. P4 bit-exact output and performance checks are pending; the
+candidate has not been integrated into HardwareOne or left installed.
+
 ## Technical recordings and pending work
 
 The five vocabulary-heavy recordings each ran once on the restored original

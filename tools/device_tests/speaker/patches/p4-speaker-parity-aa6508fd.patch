@@ -1,0 +1,50 @@
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index ae77a922..402a24f3 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -351,7 +351,7 @@ bool readFully(File& file,uint8_t* dest,size_t bytes) {
+     return true;
+ }
+ constexpr const char* kSpeakerPath="/sd/STT Models/speaker.spk";
+-constexpr const char* kSpeakerFixturePath="/sd/STT Models/speaker_fixture.bin";
++constexpr const char* kSpeakerFixturePath="/sd/STT Models/codex_speaker_parity.bin";
+ constexpr size_t kSpeakerMaxBytes=16u<<20, kSpeakerArenaEstimate=1u<<20, kSpeakerKeepFree=3u<<20;
+ // Diagnostics: the fixture (PCM + the Mac's embedding) kept in PSRAM, re-embedded before every background
+ // job: a cosine below ~0.99 during a session means the trunk's result was corrupted (e.g. PIE state across a
+@@ -385,6 +385,23 @@ float speakerFixtureCosine(SpeakerState& s) {
+             double dot=0,a=0,b=0;
+             for(size_t i=0;i<dim;++i) { dot+=double(s.embedding[i])*want[i]; a+=double(s.embedding[i])*s.embedding[i]; b+=double(want[i])*want[i]; }
+             cos=a>0 && b>0 ? float(dot/std::sqrt(a*b)) : -3.0f;
++            // Diagnostic-only known-PCM vector, in bounded numeric chunks.
++            // This lets the host measure quantization separately from mic,
++            // playback and phrase-boundary differences. Never enabled normally.
++            if(cos>-2.0f && a>0) {
++                const double inv=1.0/std::sqrt(a);
++                ESP_LOGI("STT","TL spk_fixture_dim n=%lu",(unsigned long)dim);
++                for(size_t start=0;start<dim;start+=8) {
++                    char values[384];size_t used=0;
++                    for(size_t j=start;j<std::min(start+8,size_t(dim));++j) {
++                        const int n=snprintf(values+used,sizeof(values)-used,"%s%.9g",
++                                             j==start ? "" : " ",double(s.embedding[j])*inv);
++                        if(n<0 || size_t(n)>=sizeof(values)-used) { used=0;break; }
++                        used+=size_t(n);
++                    }
++                    if(used)ESP_LOGI("STT","TL spk_fixture_part i=%u v=%s end",unsigned(start),values);
++                }
++            }
+         }
+     }
+     if(cos>-2.0f && !gSpeakerFixture) { gSpeakerFixture=buf; gSpeakerFixtureBytes=bytes; buf=nullptr; }
+diff --git a/components/hardwareone/System_STTLocal.h b/components/hardwareone/System_STTLocal.h
+index fc226894..79a1869f 100644
+--- a/components/hardwareone/System_STTLocal.h
++++ b/components/hardwareone/System_STTLocal.h
+@@ -73,7 +73,7 @@ STTLocalCallBudget sttLocalCallBudget(size_t samples, const STTLocalSession* ses
+ // and every 16th job (TL spkfix), per-phrase voiceprints (TL spke), ESP-DL kernel
+ // binds (TL kbind) and per-layer internal-RAM dips (TL spkram). 1 to enable.
+ #ifndef HW1_STT_SPEAKER_DIAGNOSTICS
+-#define HW1_STT_SPEAKER_DIAGNOSTICS 0
++#define HW1_STT_SPEAKER_DIAGNOSTICS 1
+ #endif
+ struct STTSpeakerStatus {
+   bool ready = false;

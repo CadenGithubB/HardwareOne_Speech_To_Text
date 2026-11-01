@@ -120,3 +120,12 @@ and result buffers; that is not the intended firmware allocation pattern.
 P4 runtime, wall-clock label latency and memory peaks are unmeasured. Full
 quantized-path parity and matched microphone input remain gaps. Native
 sanitizer tests and numerical float parity do not fill those gaps.
+
+
+The subsequent [P4 parity and exact-input diagnostics](SPEAKER_P4_PARITY.md)
+partially address the target/input gaps above. They do not qualify either window
+selector. Session replay reconstruction was corrected to the retained speaker
+prefix; earlier cached session-window results used the longer captured span.
+Clean/corpus development results are unchanged. The final speaker partition
+remains reserved. An output-preserving frontend buffer-clear candidate is now
+under separate code-only benchmarking; no target performance win is claimed.

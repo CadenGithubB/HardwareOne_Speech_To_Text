@@ -182,3 +182,15 @@ selectors did not qualify on development data; a new disjoint final speaker
 partition remains unscored. The selector is opt-in and no production caller
 uses it. Quantized-path parity and actual P4 timing/memory are still required
 before a successful future candidate can be integrated into HardwareOne.
+
+
+## Code-only overnight continuation
+
+The active [work queue](SPEAKER_OVERNIGHT_PLAN.md) holds models, production
+settings and CPU/RAM clocks fixed. It prioritizes actual input/boundary evidence,
+portable capture/scheduler correctness, redundant allocations/copies/computation,
+and bit-exact pointwise-kernel/data-layout candidates. The first frontend buffer
+clear candidate passes 150 frozen-reference cases and sanitizer checks; target
+output/speed qualification remains pending. No source-level change or host-only
+speed result is treated as an end-to-end P4 win. Subsequent playback uses 50%,
+separate from the historical 75% results, and overnight replay is silent.

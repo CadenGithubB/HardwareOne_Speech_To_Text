@@ -105,7 +105,7 @@ def main():
         clean = spkrules.clip_set(man_path, tones.fake_embedder([]), 32000, 0.3, 0.5)
         assert [p['ref'] for p in clean['phrases']] == [101, 202] * 5 and clean['phrases'][2]['samples'] == 52800
         assert abs(sum(a * b for a, b in zip(clean['phrases'][0]['e'], clean['phrases'][2]['e'])) - 0.558) < 1e-3
-        plan = [([i], logs.decision(0, 'match', i % 2, 2), True) for i in range(10)]
+        plan = [([i], logs.decision(0, 'match', i % 2, 2, samples=48000), True) for i in range(10)]
         session = logs.write_session(root, '2026-device', man_path, man, plan, True, 'submitted=10 labelled=10 skipped=0')
         dev = spkrules.session_set(session, tones.fake_embedder([]), 32000)
         assert dev['group'] == 'session' and dev['uncut'] == 0 and len(dev['phrases']) == 10

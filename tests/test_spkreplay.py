@@ -91,15 +91,21 @@ def main():
         for i, kind in enumerate(['new', 'new', 'new', 'match', 'ambiguous', 'match', 'ambiguous', 'match',
                                   'ambiguous', 'match']):
             label = {'new': profiles, 'match': i % 2, 'ambiguous': -1}[kind]
-            plan.append(([i], logs.decision(0, kind, label, profiles), True))
+            plan.append(([i], logs.decision(0, kind, label, profiles, samples=48000), True))
             profiles += kind == 'new'
         session = logs.write_session(root, '2026-device', man_path, man, plan, True,
                                      'submitted=10 labelled=10 skipped=0')
         lengths.clear()
         d = spkreplay.replay(man_path, session=session, thresholds=[0.6], embed=fake_embedder(lengths))
         dev = d['thresholds']['0.6']['device']
-        assert d['segments'] == 'session' and set(lengths) == {round(3.5 * 16000)}, lengths
+        assert d['segments'] == 'session' and set(lengths) == {48000}, lengths
         assert (dev['decisions'], dev['agree'], dev['first_divergence_seq']) == (10, 10, None), dev
+        assert d['session_input']['tail_trimmed_phrases']==10
+        assert d['session_input']['removed_tail_ms_total']==5000
+        assert spkreplay.session_span({'span_play_s':[1,4.5],'samples':48000})==(1,4)
+        try:spkreplay.session_span({'span_play_s':[1,2],'samples':32000})
+        except ValueError:pass
+        else:raise AssertionError('impossible input length accepted')
         # Without --thresholds the session's logged threshold (0.50 in the log writer) is replayed.
         d = spkreplay.replay(man_path, session=session, embed=fake_embedder([]))
         dev = d['thresholds']['0.5']['device']

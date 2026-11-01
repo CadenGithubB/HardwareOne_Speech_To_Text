@@ -96,10 +96,13 @@ bool Frontend::compute(const int16_t* pcm,size_t samples,float* out) const {
     const float* twr=twiddle_; const float* twi=twiddle_+half;
     const long pad=long(n/2), lead=long((n-s.win)/2);
     timing_.frames=uint32_t(T);
-    int64_t fftUs=0, melUs=0;
+    // FFT reads frame without changing it. Every window sample is replaced
+    // below, so its zero padding only needs clearing once per compute call.
+    const int64_t clearStart=spk_now_us();
+    for(size_t k=0;k<n;++k)frame[k]=0;
+    int64_t fftUs=spk_now_us()-clearStart, melUs=0;
     for(size_t t=0;t<T;++t) {
         const int64_t f0=spk_now_us();
-        for(size_t k=0;k<n;++k)frame[k]=0;
         const long base=long(t*hop)-pad+lead;
         if(base>=0 && base+long(s.win)<=long(samples)) {
             const int16_t* p=pcm+base;

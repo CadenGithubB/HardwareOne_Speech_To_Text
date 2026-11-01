@@ -226,3 +226,35 @@ has inconclusive pooled gains and domain regressions; aggressive end trimming
 harms the original failure case. Neither qualifies for HardwareOne integration.
 The production model/frontend behavior and clustering are unchanged. Full
 quantized-path parity, actual microphone input and P4 latency/memory remain gaps.
+
+## P4 audio and code-only overnight checkpoint
+
+[AB_TEST_RESULTS.md](AB_TEST_RESULTS.md) now records 25 identical-input P4
+parity trials and one bounded exact-microphone-PCM capture. Five fixed inputs
+repeat across reboots, but a borderline clean same-speaker pair changes from
+0.605987 on Mac float to 0.595828 on P4. Float replay alone cannot qualify target
+speaker accuracy. The exact-input capture shows signal-path effects are not
+uniformly harmful: its 7850 pair is 0.642508 on P4, 0.632405 on Mac using the
+same microphone PCM and 0.585196 on waveform-aligned clean PCM. A successful
+captured sequence has roughly 299 ms pre-roll; the original failure's actual
+PCM is unavailable, so a timestamp-only suspected late onset is not proved.
+
+Session replay now uses the retained speaker prefix instead of the full capture
+span; six corrected replays are separate private artifacts. The earlier cached
+session comparisons used longer captured inputs. Their historical numbers are
+not rewritten; clean/corpus development rejection still stands. New tools and
+synthetic cases cover prompt interleaving, vector log truncation, retained-span
+reconstruction, nonce/checksum ownership, raw vector norms and waveform timing.
+
+All temporary SD files/folders were removed and the original full app slot was
+restored/digest-verified. Last probe: 6,520,832 B LittleFS free, logging inactive,
+PDM preferred, model header/footer unchanged. Mac playback is now 50% by user
+request; earlier 75% runs remain a separate condition. Overnight work is silent.
+See [SPEAKER_OVERNIGHT_PLAN.md](SPEAKER_OVERNIGHT_PLAN.md) for the active queue.
+
+The first code-only candidate clears the speaker frontend frame padding once
+per computation instead of every frame. It preserves all 150 host reference
+cases under normal and ASan/UBSan builds, with no workspace/model/settings
+change. P4 output/performance qualification is pending; no production firmware
+has received it. Additional work targets actual correctness and redundant work,
+not configuration, model or CPU/RAM clock changes.
