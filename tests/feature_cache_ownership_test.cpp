@@ -20,7 +20,13 @@ struct FeCache {
     float* rows=nullptr;uint64_t start=0;size_t frames=0;
     uint32_t gen=0;FeState state=FeState::Free;bool overrun=false;
 };
+struct ProducerPosition {
+    uint64_t seen=1600;
+    uint64_t samples_seen() const {return seen;}
+};
 struct StreamRun {
+    ProducerPosition segmenter;
+    bool feRingStarted=true; uint64_t feRingStart=0;
     FeCache fe[2];int feLive=0;bool feStop=false,feRunning=true;
     uint64_t feRingHead=1600;size_t feLiveLen=1600;
     int16_t* feRing=nullptr;hw1::stt::FrontendWorkspace* feWork=nullptr;
@@ -50,6 +56,7 @@ namespace reference {
 #include "retirement_reference.inc"
 #include "worker_reference.inc"
 }
+#include "ring_writer_reference.inc"
 #ifdef HAVE_CANDIDATE
 namespace candidate {
 #include "retirement_reference.inc"
@@ -57,12 +64,13 @@ namespace candidate {
 }
 #endif
 int main(int argc,char** argv) {
-    bool overlap=false,attached=false,fixed=false,live=false;
+    bool overlap=false,attached=false,fixed=false,live=false,ringOverlap=false;
     for(int i=1;i<argc;++i) {
         if(!strcmp(argv[i],"--overlap"))overlap=true;
         else if(!strcmp(argv[i],"--attached"))attached=true;
         else if(!strcmp(argv[i],"--candidate"))fixed=true;
         else if(!strcmp(argv[i],"--live"))live=true;
+        else if(!strcmp(argv[i],"--ring-overlap")){live=true;ringOverlap=true;}
         else if(!strcmp(argv[i],"--fail-dsp"))invalidFirstRow=true;
         else return 2;
     }
@@ -88,7 +96,24 @@ int main(int argc,char** argv) {
     // Late schedule proves the wipe can be overwritten after cache retirement.
     // Overlap schedule has no happens-before between the two raw writes, for
     // the independent ThreadSanitizer check. Retirement helpers are unchanged.
-    if(live)allow();
+    if(ringOverlap) {
+        // The DSP took its head snapshot before this forced preemption.
+        // Approach wrap while paused; the first resumed producer block writes
+        // the same physical samples that row zero reads. All copies use the
+        // unchanged production ring writer, not a sanitizer-only replacement.
+        int16_t block[kStreamReadSamples];
+        for(size_t i=0;i<kStreamReadSamples;++i)block[i]=int16_t(i*13);
+        for(unsigned i=0;i<62;++i) {
+            sttFeatureRingWrite(run,ring.data(),block,kStreamReadSamples);
+            run.segmenter.seen+=kStreamReadSamples;
+        }
+        allow();
+        for(unsigned i=62;i<192;++i) {
+            sttFeatureRingWrite(run,ring.data(),block,kStreamReadSamples);
+            run.segmenter.seen+=kStreamReadSamples;
+        }
+    }
+    else if(live)allow();
     else {
         if(overlap)allow();
         if(attached)release(run,0,13);else retire(run);
@@ -97,7 +122,11 @@ int main(int argc,char** argv) {
     feature.join();
     const size_t nonzero=std::count_if(rows[0].begin(),rows[0].end(),[](float x){return x!=0;});
     assert(!run.feRunning);
-    if(live) {
+    if(ringOverlap) {
+        assert(run.fe[0].state==FeState::Live && run.fe[0].gen==13);
+        assert(run.fe[0].frames==0 && run.feRowsComputed==0 && run.feOverruns==1);
+    }
+    else if(live) {
         assert(run.fe[0].state==FeState::Live && run.fe[0].gen==13);
         if(invalidFirstRow && fixed) {
             assert(run.fe[0].frames==0 && run.feRowsComputed==0 && run.feOverruns==1 && nonzero==0);
@@ -116,6 +145,6 @@ int main(int argc,char** argv) {
         if(fixed)assert(nonzero==0);
         else if(!overlap)assert(nonzero>0);
     }
-    std::printf("feature ownership: candidate=%u attached=%u overlap=%u live=%u failed_dsp=%u dsp_calls=%zu nonzero=%zu committed_rows=%u overruns=%u\n",
-        unsigned(fixed),unsigned(attached),unsigned(overlap),unsigned(live),unsigned(invalidFirstRow),dspCalls,nonzero,run.feRowsComputed,run.feOverruns);
+    std::printf("feature ownership: candidate=%u attached=%u overlap=%u live=%u failed_dsp=%u dsp_calls=%zu nonzero=%zu committed_rows=%u overruns=%u ring_overlap=%u\n",
+        unsigned(fixed),unsigned(attached),unsigned(overlap),unsigned(live),unsigned(invalidFirstRow),dspCalls,nonzero,run.feRowsComputed,run.feOverruns,unsigned(ringOverlap));
 }

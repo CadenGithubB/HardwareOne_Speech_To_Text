@@ -21,4 +21,14 @@ partial=d.summarize(missing_model,allow_gaps=True);assert partial['complete_cycl
 # Real UART corruption lost the completed marker for phase 301; retain 18 checks.
 lost=[l for l in lines if 'phase=301 event=1' not in l]
 partial=d.summarize(lost,allow_gaps=True);assert partial['cycles'][0]['missing_events']==[[301,1]] and partial['cycles'][0]['heap_checks']==18 and partial['complete_cycles']==0
-print('teardowndiag: synthetic markers ok')
+trace=[f'[1234] I (456) STT: TL teardown phase={p} event=2 ms={i} end' for i,p in enumerate(d.PHASES)]
+t=d.summarize(trace);c=t['cycles'][0];assert t['complete_cycles']==1 and c['mode']=='trace' and c['heap_checks']==0 and c['heap_check_us']==0 and c['phase_markers']==19
+assert all('heap_ok' not in r for r in c['phases'])
+assert d.summarize(trace+trace)['complete_cycles']==2
+assert d.summarize(trace[:-1])['complete_cycles']==0
+partial=d.summarize(trace[:4]+trace[5:],allow_gaps=True);assert partial['cycles'][0]['missing_events']==[[201,2]]
+for bad in ([trace[0],trace[1].replace('ms=1','ms=1SYNTHETIC_ASYNC')]+trace[2:],trace[:2]+[lines[2]],lines[:2]+[trace[1]],trace[:1]+trace[:1]):
+    try:d.summarize(bad)
+    except ValueError:pass
+    else:raise AssertionError('mixed/duplicate markers accepted')
+print('teardowndiag: synthetic heap/trace markers ok')

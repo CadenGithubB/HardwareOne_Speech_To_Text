@@ -334,3 +334,26 @@ preemption attempt safely rejected stale work but did not establish a TSAN race.
 The original app is restored/full-slot-verified and the fixture removed; latest
 healthy probe 6,135,808 B LittleFS, logging inactive/PDM, model header/footer
 unchanged, no new watchdog/fatal markers. Keep private evidence private.
+
+
+Marker-only follow-up 002e3a0c: 5/5 no-fixture lifecycles completed; fixture
+attempts were two complete and one fault, then the block stopped (two planned
+runs unattempted). All 152 markers across eight attempts were intact, including
+phase 321 before the fault. The six-frame saved-RA chain is checked against
+matching ELF prologues: a 6,384-byte ExecReq allocation from the serial loop
+exposed an invalid PSRAM heap-control pointer. The earlier ebe29cdf load fault
+has the same validated allocation chain/size. The corrupting writer is unknown;
+no qualification or causal claim follows. Next verify watchpoint ownership
+before considering a both-core write watchpoint on the heap header.
+
+A separate ring read/write race is now reproduced with actual producer/DSP
+code after forcing TSAN ignore_interceptors_accesses=0. This Mac's default hid
+memcpy races. Synthetic copy controls validate the setting; the cache-row repair
+and actual portable pipeline pass their original suites with stricter checking.
+No wrong committed prefix or WER loss is established. Prepare a stable-window
+ring repair separately and measure P4 stack/copy cost without configuration
+changes. See AB_TEST_RESULTS.md for counts, addresses and all failed attempts;
+P4_CACHE_COUNTER_PLAN.md separates verified counter semantics from unmeasured
+traffic. Original app restored/full-slot-verified, owned fixture removed; latest
+healthy probe 6,021,120 B LittleFS/logging inactive/PDM/model unchanged. No
+unqualified image is installed. HardwareOne changes remain local only.

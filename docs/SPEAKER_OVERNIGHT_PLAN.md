@@ -187,7 +187,7 @@ explicit 75 and remain unchanged. This default does not start playback or set
 volume; it prevents future default invocations from expecting an obsolete level.
 
 Build continuity: the active local HardwareOne source is
-`codex/stt-ab-feature-ownership` at 5e07c4d9; 3fff3013 is the normal two-file
+`codex/stt-ab-feature-ownership` at 002e3a0c; 3fff3013 is the normal two-file
 repair. The prepared SDK was restored and verified to the original reviewed
 patch SHA 0dc9782643ce3d2332b2c4a54624fce27150736314d065b48b55d5cf2a54d593
 and tree SHA b217d41df9f399d7958496ae62f075cfbc8adecd222f9fe9c03064a452ddcd2c.
@@ -222,3 +222,54 @@ race in the reference schedule. Do not treat it as confirmed corruption or
 ship a speculative ring rewrite. Its trial source and failed reproducer
 history are retained privately; public ownership tests remain the verified
 cache-retirement suite. Establish overlap independently before revisiting a fix.
+
+
+Latest marker-only checkpoint (002e3a0c): five no-fixture boots completed, then
+two fixture boots completed and the third fixture attempt faulted. All eight
+attempts emitted all 19 markers (152 total), including terminal publication
+before the fault. All 18 forced ownership cases passed; zero normal capture
+rows, speaker jobs and overruns. The last two planned fixture trials were not
+attempted. Zero watchdog warnings; one core-0 load-access fault. No clean subset
+is promoted. Earlier 853b2ed8 ROM output completed three no-fixture lifecycles,
+then failed marker validation on its fourth attempt; it did not reach a fixture
+arm. The existing loglink shared writer fixed the collection issue in 002e3a0c.
+
+The new fault's six saved return addresses match actual ELF prologue/RA slots:
+hardwareone_loop -> submitAndExecuteSync -> ps_alloc -> heap_caps_malloc_prefer
+-> heap_caps_aligned_alloc_base -> multi_heap_malloc -> tlsf_malloc. It was
+allocating a 6,384-byte ExecReq after the marked cleanup. The PSRAM heap control
+pointer was invalid (0x002960c4; faulting load +16 at MTVAL 0x002960d4). The prior
+ebe29cdf heap fault has the same six-frame chain and size in its separately
+archived matching ELF. This identifies the exposing operation, not the source
+of heap damage. Do not blame model destruction or the command system from a
+stack location alone. The hardware-watchdog reset still lacks a panic stack.
+
+Source audit supports a next diagnostic: investigate a hardware write
+watchpoint on the heap header's heap_data pointer, on both cores. The profile
+has three watchpoints and end-of-stack watchpoints disabled, but per-core
+existing trigger ownership/readback still must be checked. Do not overwrite an
+unknown debugger trigger. No board watchpoint has been changed yet.
+
+The live-ring audit is now positive after calibrating a sanitizer blind spot.
+This Mac defaults to ignoring interceptor accesses, hiding memcpy writes. With
+ignore_interceptors_accesses=0, both actual workers race the actual ring writer;
+ASan/UBSan separately observes zero committed rows/one overrun. Three synthetic
+copy controls verify ignored/unlocked = no warning, checked/unlocked = race,
+checked/locked = no warning. Original cache-row tests and the portable
+StreamPipeline pass with strict copy checking. The prior negative ring result
+is superseded; neither race proves a connection to the idle-capture heap fault.
+
+Next bounded code repair: serialize ring writes and stable-window snapshots
+under one lock, then compute from private PCM (the portable pipeline already
+does this). Keep the current task stack configuration; measure actual P4 stack
+headroom and critical-copy cost, and retain bit parity. No speculative ring
+repair has been applied yet. Cache-counter semantics/source ownership are in
+P4_CACHE_COUNTER_PLAN.md; target counter measurement remains open. Do not use
+hardware MISS register values as counts of missed requests.
+
+Both marker-only blocks restored/full-slot-verified the original app. The
+queued block removed its owned fixture. Latest healthy original-app probe:
+6,021,120 B LittleFS free/logging inactive/PDM/model header/footer unchanged,
+zero new watchdog/fatal markers. The existing owned build and matching selected
+source/app/debug artifacts remain for the next fault-location test. All runs
+were silent; future playback remains 50%.

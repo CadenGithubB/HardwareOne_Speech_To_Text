@@ -1647,3 +1647,163 @@ without repeated heap scans, retain all failures, and avoid interleaving CLI
 polling with the diagnostic marker stream. Compare the same fixture workloads;
 then isolate load-time self-test separately. Neither continued testing nor a
 clean selected subset is evidence that the earlier faults are fixed.
+
+## Marker-only cleanup, command-allocation fault and live-ring audit
+
+### Marker collection and retained attempts
+
+HardwareOne 853b2ed8 removed heap scans, emitting one event-2 marker per
+boundary. Three no-fixture lifecycles completed with all 19 markers. A fourth
+reached phase 321 but a phase-200 marker was interrupted by asynchronous output;
+the collector rejected it before obtaining a terminal-status reply. This is a
+marker/data-quality failure, not evidence of a new device panic. All four had
+zero observed watchdog/fatal markers. The fixture arm was not reached.
+The original app was restored/full-slot-verified.
+
+Source inspection identified why passive CLI collection alone did not solve
+interleaving: ROM printf bypassed HardwareOne's existing `loglink` single-writer
+queue. Diagnostic 002e3a0c uses ESP_LOGI through that queue. Logging remains
+enabled, and the normal algorithms, models, stacks and clocks are unchanged.
+The app is 6,033,328 B, SHA-256
+2211f7e8881d6a2538368296a2eab0315ac1f7a13c99400cf6936375fa5bf6cb.
+Matching source/ELF/map/configuration are retained privately.
+
+The planned comparison was five no-fixture and five fixture boots. It stopped
+at the first device fault, on the third fixture attempt; two planned fixture
+runs were not attempted. Every attempted run produced all 19 markers, including
+the faulted run. Event 2 records a boundary only: **zero heap scans were run**.
+
+| Trial IDs | Fixture | Attempts | Completed lifecycles | Faulted | Complete marker sequences | Watchdog warnings | Fatal markers |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 0–4 | 0 | 5 | 5 | 0 | 5 | 0 | 0 |
+| 5–7 | 1 | 3 | 2 | 1 | 3 | 0 | 1 |
+
+All runs had zero normal capture-feature rows, feature overruns, and submitted /
+labelled / skipped speaker jobs. All 18 forced ownership checks in the three
+fixture attempts passed before the later fault. There was no playback. Load-time
+speaker self-test remained enabled in both conditions. These idle-capture
+samples do not measure WER or ordinary-use crash frequency. Three complete
+marker sequences in the fixture arm do not substitute for five clean lifecycles.
+
+The passive collector now waits for phase 321 before issuing status; it does
+not send status/next/ack while collecting the stream. It separately validates
+terminal state and reader health. A complete marker sequence cannot override
+a subsequent panic. Synthetic cases cover reset, timeout, missing/corrupted
+markers, mixed protocols and terminal-state evidence after a data-quality error.
+No damaged marker fields are reconstructed.
+
+### Heap fault after the marked cleanup
+
+Trial 7 logged phase 321 at device ms 43,769, after the model/workspace/buffers
+were released and terminal state was published, immediately before worker
+self-delete. The panic arrived 81.316 ms after that marker in host receive
+timestamps; USB batching means this is not an exact hardware fault latency.
+The status request did not return a verified terminal reply.
+
+| Field | Value |
+|---|---|
+| Core | 0 |
+| MCAUSE | 0x5 |
+| MEPC | 0x4ff37390 |
+| RA | 0x4ff36df6 |
+| MTVAL | 0x002960d4 |
+| TLSF control pointer, A0 / S5 | 0x002960c4 |
+| Requested allocation, A1 / S0 | 6,384 B |
+| Saved multi-heap handle | 0x4809e424 |
+| Current ELF external-BSS end | 0x4809e424 |
+
+The matching ELF resolves MEPC to the load of `control->fl_index_max` at offset
+16, inside `tlsf_malloc`; MTVAL equals A0 + 16. The caller loads the control
+pointer from the heap header's `heap_data` field. This identifies an invalid
+control pointer for the PSRAM heap, not the writer that damaged it.
+
+The RISC-V stack dump uses bare hexadecimal line addresses. Six saved return
+addresses were checked against actual prologue frame sizes and RA offsets in
+the matching ELF, rather than treating every code-looking stack word as a
+backtrace:
+
+| Frame ID | Stack frame (B) | Saved RA offset (B) | Saved RA / next function ID |
+|---|---:|---:|---|
+| tlsf_malloc | 48 | 44 | 0x4ff36df6 / multi_heap_malloc_impl |
+| multi_heap_malloc | 32 | 28 | 0x4ff20c84 / heap_caps_aligned_alloc_base |
+| heap_caps_aligned_alloc_base | 48 | 44 | 0x4ff2096a / heap_caps_malloc_prefer |
+| heap_caps_malloc_prefer | 80 | 44 | 0x401059dc / ps_alloc |
+| ps_alloc | 32 | 28 | 0x40122d3c / submitAndExecuteSync |
+| submitAndExecuteSync | 176 | 172 | 0x40029b06 / hardwareone_loop |
+
+At 0x40122d38, the command dispatcher calls `ps_alloc(sizeof(ExecReq))` with
+immediate size 0x18f0 (6,384). The serial loop calls that dispatcher. This places
+the observed allocation fault in a new synchronous serial command request,
+after the marked STT cleanup, rather than directly in model destruction.
+It does not prove the command system caused the heap damage.
+
+The earlier ebe29cdf load-access fault was rechecked using its separately
+archived matching ELF. Its six prologue/RA checks and allocation size are
+identical. Its MTVAL was 0x0029607c. Both faults expose the same command-request
+allocation path. The earlier hardware-watchdog reset still has no corresponding
+panic stack. No common corruption origin has been established.
+
+**Interpretation:** the new trace narrows the immediate failure location beyond
+`spk_end`: all marked cleanup boundaries had been reached when the later
+allocation exposed an invalid heap-control pointer. Deferred task reclamation,
+other concurrent work, previous writes and hardware/cache effects are not
+excluded. Neither a clean scan sample nor a command-stack location proves a
+cause. The original faults remain in the qualification history.
+
+### Live-ring race and sanitizer calibration
+
+Apple clang 21.0.0's runtime help on this Mac reports
+`ignore_interceptors_accesses=true`. That setting hides accesses inside
+`memcpy`, despite instrumented scalar PCM reads. It explains why the earlier
+ring schedule did not produce a warning; its negative result is superseded.
+The host tests now explicitly set `ignore_interceptors_accesses=0`.
+
+| Synthetic copy control | Ignore interceptor accesses | Locked | Race detected / exit |
+|---|---:|---:|---|
+| memcpy / scalar read | 1 | 0 | 0 / 0 |
+| Same workload | 0 | 0 | 1 / 66 |
+| Same workload | 0 | 1 | 0 / 0 |
+
+With that calibrated setting, the unchanged production ring writer and actual
+DSP reproduce a separate race in both aa6508fd's worker and 3fff3013's cache-row
+repair. Source binding verifies the producer is identical in both versions.
+The host gate forces preemption across 192 producer blocks of 1,024 samples
+against the 65,536-sample ring. No copy adapter or DSP replacement was needed.
+The production worker reads PCM outside the producer's lock; the producer
+copies PCM outside it too. A later head check can reject results but cannot
+serialize those memory accesses.
+
+| Worker | TSAN ring race / exit | Separate ASan/UBSan committed rows | Separate overrun count |
+|---|---|---:|---:|
+| aa6508fd | 1 / 66 | 0 | 1 |
+| 3fff3013 cache-row repair | 1 / 66 | 0 | 1 |
+
+This is a host forced-preemption correctness finding, not evidence of delivered
+wrong features, a heap use-after-free, a measured WER loss or ordinary-use
+frequency. It does not establish a link to the idle-capture command-allocation
+faults. The cache-row retirement repair still passes its original suite under
+the stricter setting, including its positive controls. The actual portable
+StreamPipeline also passes TSAN with interceptor access checking enabled; it
+already snapshots private PCM under its lock. No production ring code changed.
+
+Next bounded repair: serialize producer writes and copy a stable row window
+under the same lock, then run DSP on private PCM. Reuse the portable pattern;
+retain the existing stack configuration and measure actual headroom/critical
+copy cost on P4. Byte parity and matched regression gates remain mandatory.
+
+Next fault-location diagnostic: verify ownership of hardware watchpoints on
+both cores, then consider a write watchpoint on the PSRAM heap header's control
+pointer. The current SDK/profile has three CPU watchpoints and end-of-stack
+watchpoint checking disabled. These source checks do not prove a slot is free;
+inspect existing per-core trigger state before arming anything. No watchpoint
+has been changed on the board yet.
+
+The separate cache-counter semantics audit is recorded in
+[P4_CACHE_COUNTER_PLAN.md](P4_CACHE_COUNTER_PLAN.md); target counters remain
+unmeasured. No cache geometry or clock change is proposed.
+
+After both marker-only blocks, the original full app slot was restored and
+verified. The owned fixture was removed. Latest healthy original-app probe:
+6,021,120 B LittleFS free, logging inactive, onboard PDM preferred, model
+header/footer unchanged, zero new watchdog/fatal markers. Every measured block
+remained above 2 MiB. Future playback stays 50%; all these tests were silent.

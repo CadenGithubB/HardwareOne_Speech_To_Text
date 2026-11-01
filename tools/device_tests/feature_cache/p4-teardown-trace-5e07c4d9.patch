@@ -1,0 +1,43 @@
+diff --git a/components/hardwareone/stt/teardown_probe.h b/components/hardwareone/stt/teardown_probe.h
+index 21f172f3..3b1c41ae 100644
+--- a/components/hardwareone/stt/teardown_probe.h
++++ b/components/hardwareone/stt/teardown_probe.h
+@@ -1,28 +1,24 @@
+ #pragma once
+ // Diagnostic app only: numbered teardown boundaries, no PCM/text/pointers.
+-// Heap scans perturb timing; these runs locate damage and are not speed tests.
++// Trace-only comparison: no heap scan/allocation/free-size queries.
++// Marker output still perturbs timing; these are not speed qualification runs.
+ #if defined(ESP_PLATFORM) && !defined(HW1_STT_SPEAKER_DIAGNOSTICS)
+ #error "Include System_STTLocal.h before the teardown probe so every source uses the same diagnostics policy"
+ #endif
+ #if defined(ESP_PLATFORM) && HW1_STT_SPEAKER_DIAGNOSTICS
+-#include "esp_heap_caps.h"
+-#include "esp_rom_sys.h"
++#include "esp_log.h"
+ #include "esp_timer.h"
+-#include <cstdlib>
+ namespace hw1::stt {
+ inline void teardownProbe(unsigned phase) {
+-    esp_rom_printf("TL teardown phase=%u event=0 ms=%u end\n", phase,
+-                   unsigned(esp_timer_get_time()/1000));
+-    const int64_t begin=esp_timer_get_time();
+-    const bool ok=heap_caps_check_integrity_all(false);
+-    const unsigned elapsed=unsigned(esp_timer_get_time()-begin);
+-    esp_rom_printf("TL teardown phase=%u event=1 ms=%u heap_ok=%u check_us=%u int_free=%u psram_free=%u end\n",
+-                   phase,unsigned(esp_timer_get_time()/1000),unsigned(ok),elapsed,
+-                   unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)),
+-                   unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+-    if(!ok)std::abort(); // Preserve the first failed boundary; do not allocate through a damaged heap.
++    // Event 2 means boundary observed, NOT a completed heap-integrity check.
++    // Keep model/task/configuration behavior unchanged while removing scans.
++    // The harness enables loglink: ESP_LOGI uses the existing pooled output
++    // queue and its single UART writer. ROM printf bypasses that protection.
++    ESP_LOGI("STT", "TL teardown phase=%u event=2 ms=%u end", phase,
++             unsigned(esp_timer_get_time()/1000));
+ }
+ }
++
+ #else
+ namespace hw1::stt { inline void teardownProbe(unsigned) {} }
+ #endif

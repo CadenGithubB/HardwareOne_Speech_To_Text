@@ -247,3 +247,21 @@ isolate load-time self-test, keeping the original failures. The first ring-wrap
 schedule rejected stale batches but did not reproduce a TSAN race; no ring
 rewrite is justified yet. Source 5e07c4d9/app and matching debug metadata are
 private/local only; the original app is restored and future playback stays 50%.
+
+
+The marker-only follow-up now locates two observed heap faults in synchronous
+serial command-request allocation (6,384 B), with the latest after all 19
+cleanup boundaries. It does not locate the corrupting writer. The fixture
+matrix remains incomplete: 5 no-fixture successes, then 2 fixture successes/1
+fault/2 unattempted. Verify both-core hardware-watchpoint ownership before
+instrumenting heap-header writes; keep every failure in qualification history.
+
+The first live-ring negative was a sanitizer-visibility limitation: the Mac
+runtime ignored memory-interceptor accesses. Explicit checking plus positive
+and negative copy controls now reproduces the ring producer/DSP race in both
+original and cache-row-repaired workers. Portable StreamPipeline and the narrow
+row-retirement repair pass their existing tests under the stricter setting.
+Prepare a separate stable-PCM-window repair, keep configured stacks/clocks and
+models fixed, and prove parity plus actual P4 headroom/copy overhead. This is
+correctness work, not a measured speed or WER win. Counter register semantics
+are now pinned in P4_CACHE_COUNTER_PLAN.md; actual traffic remains unmeasured.

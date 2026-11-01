@@ -35,7 +35,10 @@ for byte. ThreadSanitizer expects the frozen reference to report both races as
 positive controls; candidate and normal paths must pass. Optional `--evidence`
 stores reports in a private directory without overwriting previous evidence.
 Apple's sanitizer is configured explicitly for exit code 66 without its default
-abort/symbolizer behavior. Host lock/task adapters use a mutex and a scheduling
+abort/symbolizer behavior. It also sets `ignore_interceptors_accesses=0`: this
+Mac defaults to ignoring interceptor accesses, which can hide memcpy races.
+`tests/test_tsan_memcpy.py` calibrates unlocked positive and locked negative
+controls before relying on a clean copy-heavy test. Host lock/task adapters use a mutex and a scheduling
 gate; they do not emulate the P4 scheduler. `--hardwareone` binds the extracted
 paths to actual source and verifies the shared DSP. It strips only the exact
 separate P4 scheduling hook from the diagnostic worker.
@@ -119,3 +122,49 @@ python3 tests/test_teardowndiag.py
 python3 tests/test_teardown_probe.py HARDWAREONE_CHECKOUT
 python3 tools/device_tests/feature_cache/teardowndiag.py PRIVATE_RAW_LOG
 ```
+
+
+## Trace-only markers and passive collection
+
+`p4-teardown-trace-5e07c4d9.patch` applies on the heap-scan diagnostic, producing
+002e3a0c's marker-only emitter. Event 2 is a boundary observation, never a heap
+check. The emitter uses ESP_LOGI and the existing `loglink` shared output queue;
+ROM printing bypassed that queue and corrupted markers under asynchronous
+output. Loglink must be enabled, with system file logging still inactive.
+All 19 markers may precede a later fault: they do not qualify a device lifecycle.
+
+`p4teardown.stop_after_teardown(device)` is for this explicitly labelled
+idle-capture diagnostic only. It sends stop, passively collects through phase
+321, then queries terminal status and checks health. It does not drain speech
+mailboxes during collection. On failure it invalidates the token; callers must
+reset/recover instead of retrying a stale stop. The controller retains failed
+attempts and always restores the original app. No flashing is performed by this
+helper itself. `teardowndiag.py` accepts separate heap and trace protocols and
+rejects mixed, damaged or reordered events.
+
+```
+python3 tests/test_p4teardown.py
+python3 tests/test_teardowndiag.py
+python3 tests/test_teardown_probe.py HARDWAREONE_CHECKOUT --trace-only
+```
+
+## Separate live-ring audit
+
+The row-cache repair does not serialize the PCM producer and feature reader.
+`ring_writer_reference.inc` is the unchanged actual producer, under the same
+HardwareOne license above. `--ring-audit` forces wrap/overwrite while the DSP is
+preempted. Both current worker versions report a TSAN race with interceptor
+checking enabled; the ASan/UBSan mode separately verifies zero committed stale
+rows and one overrun. This is a reproduced source-level hazard, not a claimed
+origin for device crashes or a measured feature/WER regression.
+
+```
+python3 tests/test_tsan_memcpy.py
+python3 tests/test_feature_cache_ownership.py --hardwareone HARDWAREONE_CHECKOUT --ring-audit --thread-sanitize
+python3 tests/test_feature_cache_ownership.py --hardwareone HARDWAREONE_CHECKOUT --ring-audit
+python3 tests/test_stt_stream.py --thread-sanitize
+```
+
+The actual portable StreamPipeline passes with strict copy checking. A future
+HardwareOne stable-window repair needs a separate candidate path, parity tests
+and actual P4 stack/copy-cost checks; no ring repair is included here.
