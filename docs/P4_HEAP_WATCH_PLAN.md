@@ -1,6 +1,7 @@
 # P4 heap-header write-watch diagnostic
 
-Status: source audit only; no board trigger has been armed. Keep this separate
+Status: source audit and readback discovery complete; no board trigger has
+been armed or calibrated. Keep this separate
 from ring-worker timing and from production firmware qualification.
 
 ## Evidence being investigated
@@ -67,3 +68,32 @@ These are from installed IDF b774170ff46c393eeb5e495ea37936038d3f4f4f:
    protections to manufacture a clean result.
 
 No heap-header watchpoint, calibration or corruption-origin finding is complete.
+
+
+## Readback checkpoint
+
+Source 16bfb713 completed one read-only boot; 647e4858 completed another with
+TDATA3 included. At stages 0–3, both cores' three slots read TDATA1=0x21000000,
+TDATA2=0, TCONTROL=0, debugger absent; selectors restored. All 24 context reads
+in the second image were zero. The heap field at 0x4809e434 consistently held
+0x4809e438, matching that image's verified heap layout. No heap mismatch,
+watchdog/fatal marker or audio overrun occurred. Two different diagnostic images
+with one boot each do not establish ordinary-use reliability or corruption cure.
+Original app restored/verified and owned fixtures removed after both blocks.
+
+The readback decoder separates the documented read-only type/maskmax fields
+from mutable configuration and tracks absent context reads explicitly. Recheck
+all state before claiming a slot; the recorded empty state is not a lasting
+lease. TINFO capability probing and post-trap reset behavior remain unverified.
+The public reference used is the Espressif TRM linked in AB_TEST_RESULTS.md,
+SHA-256 622fe9625d19cf00bd7aa49e65f0b5dd6ef2197f83cb7a88b4405078d6a957d4.
+
+Next calibration should verify: target core, exact store PC/address/span,
+trigger hit information, no trap for reads/adjacent writes, and recovery to the
+saved owned state. Use a dedicated synthetic word, keep calibration separate
+from watching the heap, and retain every unexpected fault. If panic-time
+cleanup is added, use the existing System_CrashRecord hook's IRAM/RAM rules:
+the other core is already stalled; no allocation, locks, printf or IPC there.
+Clear only a positively identified owned trigger on the executing core and
+verify both cores after reset before proceeding. Do not assume the other
+core's trigger was cleared by a local operation or by an untested reset path.

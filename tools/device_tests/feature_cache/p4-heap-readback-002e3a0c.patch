@@ -1,0 +1,159 @@
+diff --git a/components/hardwareone/System_STT.cpp b/components/hardwareone/System_STT.cpp
+index 8239c6a5..d9f8ce6e 100644
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -26,6 +26,9 @@
+ #ifdef ESP_PLATFORM
+ #include "esp_log.h"
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
++#include "stt/heap_watch_readback.h"
++#endif
++#if HW1_STT_SPEAKER_DIAGNOSTICS
+ #include "esp_timer.h"
+ #endif
+ #endif
+@@ -2510,6 +2513,9 @@ static void sttContinuousWorker(void*) {
+   // mailbox, but cannot rewrite this already-admitted final outcome.
+   transcript.finish(cancelled ? "cancelled" : run.failed ? "failed" : "done");
+   sttPublishTranscript(run.token, transcript.snapshot());
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++  (void)hw1::stt::heapWatchReadback(3);
++#endif
+   hw1::stt::teardownProbe(320);
+   portENTER_CRITICAL(&gSTTMux);
+   // A failed one-question run must not retain an actionable partial prefix.
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index 17807690..5c52bcd2 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -36,6 +36,7 @@ using hw1::stt::sttPsramFree;
+ #include <algorithm>
+ #endif
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
++#include "stt/heap_watch_readback.h"
+ extern "C" bool hw1_stt_feature_ownership_probe(const int16_t*, size_t);
+ #endif
+ namespace {
+@@ -541,6 +542,9 @@ bool sttSpeakerBegin(STTLocalSession* session,size_t maxSamples,STTSpeakerStatus
+     if(b->speaker) { st.ready=b->speaker->model.ready(); return st.ready; }
+     if(b->speakerTried)return why("already tried");
+     b->speakerTried=true;
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++    (void)hw1::stt::heapWatchReadback(0);
++#endif
+     // trusted: fixed optional model path beside the STT model; content is SHA-checked.
+     const auto auth=VFS::systemAuth(VFS::sttModelScopeFor(kSpeakerPath),"stt.speaker_read");
+     if(!VFS::existsGuarded(kSpeakerPath,auth))return why("no speaker.spk");
+@@ -744,9 +748,15 @@ void sttSpeakerEnd(STTLocalSession* session) {
+         ESP_LOGI("STT","TL spk_end submitted=%lu labelled=%lu skipped=%lu",(unsigned long)b->speaker->submitted,
+                  (unsigned long)b->speaker->labelled,(unsigned long)b->speaker->skipped);
+     }
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++    (void)hw1::stt::heapWatchReadback(1);
++#endif
+     hw1::stt::teardownProbe(110);
+     b->releaseSpeaker();   // destructor's stopTask is idempotent; model remains alive through the summary
+     hw1::stt::teardownProbe(160);
++#if HW1_STT_SPEAKER_DIAGNOSTICS
++    (void)hw1::stt::heapWatchReadback(2);
++#endif
+ }
+ void sttSpeakerProfileLog() {
+     SpeakerState* s=gSpeakerActive;
+diff --git a/components/hardwareone/stt/heap_trigger_read.h b/components/hardwareone/stt/heap_trigger_read.h
+new file mode 100644
+index 00000000..77a5b95c
+--- /dev/null
++++ b/components/hardwareone/stt/heap_trigger_read.h
+@@ -0,0 +1,27 @@
++#pragma once
++#include <cstdint>
++namespace hw1::stt {
++struct HeapTriggerSlot {uint32_t selected=0,data1=0,data2=0,data3=0;};
++struct HeapTriggerRead {
++  uint32_t core=0,debugger=0,before=0,after=0,controlBefore=0,controlAfter=0;
++  HeapTriggerSlot slots[3];
++  bool restored=false,selected=true;
++};
++// The adapter deliberately exposes no write to TDATA or TCONTROL. Only select
++// a slot for reading, then restore the caller's selection and IRQ mask.
++template<class Cpu> HeapTriggerRead readHeapTriggers() {
++  HeapTriggerRead r;
++  r.core=Cpu::core();r.debugger=Cpu::debugger();
++  const auto mask=Cpu::maskInterrupts();
++  r.before=Cpu::select();r.controlBefore=Cpu::control();
++  for(unsigned i=0;i<3;++i) {
++    Cpu::select(i);r.slots[i].selected=Cpu::select();
++    r.selected=r.selected && r.slots[i].selected==i;
++    r.slots[i].data1=Cpu::data1();r.slots[i].data2=Cpu::data2();r.slots[i].data3=Cpu::data3();
++  }
++  Cpu::select(r.before);r.after=Cpu::select();r.controlAfter=Cpu::control();
++  r.restored=r.before==r.after && r.controlBefore==r.controlAfter;
++  Cpu::restoreInterrupts(mask);
++  return r;
++}
++}
+diff --git a/components/hardwareone/stt/heap_watch_readback.h b/components/hardwareone/stt/heap_watch_readback.h
+new file mode 100644
+index 00000000..bb1c9b54
+--- /dev/null
++++ b/components/hardwareone/stt/heap_watch_readback.h
+@@ -0,0 +1,58 @@
++#pragma once
++// Diagnostic-only discovery: no watchpoint/breakpoint arming or clearing.
++#include "heap_trigger_read.h"
++#include "esp_cpu.h"
++#include "esp_ipc.h"
++#include "esp_log.h"
++#include "riscv/rv_utils.h"
++#include "soc/soc_caps.h"
++#include "freertos/FreeRTOS.h"
++#include "freertos/task.h"
++static_assert(SOC_CPU_WATCHPOINTS_NUM==3 && sizeof(void*)==4);
++extern "C" char _ext_ram_bss_end;
++namespace hw1::stt {
++struct HeapTriggerCpu {
++  static uint32_t core(){return esp_cpu_get_core_id();}
++  static uint32_t debugger(){return esp_cpu_dbgr_is_attached();}
++  static UBaseType_t maskInterrupts(){return portSET_INTERRUPT_MASK_FROM_ISR();}
++  static void restoreInterrupts(UBaseType_t previous){portCLEAR_INTERRUPT_MASK_FROM_ISR(previous);}
++  static uint32_t select(){return RV_READ_CSR(tselect);}
++  static void select(uint32_t value){RV_WRITE_CSR(tselect,value);}
++  static uint32_t control(){return RV_READ_CSR(tcontrol);}
++  static uint32_t data1(){return RV_READ_CSR(tdata1);}
++  static uint32_t data2(){return RV_READ_CSR(tdata2);}
++  static uint32_t data3(){return RV_READ_CSR(tdata3);}
++};
++static void heapTriggerReadOnCore(void* argument) {
++  *static_cast<HeapTriggerRead*>(argument)=readHeapTriggers<HeapTriggerCpu>();
++}
++static bool heapWatchReadback(unsigned stage) {
++  bool all=true;
++  for(unsigned core=0;core<2;++core) {
++    HeapTriggerRead r;
++    const esp_err_t error=core==esp_cpu_get_core_id() ? (heapTriggerReadOnCore(&r),ESP_OK)
++      : esp_ipc_call_blocking(core,heapTriggerReadOnCore,&r);
++    const bool ok=error==ESP_OK && r.core==core && r.restored && r.selected;
++    all=all && ok;
++    ESP_LOGI("STT","TL hwread stage=%u core=%u ok=%u error=%u debugger=%u before=%u after=%u control_before=%lu control_after=%lu end",
++             stage,core,unsigned(ok),unsigned(error),unsigned(r.debugger),unsigned(r.before),unsigned(r.after),
++             (unsigned long)r.controlBefore,(unsigned long)r.controlAfter);
++    ESP_LOGI("STT","TL hwslots stage=%u core=%u selected0=%u data10=%lu data20=%lu selected1=%u data11=%lu data21=%lu selected2=%u data12=%lu data22=%lu end",
++             stage,core,unsigned(r.slots[0].selected),(unsigned long)r.slots[0].data1,(unsigned long)r.slots[0].data2,
++             unsigned(r.slots[1].selected),(unsigned long)r.slots[1].data1,(unsigned long)r.slots[1].data2,
++             unsigned(r.slots[2].selected),(unsigned long)r.slots[2].data1,(unsigned long)r.slots[2].data2);
++    ESP_LOGI("STT","TL hwcontext stage=%u core=%u data30=%lu data31=%lu data32=%lu end",
++             stage,core,(unsigned long)r.slots[0].data3,(unsigned long)r.slots[1].data3,(unsigned long)r.slots[2].data3);
++  }
++  const uintptr_t heap=reinterpret_cast<uintptr_t>(&_ext_ram_bss_end);
++  const uint32_t control=*reinterpret_cast<volatile const uint32_t*>(heap+16);
++  // Layout is the installed non-ROM multi_heap.c: five 32-bit fields, TLSF
++  // control initialized immediately after it. Record first; never write it.
++  const bool layout=control==heap+20;
++  ESP_LOGI("STT","TL hwheap stage=%u heap=%lu field=%lu value=%lu expected=%lu ok=%u end",
++           stage,(unsigned long)heap,(unsigned long)(heap+16),(unsigned long)control,
++           (unsigned long)(heap+20),unsigned(layout));
++  ESP_LOGI("STT","TL hwread_done stage=%u ok=%u cores=2 slots=6 contexts=6 heap_ok=%u end",stage,unsigned(all),unsigned(layout));
++  return all;
++}
++}

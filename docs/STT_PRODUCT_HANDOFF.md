@@ -382,3 +382,30 @@ Original full app slot restored/verified, owned fixture removed; final healthy
 probe 5,943,296 B LittleFS/logging inactive/PDM/model unchanged. Future playback
 50%; this entire block was silent. See AB_TEST_RESULTS.md for bootstrap units,
 raw numeric distributions, copy-timing limitations and remaining gates.
+
+
+Heap-trigger discovery checkpoint (16bfb713 / 647e4858): two separate one-boot
+read-only diagnostics completed with the original app restored/full-slot-verified
+after each. At four lifecycle checkpoints both cores' three shared trigger slots
+read TDATA1=0x21000000 (type 2, read-only maskmax 8, configurable bits zero),
+TDATA2=0, TCONTROL=0, no debugger and restored selectors. The extended second
+image additionally read all 24 TDATA3 values as zero. The first image did not
+observe context qualifiers. No trigger was armed or cleared. The heap_data
+field at 0x4809e434 held the expected 0x4809e438 at every checkpoint for these
+matching images; this does not identify the earlier corrupting writer.
+
+SDK configuration was byte-identical to 002e3a0c. Both runs passed six existing
+forced ownership checks each, with zero watchdog/fatal/overrun markers; normal
+capture had zero feature rows/speaker jobs. No audio playback occurred. Latest
+healthy original-app probe: 5,935,104 B LittleFS free, logging inactive, onboard
+PDM preferred, model identity unchanged. Future playback remains 50%.
+
+Next: recheck trigger ownership immediately before a separately labelled
+synthetic four-byte store-watchpoint calibration on each core, verify exact
+trap PC/address/core and post-trap recovery, then watch the real heap field.
+An empty readback is not a permanent lease. Do not probe potentially absent
+TINFO or assume reset clears debug state. P4_HEAP_WATCH_PLAN.md records the
+ownership and panic-context constraints. Current HardwareOne diagnostic branch
+is local codex/stt-ab-heap-watch at 647e4858, based on the earlier cache-only
+fault workload; the separately prepared ring repair remains unqualified for
+full application use. Matching app/debug/source evidence is retained privately.

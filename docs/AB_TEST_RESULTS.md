@@ -1941,3 +1941,111 @@ restored/full-slot-verified. Final healthy original-app probe: 5,943,296 B
 LittleFS free, logging inactive, PDM preferred, model header/footer unchanged,
 zero new watchdog/fatal markers. All blocks stayed above 2 MiB. Future playback
 remains 50%; this entire test block was silent.
+
+## Heap-header and trigger readback before calibration
+
+The read-only discovery gate completed on two separate diagnostic images:
+16bfb713 (TDATA1/2 only) and 647e4858 (adds TDATA3 context filters), one boot each.
+Both derive from archived fault-reproduction image 002e3a0c on the local
+`codex/stt-ab-heap-watch` branch. They retain that known-input workload and
+cache-row-only repair; they do not incorporate the separate b7598680 ring
+candidate. No HardwareOne branch is pushed or normal firmware promoted.
+
+### Findings
+
+| Source ID | Completed lifecycles | Readback checkpoints | Core/slot observations | TDATA3 reads | Configurable trigger bits nonzero | Heap-pointer mismatches | Watchdog / fatal / audio overrun |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 16bfb713 | 1 | 4 | 24 | 0 | 0 | 0 | 0 / 0 / 0 |
+| 647e4858 | 1 | 4 | 24 | 24 | 0 | 0 | 0 / 0 / 0 |
+
+Each checkpoint queries both cores and all three trigger indices. The stage IDs
+are 0 before speaker-model loading, 1 after speaker-worker join/queue release,
+2 after speaker-state destruction, and 3 after backend/audio-buffer cleanup and
+transcript completion publication, before terminal-state publication. The
+six existing forced ownership checks passed in each run. Normal capture had
+zero feature rows and zero submitted / labelled / skipped speaker jobs.
+Known-PCM diagnostic work ran while onboard PDM capture was active; no playback
+or speech accuracy comparison was performed.
+
+All six physical slots had the same values at every checkpoint:
+
+| Field | Value |
+|---|---|
+| Cores | 0, 1 |
+| Trigger indices per core | 0, 1, 2 |
+| Debugger attached | 0 |
+| TSELECT before / after | 0 / 0 |
+| TCONTROL before / after | 0 / 0 |
+| TDATA1 | 0x21000000 |
+| Type / maskmax | 2 / 8 |
+| Configurable bits (mask 0x081fffff) | 0 |
+| TDATA2 | 0 |
+| TDATA3 in 647e4858 | 0 |
+| IPC errors / selector-restore failures | 0 / 0 |
+
+The manual identifies type and maskmax as read-only capability fields; maskmax
+8 describes a 256-byte maximum NAPOT range. Those bits explain the nonzero
+TDATA1 value. TDATA3 controls optional context filtering. The decoder now
+separates capability/configuration bits and records context coverage rather
+than treating every nonzero low bit as an occupied trigger. The first image's
+context remained unobserved; the second supplied the missing reads.
+[Espressif TRM, pp. 164–166](https://documentation.espressif.com/esp32-p4_technical_reference_manual_en.pdf#page=164).
+
+In both images the heap observations were identical at all four checkpoints:
+
+| Heap field | Value |
+|---|---|
+| Heap start / matching ELF external-BSS end | 0x4809e424 |
+| heap_data field address | 0x4809e434 |
+| Read control pointer | 0x4809e438 |
+| Expected control pointer | 0x4809e438 |
+| First mismatching stage | none |
+
+The installed SDK's non-ROM heap descriptor is five 32-bit fields. Its
+registration initializes the control immediately after that descriptor; the
+runtime observations match the pinned layout. This verifies the target field
+and expected pointer for these images. Future images must derive/verify their
+own addresses instead of copying this numeric address blindly.
+
+### Interpretation and next gate
+
+The observed trigger state matches the inactive reset shape on both cores;
+there is no observed attached debugger or context qualifier. This is point-in-time
+discovery, not a permanent lease. Recheck immediately before arming and preserve
+unexpected owner state. The readback helper exposes only slot-selector writes,
+restores the saved selector and interrupt mask, and compares global control
+before/after. It never writes trigger configuration/address/context or arms /
+clears a watchpoint. No watchpoint was armed in either run.
+
+The expected heap pointer in these samples does not explain or cure the earlier
+corruption. This is not a heap-wide integrity proof, a crash-rate estimate or a
+qualified application update. The next gate is a labelled expected-trap
+calibration on a synthetic four-byte word, separately for each core, followed by
+post-trap state/owned-cleanup verification. Only then monitor the real heap
+field. No corruption writer has been identified.
+
+The manual notes that TINFO can be absent and trap on read. Its support was not
+probed; the already observed type field supplies the needed trigger type.
+The register default tables also do not alone establish recovery through this
+specific panic/USB reset sequence. Capture actual post-trap state during
+calibration. See P4_HEAP_WATCH_PLAN.md for ownership and panic-context limits.
+
+### Reproducibility and recovery
+
+16bfb713 app: 6,035,008 B, SHA-256
+229e7ad9efeb6adc6c8d4f03f836da176534e10d90be812a1bd142edbd17c2b8.
+647e4858 app: 6,035,232 B, SHA-256
+1da2c6509b94b27f8e586ac7d098221da18261bce54b71bf79c9fa17185d4891.
+Matching source/app/ELF/map/profile artifacts are private. The sdkconfig matches
+002e3a0c byte for byte; CPU/PSRAM/cache settings, models and labelling policy
+are unchanged. `p4-heap-readback-002e3a0c.patch` contains only the diagnostic
+addition. Source-template host tests check selector/IRQ restoration, all slot
+values, unsupported selection and changed global state. Numeric parser cases
+cover real capability defaults, missing context, mixed formats, corruption and
+heap mismatch; complete tables do not override lifecycle health checks.
+
+Both blocks removed their owned SD fixture and restored/full-slot-verified the
+original app. Healthy post-restore LittleFS free was 5,967,872 / 5,935,104 B;
+logging inactive, PDM preferred, model header/footer unchanged, zero new
+watchdog/fatal markers. All measurements stayed above 2 MiB. All tests were
+silent; future playback remains 50%.

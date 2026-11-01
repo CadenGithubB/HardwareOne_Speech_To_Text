@@ -214,3 +214,29 @@ The parser emits only numbers/IDs, rejects damaged/duplicate/misordered records,
 and keeps lifecycle status separate from pre-stop numerical checks. Five clean
 boots are an isolated diagnostic gate, not full application qualification.
 See AB_TEST_RESULTS.md for measured cost and remaining checks.
+
+
+## Heap/trigger readback discovery
+
+`p4-heap-readback-002e3a0c.patch` adds 647e4858's read-only state discovery to the
+archived fault-reproduction workload. It is separate from the stable-window
+repair. At four stages it queries both cores through per-core callbacks, saves
+and restores TSELECT/IRQ state, reads TDATA1/2/3 and TCONTROL, and samples the
+heap header's control pointer. No trigger configuration/address/context writes,
+arming or clearing are performed. The portable reader deliberately exposes no
+such write operation; its host test compiles the actual template.
+
+```
+python3 tests/test_heap_trigger_read.py HARDWAREONE_CHECKOUT
+python3 tests/test_p4hwread.py
+python3 tools/device_tests/feature_cache/p4hwread.py PRIVATE_RAW_LOGS
+```
+
+The parser accepts the older format without TDATA3 as explicitly incomplete
+context coverage. The extended footer requires all context records, so damaged
+extended logs cannot silently qualify as the older format. It separates
+read-only capability bits from configuration, rejects bad/missing/restoration
+records, and emits only numbers/IDs. A decoded inactive/reset shape is an
+observation, not a lease or lifecycle qualification. Check harness result /
+failure records independently, including faults after the last marker.
+Actual calibration and heap-write monitoring remain pending.
