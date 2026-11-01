@@ -277,3 +277,14 @@ Tail removal improves pooled in-order results but regresses Conversation 4 and
 increases Conversation 1 shuffled splits. It is not a qualified default, a
 production configuration change or evidence of an incorrect original mic cut.
 Final speaker partitions remain unopened. Numeric tables are in the report.
+
+The pointwise address-walk probe c6252b6e is complete and rejected for promotion:
+5 reboot trials, 15 timed pairs, 50/50 identical feature/logit/greedy-text hashes.
+Inference +1.157667 ms, boot-bootstrap 95% [-3.437533, +5.275533] ms, matching
+headroom; zero reported watchdogs/overruns/fatal markers. No production setting,
+model weight, tile size or clock configuration changed. The original full app
+slot was restored/verified and owned fixture removed; final probe LittleFS free
+6,422,528 B/logging inactive/PDM/model header and footer unchanged. Traffic and
+complete export-fixture/length coverage remain open; no end-to-end gain is
+claimed. The active queue next examines feature-row ownership and actual cache
+measurement. Neither source suspicion establishes the cause of past faults.

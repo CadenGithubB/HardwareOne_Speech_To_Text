@@ -459,7 +459,7 @@ def main():
     ap.add_argument('--ready', default='capture_start,warm',
                     help='TL line kinds that must all be seen (this boot) before the settle delay')
     ap.add_argument('--between', type=float, default=3.0, help='pause between sessions')
-    ap.add_argument('--expect-volume', type=int, default=54, help='-1 skips the check (it is only read)')
+    ap.add_argument('--expect-volume', type=int, default=50, help='expected Mac output volume (default 50); -1 skips the read-only check')
     ap.add_argument('--no-force-reset', action='store_true')
     ap.add_argument('--no-analyse', action='store_true', help='skip the per-session analysis printout')
     ap.add_argument('--capture-only', type=float, default=None, metavar='SECONDS',

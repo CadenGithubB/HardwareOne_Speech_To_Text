@@ -1,0 +1,314 @@
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index 402a24f3..a0d31bb7 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -14,6 +14,7 @@
+ #include "esp_timer.h"
+ #include "stt/speaker_cluster.h"
+ #include "stt/speaker_model.h"
++#include "mbedtls/sha256.h"
+ #include "stt/stt_dl_metadata.h"
+ #include "freertos/FreeRTOS.h"
+ #include "freertos/task.h"
+@@ -408,6 +409,7 @@ float speakerFixtureCosine(SpeakerState& s) {
+     heap_caps_free(buf);
+     return cos;
+ }
++#include "stt/pointwise_probe.h"
+ #endif
+ }  // namespace
+ size_t speakerBase64(const uint8_t* in,size_t n,char* out) {
+@@ -589,6 +591,7 @@ bool sttSpeakerBegin(STTLocalSession* session,size_t maxSamples,STTSpeakerStatus
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+     const int64_t f0=esp_timer_get_time();
+     st.fixtureCos=speakerFixtureCosine(*s);
++    if(gSpeakerFixture) pointwiseBenchmark(*b);
+     st.fixtureUs=uint32_t(esp_timer_get_time()-f0);
+     s->model.resetProfile();   // the fixture embed is not a phrase
+     s->model.setRamProbe(true);
+diff --git a/components/hardwareone/stt/pointwise_probe.h b/components/hardwareone/stt/pointwise_probe.h
+new file mode 100644
+index 00000000..98ee02bb
+--- /dev/null
++++ b/components/hardwareone/stt/pointwise_probe.h
+@@ -0,0 +1,74 @@
++#pragma once
++// Included inside System_STTLocal's anonymous namespace: diagnostic only,
++// before capture/speaker worker start. No transcript, tensor or PCM is logged.
++extern "C" void hw1_dl_pointwise_probe_set(int);
++extern "C" uint32_t hw1_dl_pointwise_probe_count(int);
++void pointwiseBenchmark(Backend& backend) {
++    struct Reset {~Reset(){hw1_dl_pointwise_probe_set(0);}} reset;
++    uint32_t samples=0;memcpy(&samples,gSpeakerFixture,4);
++    const auto* pcm=reinterpret_cast<const int16_t*>(gSpeakerFixture+8);
++    if(!samples || !backend.weights.loaded()) {ESP_LOGE("STT","TL pw_error code=1");return;}
++    uint8_t wantInput[32]={},wantOutput[32]={},wantText[32]={};bool first=true,ok=true;
++    struct Measurement {
++        uint32_t wall=0,inference=0,stages=0,yield=0,calls=0,width1=0,c512=0;
++        size_t lowInternal=0,lowPsram=0,freeInternal=0,freePsram=0;
++        size_t largestInternal=0,largestPsram=0;
++    };
++    auto measure=[&](int mode,Measurement& m) {
++        File file=openModel();
++        if(!file || file.isDirectory())return false;
++        hw1_dl_pointwise_probe_set(mode);
++        hw1::stt::stageProfileReset();
++        hw1::stt::Diagnostics d;STTLocalStats stats;
++        char text[513]={},error[128]={};
++        heap_caps_monitor_local_minimum_free_size_start();
++        const int64_t begin=esp_timer_get_time();
++        const bool call=hw1::stt::transcribe({&file,file.size(),readModel},pcm,samples,text,sizeof(text),{},stats,error,sizeof(error),&d,&backend.weights,nullptr);
++        m.wall=uint32_t(esp_timer_get_time()-begin);
++        m.lowInternal=heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
++        m.lowPsram=heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
++        heap_caps_monitor_local_minimum_free_size_stop();
++        if(!call || !stats.weightsReused || stats.lmUsed)return false;
++        uint8_t bitsIn=0,bitsOut=0,hash[32];
++        for(unsigned i=0;i<32;++i) {bitsIn|=d.inputSha[i];bitsOut|=d.outputSha[i];}
++        if(!bitsIn || !bitsOut || mbedtls_sha256(reinterpret_cast<const uint8_t*>(text),strlen(text),hash,0))return false;
++        if(first) {memcpy(wantInput,d.inputSha,32);memcpy(wantOutput,d.outputSha,32);memcpy(wantText,hash,32);first=false;}
++        if(memcmp(wantInput,d.inputSha,32) || memcmp(wantOutput,d.outputSha,32) || memcmp(wantText,hash,32))return false;
++        m.inference=d.inferenceUs;m.yield=stats.inferenceYieldUs;
++        uint32_t stages[256]={},segments=0;
++        const size_t n=hw1::stt::stageProfile(stages,256,&segments);
++        if(segments!=1)return false;
++        for(size_t i=0;i<n;++i)m.stages+=stages[i];
++        m.calls=hw1_dl_pointwise_probe_count(0);m.width1=hw1_dl_pointwise_probe_count(1);m.c512=hw1_dl_pointwise_probe_count(2);
++        m.freeInternal=d.freeInternalAtInference;m.freePsram=d.freePsramAtInference;
++        m.largestInternal=heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
++        m.largestPsram=heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
++        return m.inference && m.c512 && m.width1;
++    };
++    // Warm both modes twice, then three alternating matched pairs per boot.
++    Measurement warm;
++    for(int i=0;i<4 && ok;++i)ok=measure(i&1,warm);
++    for(int pair=0;pair<3 && ok;++pair) {
++        Measurement m[2];
++        if(pair&1)ok=measure(1,m[1]) && measure(0,m[0]);
++        else ok=measure(0,m[0]) && measure(1,m[1]);
++        for(int mode=0;mode<2 && ok;++mode) {
++            const auto& v=m[mode];
++            ESP_LOGI("STT","TL pw_time pair=%d mode=%d wall_us=%lu inference_us=%lu stages_us=%lu yield_us=%lu end",pair,mode,(unsigned long)v.wall,(unsigned long)v.inference,(unsigned long)v.stages,(unsigned long)v.yield);
++            ESP_LOGI("STT","TL pw_calls pair=%d mode=%d tiled=%lu width1=%lu c512=%lu end",pair,mode,(unsigned long)v.calls,(unsigned long)v.width1,(unsigned long)v.c512);
++            ESP_LOGI("STT","TL pw_mem pair=%d mode=%d low_int=%u low_psram=%u free_int=%u free_psram=%u largest_int=%u largest_psram=%u end",pair,mode,unsigned(v.lowInternal),unsigned(v.lowPsram),unsigned(v.freeInternal),unsigned(v.freePsram),unsigned(v.largestInternal),unsigned(v.largestPsram));
++        }
++        vTaskDelay(1);
++    }
++    hw1_dl_pointwise_probe_set(0);
++    if(ok) {
++        const uint8_t* hashes[]={wantInput,wantOutput,wantText};
++        const char* kinds[]={"input","output","text"};
++        for(unsigned h=0;h<3;++h) {
++            char hex[65];
++            for(unsigned i=0;i<32;++i)snprintf(hex+2*i,3,"%02x",unsigned(hashes[h][i]));
++            ESP_LOGI("STT","TL pw_hash kind=%s sha=%s end",kinds[h],hex);
++        }
++    }
++    ESP_LOGI("STT","TL pw_done ok=%u hashes_equal=%u warm=4 pairs=3 samples=%lu end",unsigned(ok),unsigned(ok),(unsigned long)samples);
++}
+diff --git a/components/hardwareone/stt/quartznet_runtime.cpp b/components/hardwareone/stt/quartznet_runtime.cpp
+index 4fae18ef..1e7b3d8a 100644
+--- a/components/hardwareone/stt/quartznet_runtime.cpp
++++ b/components/hardwareone/stt/quartznet_runtime.cpp
+@@ -282,11 +282,8 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
+                 const STTFeaturePrefix* prefix) {
+     InternalMemoryScope internalMemory;
+     stats={}; if(text && capacity)text[0]=0;if(error && errorCapacity)error[0]=0;
+-#if HW1_STT_RUNTIME_DIAGNOSTICS
++    // Optional numeric probe, inactive for ordinary calls (nullptr).
+     if(diagnostics)*diagnostics={};
+-#else
+-    (void)diagnostics;
+-#endif
+     auto fail=[&](const char* why) { if(text && capacity)text[0]=0; if(error && errorCapacity)snprintf(error,errorCapacity,"%s",why);return false; };
+ #if HW1_STT_RESIDENT_MODEL
+     // Before this process builds its first STT model, point ESP-DL's
+@@ -513,15 +510,14 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
+         stats.quantizeUs=static_cast<uint32_t>(esp_timer_get_time()-quantizeStart);
+     }
+     stats.frontendMs=millis()-start;
+-#if HW1_STT_RUNTIME_DIAGNOSTICS
+     if(diagnostics) {
+         digest(input->data,input->get_bytes(),diagnostics->inputSha);
+         diagnostics->freePsramAtInference=heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+         diagnostics->freeInternalAtInference=heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+     }
+-#endif
+     if(cancelled(control))return fail("Cancelled");
+     progress(control,STTLocalPhase::Inference);start=millis();
++    const int64_t inferenceStartUs=diagnostics ? esp_timer_get_time() : 0;
+     // Blocking with vTaskDelay(1) every 5 stages cost 41 ticks per 15x5 run
+     // (each up to 1 ms: 32-54 ms per phrase). The 5-stage points now only
+     // taskYIELD() (round-robin with other priority-2 tasks; the capture task
+@@ -575,11 +571,10 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
+     }
+     ++gStageSegments;
+     stats.inferenceMs=millis()-start;
++    if(diagnostics)diagnostics->inferenceUs=uint32_t(esp_timer_get_time()-inferenceStartUs);
+     if(cancelled(control))return fail("Cancelled");
+     progress(control,STTLocalPhase::Decoding);start=millis();
+-#if HW1_STT_RUNTIME_DIAGNOSTICS
+     if(diagnostics)digest(output->data,output->get_bytes(),diagnostics->outputSha);
+-#endif
+     // Any decoder failure other than cancellation decodes greedily instead.
+     const auto logits=static_cast<const int8_t*>(output->data);
+     DecodeResult decoded=decoder && decoder->decode
+diff --git a/components/hardwareone/stt/quartznet_runtime.h b/components/hardwareone/stt/quartznet_runtime.h
+index 3bb43f8d..e5af3d48 100644
+--- a/components/hardwareone/stt/quartznet_runtime.h
++++ b/components/hardwareone/stt/quartznet_runtime.h
+@@ -2,8 +2,8 @@
+ #include "System_STTLocal.h"
+ #include <cstddef>
+ #include <cstdint>
+-// Tensor hashes and vendor memory profiling are probe-only; production keeps
+-// its user-facing timings/status without retaining this optional code.
++// Tensor hashes are explicitly requested through nonnull Diagnostics only.
++// Extra vendor allocation profiling/model verification remain compile-time probes.
+ #ifndef HW1_STT_RUNTIME_DIAGNOSTICS
+ #define HW1_STT_RUNTIME_DIAGNOSTICS 0
+ #endif
+@@ -33,6 +33,7 @@ struct ModelReader {
+ };
+ // Ignored unless the runtime is compiled with HW1_STT_RUNTIME_DIAGNOSTICS=1.
+ struct Diagnostics {
++    uint32_t inferenceUs = 0; // optional probe: same interval as inferenceMs, finer resolution
+     uint8_t inputSha[32]{}, outputSha[32]{};
+     size_t activationPsramBytes = 0;
+     size_t activationInternalBytes = 0;
+diff --git a/tools/p4/esp-dl-3.3.12-hw1.patch b/tools/p4/esp-dl-3.3.12-hw1.patch
+index 4bca0be8..479468bd 100644
+--- a/tools/p4/esp-dl-3.3.12-hw1.patch
++++ b/tools/p4/esp-dl-3.3.12-hw1.patch
+@@ -105,15 +105,31 @@ diff --git a/dl/base/dl_base_conv_args.hpp b/dl/base/dl_base_conv_args.hpp
+ 
+  } // namespace base
+ diff --git a/dl/base/dl_base_conv_loop.cpp b/dl/base/dl_base_conv_loop.cpp
+-index 96c5377..55ad503 100644
+ --- a/dl/base/dl_base_conv_loop.cpp
+ +++ b/dl/base/dl_base_conv_loop.cpp
+-@@ -40,10 +40,20 @@ static bool conv_loop_pie_tiled(ConvArgsType &args,
+- {
+- #if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S31
+-     constexpr int filter_bytes = 16 * 1024;
++@@ -10,0 +11,19 @@
+++#include <atomic>
+++
+++// Diagnostic selector stays constant for a complete, joined inference.
+++// Both paths retain the production tile sizes and assembly reduction bodies.
+++namespace {
+++std::atomic<int> hw1_pointwise_scan{0};
+++std::atomic<uint32_t> hw1_pointwise_calls{0}, hw1_pointwise_width1{0}, hw1_pointwise_512{0};
+++}
+++extern "C" void hw1_dl_pointwise_probe_set(int mode) {
+++    hw1_pointwise_scan.store(mode, std::memory_order_relaxed);
+++    hw1_pointwise_calls.store(0, std::memory_order_relaxed);
+++    hw1_pointwise_width1.store(0, std::memory_order_relaxed);
+++    hw1_pointwise_512.store(0, std::memory_order_relaxed);
+++}
+++extern "C" uint32_t hw1_dl_pointwise_probe_count(int which) {
+++    return which == 0 ? hw1_pointwise_calls.load(std::memory_order_relaxed) :
+++           which == 1 ? hw1_pointwise_width1.load(std::memory_order_relaxed) :
+++                        hw1_pointwise_512.load(std::memory_order_relaxed);
+++}
++@@ -42,0 +62 @@
+ +    constexpr int spatial_tile = 32;
+- #else
++@@ -44 +64,11 @@
+ -    constexpr int filter_bytes = 32 * 1024;
+ +    // HardwareOne: pointwise tiles sized for the ESP32-P4's 64 KB 2-way L1D,
+ +    // which both HP cores share. The shipped 32 KB filter tile x 32-pixel
+@@ -126,15 +142,48 @@ index 96c5377..55ad503 100644
+ +    // calls changes.
+ +    constexpr int filter_bytes = 16 * 1024;
+ +    constexpr int spatial_tile = 64;
+- #endif
++@@ -46 +75,0 @@
+ -    constexpr int spatial_tile = 32;
+- 
+-     // height/width/pointers are the body rectangle: the full map when there is
+-     // no pad, or conv_1x1_body_view() after 1x1 pad fill. Stride is already in
+-@@ -399,6 +409,54 @@ static void conv_loop_pie_grid(
+-     }
+- }
+- 
++@@ -77,0 +107,5 @@
+++    const bool pointwise_scan = hw1_pointwise_scan.load(std::memory_order_relaxed) != 0;
+++    hw1_pointwise_calls.fetch_add(1, std::memory_order_relaxed);
+++    if (width == 1) hw1_pointwise_width1.fetch_add(1, std::memory_order_relaxed);
+++    if (args.input_channel == 512 && args.output_channel == 512)
+++        hw1_pointwise_512.fetch_add(1, std::memory_order_relaxed);
++@@ -93,8 +127,24 @@
++-            for (int pixel = begin; pixel < end; ++pixel) {
++-                const int y = pixel / width;
++-                const int x = pixel % width;
++-                void *in = conv_ptr_add(
++-                    input_ptr, y * args.input_stride_y_offset + x * args.input_stride_x_offset, feat_bytes);
++-                void *out =
++-                    conv_ptr_add(output_ptr, y * args.output_y_offset + x * args.output_x_offset + channel, feat_bytes);
++-                body(out, in, (void *)&tile);
+++            if (width == 1 && pointwise_scan) {
+++                // Same pixel/channel-tile order and kernel arguments. A single
+++                // column advances by row stride; no per-pixel division or
+++                // repeated multiplication is needed. Avoid forming a pointer
+++                // beyond the last body element after the final call.
+++                void *in = conv_ptr_add(input_ptr, begin * args.input_stride_y_offset, feat_bytes);
+++                void *out = conv_ptr_add(output_ptr, begin * args.output_y_offset + channel, feat_bytes);
+++                for (int pixel = begin; pixel < end; ++pixel) {
+++                    body(out, in, (void *)&tile);
+++                    if (pixel + 1 < end) {
+++                        in = conv_ptr_add(in, args.input_stride_y_offset, feat_bytes);
+++                        out = conv_ptr_add(out, args.output_y_offset, feat_bytes);
+++                    }
+++                }
+++            } else {
+++                for (int pixel = begin; pixel < end; ++pixel) {
+++                    const int y = pixel / width;
+++                    const int x = pixel % width;
+++                    void *in = conv_ptr_add(
+++                        input_ptr, y * args.input_stride_y_offset + x * args.input_stride_x_offset, feat_bytes);
+++                    void *out =
+++                        conv_ptr_add(output_ptr, y * args.output_y_offset + x * args.output_x_offset + channel, feat_bytes);
+++                    body(out, in, (void *)&tile);
+++                }
++@@ -401,0 +452,48 @@
+ +// HardwareOne: output-channel blocks for 16-bit-activation KxK convs whose filter outgrows the cache.
+ +// The w8a16/s16 hwcn/33cn kernels compute one output pixel for all n_div_x groups of 8 output channels,
+ +// reading the filter group after group ([N/8][kh][kw][C][8]), so every pixel re-reads the whole filter:
+@@ -183,20 +232,11 @@ index 96c5377..55ad503 100644
+ +    return true;
+ +}
+ +
+- static void conv_loop_pie(ConvArgsType &args, conv_pie_fn_t body, conv_pie_fn_t border, int feat_bytes, int filt_bytes)
+- {
+-     if (conv_is_1x1(args) || !conv_has_padding(args)) {
+-@@ -419,7 +477,9 @@ static void conv_loop_pie(ConvArgsType &args, conv_pie_fn_t body, conv_pie_fn_t
+-         }
+-         return;
+-     }
++@@ -422 +520,3 @@
+ -    conv_loop_pie_grid(args, body, border, feat_bytes, filt_bytes);
+ +    if (!conv_loop_pie_grid_blocked(args, body, border, feat_bytes, filt_bytes)) {
+ +        conv_loop_pie_grid(args, body, border, feat_bytes, filt_bytes);
+ +    }
+- }
+- #endif
+- 
+ diff --git a/dl/base/dl_base_conv_select.hpp b/dl/base/dl_base_conv_select.hpp
+ index 8eae64c..9ebda28 100644
+ --- a/dl/base/dl_base_conv_select.hpp
+diff --git a/tools/p4/prepare_esp_dl.py b/tools/p4/prepare_esp_dl.py
+index 0d733729..f9230253 100755
+--- a/tools/p4/prepare_esp_dl.py
++++ b/tools/p4/prepare_esp_dl.py
+@@ -66,8 +66,8 @@ VERSION = "3.3.12"
+ COMPONENT_HASH = "d792e72ab3858d805d8918d1215a862541344625f62134597866834de666fd04"
+ SOURCE_TREE_SHA256 = "e5c5155078c46e090ad7f08a7239bb52d456394fab1356d78b4c127eefcb6e86"
+ PATCH = ROOT / "esp-dl-3.3.12-hw1.patch"
+-PATCH_SHA256 = "0dc9782643ce3d2332b2c4a54624fce27150736314d065b48b55d5cf2a54d593"
+-PATCHED_TREE_SHA256 = "b217d41df9f399d7958496ae62f075cfbc8adecd222f9fe9c03064a452ddcd2c"
++PATCH_SHA256 = "710aa9beda822bf9c1844d292ad323ccab179198d4885f0bcccef9ba9b59f2f7"
++PATCHED_TREE_SHA256 = "38fe78ed779f143dc413a7947b6c59b006abccd25d6d5ff62946be2a7df09ed1"
+ MANIFEST = "hw1-esp-dl-override.json"
+ # Present only in component-manager copies; not part of the package itself.
+ IGNORED = {".component_hash", MANIFEST}

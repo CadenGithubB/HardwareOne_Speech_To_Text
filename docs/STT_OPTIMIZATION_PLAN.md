@@ -216,3 +216,12 @@ clocks or arithmetic reductions. Frozen/reference fixtures and target matched
 runs are required before claiming a gain. End-to-end qualification remains open. The completed 44-condition known-clip
 boundary probe shows nonmonotonic similarities and cross-conversation tradeoffs;
 no universal boundary policy qualifies from it. See AB_TEST_RESULTS.md.
+
+
+The first pointwise address-walk experiment has now completed: 50 hash-equal
+model calls across five boots but no measurable inference improvement
+(+1.157667 ms, 95% [-3.437533, +5.275533] ms). It is rejected for promotion;
+measured headroom matches and the original app is restored. The next bounded
+code audit concerns feature-row writer/retirement ownership; the next profiling
+gap is actual cache/bus behavior. Neither has a reproduced result yet. No tile,
+model, production cadence or CPU/RAM timing change is proposed from this result.

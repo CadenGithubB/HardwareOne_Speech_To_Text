@@ -2,7 +2,8 @@
 
 31 October 2026. **In progress; no optimization has been qualified.** The
 fixed gen2-25397 model, onboard PDM microphone and Mac speaker are used. The
-speaker output is fixed at 75%. Raw audio, captions, logs and flash images are
+historical speaker-to-microphone recordings used 75% output. Future playback is
+50% by user request; overnight work is silent. Raw audio, captions, logs and flash images are
 private and are not included here.
 
 ## Qualification and safety
@@ -11,10 +12,11 @@ private and are not included here.
   app at `0x10000`, length `0x715000`, and LittleFS at `0x725000`.
 - A complete 7,426,048-byte app-slot rollback image was saved privately before
   testing and verified against the device. The matching rebuilt baseline was
-  subsequently flashed at `0x10000` only. The preview-cadence candidate is
-  was tested at the same app address. The speaker-off candidate is now
-  installed there. All writes verified; the original image is reserved for
-  restoration. No other partition was flashed.
+  subsequently flashed at `0x10000` only. The preview-cadence and speaker-off
+  candidates were tested there, then the original full app slot was restored
+  and verified. Subsequent diagnostic blocks use temporary app-only images with
+  mandatory original-slot restoration and verification. No other partition
+  was flashed; per-block restoration results appear with their measurements.
 - A 75% qualification run completed 39 final chunks with zero reported audio
   overruns and no fault markers; LittleFS afterward had 7,507,968 bytes free.
 - One earlier qualification run reported an IDLE1 task-watchdog warning during
@@ -34,10 +36,10 @@ private and are not included here.
 | --- | ---: | --- |
 | Debug vs lean logging | 5 / 5 | No clear difference; fault-affected attempts retained separately |
 | Preview cadence | 5 / 5 | Fewer previews, later first preview; not a qualified win |
-| Speaker labels and conversation accuracy | 0 / 0 | Pending |
-| Pointwise kernels and traffic | 1 profile | Profile captured; traffic and kernel comparison pending |
-| RAM attribution and right-sizing | 1 phase sample | Partial attribution; transient peaks and resizing pending |
-| LM strength and technical vocabulary | 0 / 0 | Pending |
+| Speaker labels and conversation accuracy | 5 / 5 standard; 7 conversation runs | Speaker-off is not a qualified replacement; speaker diagnostics below |
+| Pointwise kernels and traffic | 1 profile; 5 reboot comparisons | Address-walk candidate preserves hashes, no measurable gain; traffic remains unmeasured |
+| RAM attribution and right-sizing | 5 / 5 speaker on/off; phase observations | Sampled speaker attribution; transient peaks and resizing pending |
+| LM strength and technical vocabulary | 5 technical recordings; no strength A/B | Descriptive WER recorded; no configuration tuning in the code-only queue |
 
 No win is claimed without the requested matched runs and confidence intervals.
 
@@ -1323,6 +1325,92 @@ Reproduction: run `spkreplay.py` on each of the four manifests at
 grid, private runner and model/environment identities remain private;
 no audio, vectors, transcripts or session logs are committed.
 
+## Silent pointwise address-walk comparison
+
+Local HardwareOne diagnostic c6252b6e tests a one-column pointer walk in the
+existing tiled 1×1 loop. Each kernel call, channel tile and full input-channel
+reduction stays in the original order. Filter/spatial tiles remain 16 KiB/64
+pixels, with unchanged weights, frontend, speaker policy, compiler and clock
+configuration. The prior frontend-clear candidate is excluded. The diagnostic
+selector is reset to the original path afterward; it is not a runtime setting.
+
+App size 6,032,320 B; SHA-256
+2381da9d1d4f01943a4f554ede67a9480c92ca9c270a8537c80b1f7bd72fda3d.
+The selected app, matching ELF/map/build data and source bundle remain private.
+The incremental probe patch and MIT-licensed extracted loops are preserved in
+`tools/device_tests/kernels/`; no production integration is made.
+
+Host ASan/UBSan testing of the real extracted loop covered 600 rectangles:
+311 accepted, 145 one-column, and 554,628 identical ordered body calls per
+implementation. Cases include byte widths, strides, aligned body origins,
+misalignment, remainders, unsupported activation, null body and empty shapes.
+The host substitutes the argument container/body and does not emulate PIE.
+
+Five independently rebooted P4 trials replayed the same 44,560-sample input
+with the resident fixed gen2-25397 acoustic model. Four warm-up calls preceded
+patterns original/candidate, candidate/original, original/candidate: 15 timed
+pairs, 30 timed model calls and 20 warm-ups. Feature, logit and greedy-text
+hashes match across both modes and all five boots (50/50 calls). Each inference
+exercised 184 tiled calls, all one-column, including 106 calls for 512→512
+(the 53 relevant layers split across two workers). No hash identities, tensor
+contents, captions or audio are printed in this report.
+
+Paired differences are candidate minus original. Intervals bootstrap whole
+boot means (10,000 draws, seed 17); within-boot pairs are not treated as
+independent reboot trials. Times are wall measurements; stage sums are not
+exclusive CPU time.
+
+| Measure (ms) | Original mean | Candidate mean | Paired difference | Bootstrap 95% interval |
+|---|---:|---:|---:|---|
+| Transcribe call | 861.077667 | 862.633733 | +1.556067 | [-3.392933, +5.596400] |
+| Inference | 788.077733 | 789.235400 | +1.157667 | [-3.437533, +5.275533] |
+| Summed model stages | 771.448600 | 772.644800 | +1.196200 | [-3.181400, +5.381133] |
+| Inference yields | 3.164200 | 3.360200 | +0.196000 | [-0.114933, +0.506933] |
+
+| Distribution (ms) | Original min / median / max | Candidate min / median / max |
+|---|---|---|
+| Transcribe call | 849.235 / 860.401 / 875.541 | 852.544 / 862.905 / 872.752 |
+| Inference | 777.343 / 787.947 / 802.770 | 778.991 / 790.117 / 800.001 |
+| Summed model stages | 760.891 / 771.200 / 788.124 | 762.796 / 773.465 / 781.554 |
+| Inference yields | 2.368 / 3.111 / 4.178 | 2.390 / 3.228 / 4.631 |
+
+Per-boot inference differences (ms): -7.467667, +5.857000, -0.641667, +6.623000, +1.417667.
+
+| Memory observation (B) | Original minimum / median | Candidate minimum / median |
+|---|---:|---:|
+| Scoped minimum internal free | 243,123 / 243,143 | 243,123 / 243,143 |
+| Scoped minimum PSRAM free | 3,529,532 / 3,529,600 | 3,529,532 / 3,529,600 |
+| Internal free at inference | 247,223 / 247,243 | 247,223 / 247,243 |
+| PSRAM free at inference | 3,609,164 / 3,609,232 | 3,609,164 / 3,609,232 |
+| Largest internal block after call | 147,456 / 147,456 | 147,456 / 147,456 |
+| Largest PSRAM block after call | 3,538,944 / 3,538,944 | 3,538,944 / 3,538,944 |
+
+**Finding:** no measurable improvement. Mean inference change is +0.146898%,
+95% interval [-0.435127%, +0.671763%]. The interval includes zero; summed stage
+and full transcribe-call intervals also include zero. Measured headroom is
+unchanged, and all five lifecycle controls report zero overruns, watchdogs or
+fatal markers. The first reboot improved and later reboots moved in both
+directions; selecting the first result would have produced a false speed claim.
+The candidate is rejected for promotion on the current evidence.
+
+**Limits:** this is one input/shape with full-model equality against the original
+kernel path, not the complete export-fixture/length suite or live WER testing.
+The acoustic replay uses greedy decoding without the LM and runs before live
+capture/speaker-worker concurrency. End-to-end delivery and ordinary-use fault
+rates are not measured. Both modes share hashes, counters, heap monitoring and
+extra probe code; code placement/instrumentation may affect cache behavior.
+Scoped heap minima include other firmware tasks and are not exclusive allocation
+attribution. No PSRAM bandwidth, cache misses or bus transactions were measured.
+
+The owned SD fixture was verified and removed; the original 7,426,048-byte app
+slot was restored and fully verified. Final probe: 6,422,528 B LittleFS free,
+logging inactive, PDM preferred, speaker model header/footer unchanged, zero
+watchdog/fatal markers. Only the app at the verified 0x10000 address was flashed.
+
+Interpretation: this address-calculation shortcut is not a useful demonstrated
+gain. Further kernel work should measure cache/bus behavior and attack larger
+work or data movement, rather than extrapolating from simpler source code.
+
 ## Technical recordings and pending work
 
 The five vocabulary-heavy recordings each ran once on the restored original
@@ -1341,11 +1429,13 @@ was not established. No filesystem cleanup was attempted. STT was stopped at
 the end of each complete session. The saved original app-slot image was restored
 and verified over all 7,426,048 B; no other partition was flashed.
 
-An LM-strength sweep remains blocked: the available production firmware lacks
-an accessible runtime strength control and logit export/replay path, and the
-user reserved further firmware development for another agent. The profile
-identified the pointwise stage as a candidate for investigation, but no kernel
-or layout candidate was prepared or tested against the export fixtures. Memory
-attribution is incomplete and no right-sizing has been qualified. Candidate
-sources are preserved in a private Git bundle based on `aa6508fd`; no candidate
-has been integrated into another checkout. These are follow-up work, not wins.
+The initial campaign had no accessible production runtime strength control or
+logit replay, so no controlled LM-strength result is claimed. The subsequent
+code-only queue keeps production settings fixed by user direction; it does not
+substitute configuration tuning for a code improvement. Standalone runtime
+controls described elsewhere are not a matched control for those historical runs.
+The first pointwise address-walk candidate is now measured above and rejected
+for promotion. Cache/PSRAM traffic, the complete target export-fixture suite and
+broader kernel/layout candidates remain open. Memory attribution is partial;
+no right-sizing is qualified. Candidate sources/recovery inputs remain private,
+and no unqualified change has been integrated into another checkout.

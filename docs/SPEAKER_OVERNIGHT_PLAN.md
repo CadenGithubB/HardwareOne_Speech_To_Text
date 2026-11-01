@@ -112,3 +112,52 @@ clip-mode tail raises pooled correct to 128 and labelled to 130, but Conversatio
 80/200. The 7850 clip 0/2 pair ranges 0.538–0.629 across boundaries with the same
 float model. No universal padding policy or old-cut fault is established. Full
 numeric tables and caveats are in AB_TEST_RESULTS.md; final speakers untouched.
+
+
+Completed: full-acoustic-model pointwise address-walk probe c6252b6e. The
+candidate removes repeated row/column address calculations only for one-column
+rectangles. Tile sizes and assembly reduction bodies remain fixed. The extracted
+real loop passed 600 ASan/UBSan cases (311 eligible, 145 one-column, 554,628
+identical ordered body calls). Actual P4 hash/timing/memory comparison uses five
+reboots, four warm-ups and three alternating pairs per boot. No live audio or
+production integration is implied by this probe; original-slot restoration is
+mandatory. Selected debug/source artifacts are retained and the same owned
+build directory stays active for the overnight profile.
+
+Result: 50/50 feature/logit/greedy-text hash matches across both modes and all
+five boots. Each inference exercises 184 tiled one-column calls, 106 for 512→512.
+Inference change +1.157667 ms, 95% [-3.437533, +5.275533] ms; no measurable
+improvement. Headroom observations match; no reported watchdogs/overruns/fatal
+markers. Candidate rejected for promotion. Fixture removed, original app restored
+and full-slot-verified, final probe LittleFS free 6,422,528 B/logging off/PDM.
+
+Next bounded ownership audit: HardwareOne System_STT.cpp's feature worker writes
+rows outside gSTTMux, while sttFeatureRetireOrphans/sttFeatureRelease wipe those
+rows outside that lock. A source-level race is suspected, not reproduced or tied
+to the historical allocator faults. Extract the real worker/retirement code with
+host lock/task stubs and a barrier around the real log_mel_frame_ring call;
+run ThreadSanitizer before proposing a fix. Standalone StreamPipeline instead
+computes a private row and commits it under its lock. Keep physical ring access
+and committed-prefix ownership separate in any conclusion.
+
+Next traffic measurement: the local IDF 5.5.5 hw_ver3 cache_reg.h exposes L1
+DBUS0/1 access counters. The designated chip reports revision v3.2, and the
+current build is min 3.01/max 3.99. Counter setup/readback semantics, overflow,
+prior ownership and correlation to PSRAM transactions still need verification;
+do not call cache counters PSRAM bytes or change cache/clock policy. These are
+measurement candidates, not completed traffic evidence.
+
+
+The playback harness's read-only `--expect-volume` default is now 50, matching
+the explicit user request and already-set Mac output. Historical runs used
+explicit 75 and remain unchanged. This default does not start playback or set
+volume; it prevents future default invocations from expecting an obsolete level.
+
+Build continuity: the active local HardwareOne source is
+`codex/stt-ab-pointwise` at c6252b6e. Its prepared SDK override uses patch SHA
+710aa9beda822bf9c1844d292ad323ccab179198d4885f0bcccef9ba9b59f2f7 and tree SHA
+38fe78ed779f143dc413a7947b6c59b006abccd25d6d5ff62946be2a7df09ed1.
+After switching source branches, verify/restage the matching reviewed SDK rather
+than building against that experimental override silently. The original SDK
+patch remains preserved by Git; selected matching app/debug/source evidence is
+already archived privately. Keep the owned profile build only while still used.
