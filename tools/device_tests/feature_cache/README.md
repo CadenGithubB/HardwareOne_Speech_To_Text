@@ -352,3 +352,55 @@ RTC/PSRAM formats and reports `post_reset_target_read=false`; it never reports
 that access pattern only. Wider overlapping stores, aliases and DMA require
 separate evidence. No production model, labelling or configuration change is
 included. Raw registers/logs and matching app/debug inputs stay private.
+
+### 128-bit overlap controls and independent address-guard candidate
+
+`p4-bulk-watch-4404da4e.patch` adds the explicit diagnostic commands below and
+removes automatic scalar calibration from speaker startup. Models and production
+policy are unchanged. With STT stopped:
+
+```
+sttperf heapbulk 0 0
+sttperf heapbulk recover
+sttperf heapbulk 0 4
+sttperf heapbulk recover
+sttperf heapbulk 1 4
+sttperf heapbulk recover
+```
+
+Each attempt owns a 16-byte-aligned, 32-byte PSRAM block, resets its values and
+first executes/reads back an unwatched 128-bit store separately on both CPUs.
+Both CPUs must see old values before and new values after their execution
+control. It then arms a four-byte watch on each core, tests reads/adjacent
+stores, verifies both leases and calls the named `esp.vst.128.ip` instruction.
+A trap is expected on the tested silicon. The tool also retains a returned
+store if changed memory and the still-present watch are proven; it does not
+mislabel that outcome as a trap. After a trap use recover over the same serial
+handle. Old PSRAM allocation addresses are never dereferenced/freed after reset.
+If a store returns, release both owned triggers before freeing the live block.
+Do not issue a new attempt until recovery/release succeeds.
+
+`p4hwbulk.py PRIVATE_ATTEMPT --recovery PRIVATE_RECOVERY --core CORE --offset
+OFFSET --store-pc MATCHING_ELF_PC` validates the trap branch. Omit --recovery
+for a proven returned-store outcome. Synthetic cases in test_p4hwbulk.py cover
+both branches, geometry, per-core execution controls, missing/changed evidence,
+owned cleanup and historical versus live faults. Actual 570be9f8 conditions
+0/0, 0/4 and 1/4 all trapped at the exact store PC. The returned branch has
+synthetic parser coverage only.
+
+An independent source audit found an unsupported-address bounds read in the
+pinned Arduino I2C cache helper. `test_i2c_address_guard.py HARDWAREONE` extracts
+and compiles that actual helper/type, reproduces address 128 with ASan/UBSan
+and strict trailing-array bounds, and checks the prepared guard with five
+invalid addresses, two in-range boundary cases and cached-handle reuse.
+The SDK is not edited. Optional --patch writes the reviewable change and
+--evidence retains private numeric/sanitizer artifacts. The source-bound
+reproducer requires this pinned unguarded helper and read-wrapper behavior;
+review it when updating the dependency.
+
+`i2c-address-guard.patch` adds the 7-bit bound before the helper's first cache
+index. It is a host-tested candidate, not installed or target-qualified. The
+host uses stub hardware APIs, not real I2C transactions. The old ELF places the
+I2C bus array immediately before the heap descriptor; that adjacency and the
+bounds flaw do not establish that this path caused the STT faults. Preserve
+this distinction when integrating or reporting the candidate.

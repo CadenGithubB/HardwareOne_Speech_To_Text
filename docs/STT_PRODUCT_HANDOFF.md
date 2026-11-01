@@ -12,17 +12,18 @@
   time, 60 forced checks, zero caught writes/fatal/watchdog/overrun markers. The
   longer cohort watched 8,478–10,847 ms past phase 321. This does not resolve
   the earlier invalid-control-pointer faults or establish ordinary-use rates.
-- Allocated-PSRAM scalar store controls passed on both cores with both cores
-  armed. Next: an aligned 128-bit store with watch offsets 0 and 4, checking
-  wider-overlap coverage on an owned block. The corrupting writer is unknown.
+- Scalar and 128-bit overlapping PSRAM controls passed on both CPUs. The
+  corrupting writer is unknown. Next audit actual caller/alias paths and plan
+  fault-time field/argument capture. An independent I2C bounds-guard candidate
+  passes eight host cases; it is not applied or linked to the STT fault.
 - Both fixtures removed and original full app slot restored/verified. Final
-  baseline: 5,615,616 B LittleFS free, logging inactive, PDM preferred, model
+  baseline: 5,562,368 B LittleFS free, logging inactive, PDM preferred, model
   header/footer unchanged. All runs silent; future playback 50%.
 
 See [AB_TEST_RESULTS.md](AB_TEST_RESULTS.md#both-core-synthetic-recovery-and-heap-field-watch)
 for per-trial numbers, timer-source correction, source patches and limitations.
 HardwareOne diagnostic sources remain local on codex/stt-ab-heap-watch at
-4404da4e. The existing 1.1 GiB build is retained for the next diagnostic;
+570be9f8. The existing 1.1 GiB build is retained for the next diagnostic;
 selected matching recovery/debug/source inputs are private. No automatic
 production integration or HardwareOne branch push has occurred.
 
@@ -483,3 +484,24 @@ intervals remain unexplained; no ordinary-use crash rate or accuracy/speed
 improvement is inferred. See AB_TEST_RESULTS.md for measured numbers and the
 primary-source motivation. HardwareOne branch remains local at 4404da4e; no
 model, production labelling, clock/cache geometry or configured-stack changes.
+
+
+Overlap/source-audit checkpoint: 570be9f8 caught all three exact-PC 128-bit
+store conditions (core/offset 0/0, 0/4, 1/4); both cores reset inactive after
+each without serial reopening. Six unwatched execution and six read/adjacent
+checks passed. Quiet STT smoke done, zero new faults/watchdogs/overruns; original
+app restored/full-slot-verified. Final baseline: 5,562,368 B LittleFS/logging
+inactive/PDM/model header-footer unchanged. Silent; future playback 50%.
+
+The old fault's saved heap handle/load/call sequence was rechecked; its direct
+heap-field contents were not dumped at the fault. An adjacent Arduino I2C cache
+array prompted an independent audit: source-bound strict-sanitizer compilation
+reproduces address-128 bounds read, and a prepared guard passes eight cases.
+The actual SDK is untouched; no invalid I2C address or causal write during STT
+is established. Keep this host-only candidate separate for review. Next audit
+caller/alias paths and design minimal fault-time field/argument capture.
+Cached scalar/vector controls do not establish alias/DMA coverage. Source
+patches, numeric findings, sanitizer calibration and limits are in AB_TEST_RESULTS.md.
+HardwareOne diagnostic branch stays local at 570be9f8; all private evidence and
+selected matching app/debug inputs remain private. No model/policy/clock/cache
+geometry/configured-stack change or production promotion has occurred.

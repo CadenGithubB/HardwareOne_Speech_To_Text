@@ -1,0 +1,12 @@
+--- a/components/arduino/cores/esp32/esp32-hal-i2c-ng.c
++++ b/components/arduino/cores/esp32/esp32-hal-i2c-ng.c
+@@ -218,6 +218,9 @@
+ }
+ 
+ static esp_err_t i2cAddDeviceIfNeeded(uint8_t i2c_num, uint16_t address) {
++  if (address >= 128) {
++    return ESP_ERR_INVALID_ARG;
++  }
+   esp_err_t ret = ESP_OK;
+   if (bus[i2c_num].dev_handles[address] == NULL) {
+     i2c_master_dev_handle_t dev_handle = NULL;

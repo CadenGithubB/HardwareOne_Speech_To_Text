@@ -2359,3 +2359,119 @@ exact trap and both recovery records. Synthetic tests reject mixed RTC/PSRAM
 formats, invalid classification/addresses, missing peers, changed probe values
 and damaged evidence. Prior RTC modes remain tested. No real-line parse fix
 was required. Raw logs, registers, audio and private data are not committed.
+
+
+## 128-bit PSRAM store overlap controls
+
+### Findings
+
+570be9f8 used one labelled image and three explicit conditions. Each allocated
+a 16-byte-aligned, 32-byte payload and watched four bytes on both cores.
+Before arming, each CPU separately observed the old four-word pattern, executed
+an unwatched 128-bit store and verified the changed four-word pattern. Values
+were reset between CPUs. Both read/adjacent-store probes and lease checks then
+passed. The matching ELF identifies `esp.vst.128.ip q0,a0,16` at 0x4ff22ccc.
+
+| Condition | Firing core | Watch offset bytes | Store base | Watched address | Trap PC | MCAUSE |
+|---:|---:|---:|---|---|---|---:|
+| 0 | 0 | 0 | 0x480d4a40 | 0x480d4a40 | 0x4ff22ccc | 3 |
+| 1 | 0 | 4 | 0x480d4a40 | 0x480d4a44 | 0x4ff22ccc | 3 |
+| 2 | 1 | 4 | 0x480d4a40 | 0x480d4a44 | 0x4ff22ccc | 3 |
+
+All three conditions produced exactly the intended trap: six unwatched vector
+execution checks and six read/adjacent checks passed; both watches were
+verified before each store. Zero returned-store outcomes occurred. Serial was
+not reopened across any panic/recovery pair. Both cores read inactive slot 0
+state after every panic (TDATA1=0x21000000, TDATA2=0, TCONTROL=0), and the
+firmware's fresh full-slot/context checks reported both cores idle. No old
+PSRAM allocation was read or freed after reset. No pre-reset hit-bit or
+post-reset target-content observation is claimed.
+
+A final quiet STT smoke lifecycle reached done, zero fatal/watchdog/overrun
+markers, with all four trigger-readback checkpoints inactive and expected heap
+pointers. No SD fixture or playback was used. The original 7,426,048-byte app
+slot was restored/full-slot-verified. Final healthy baseline: 5,562,368 B
+LittleFS free, logging inactive, onboard PDM preferred, model header/footer
+unchanged, zero new fatal/watchdog markers. Future playback remains 50%.
+
+### Interpretation and reproducibility
+
+The four-byte watch catches this 128-bit instruction both at the store base
+and four bytes inside its span on the tested cores. This closes the tested
+overlap case; it does not explain the ten negative heap-watch trials or identify
+a corrupting writer. Other instructions, aliases, DMA, different timing and
+register/argument corruption remain unproven. No crash-rate, speech accuracy
+or performance improvement follows from these deliberate memory controls.
+
+App: 6,041,840 B, SHA-256
+2579717e59ea589c3f10c7a2d1efa7e4cf694b71e37c8c3d817bf715a4d14795.
+The incremental patch reproduces three touched file endpoints after 4404da4e.
+SDK configuration matches 647e4858 byte for byte; the restored ESP-DL override
+check passes. Models, production labelling, clocks/cache geometry and configured
+stacks are unchanged. Matching app/debug/configuration/source inputs remain
+private. The strict parser requires both execution controls, arm/probe pairs,
+lease verification, exact trap/core and owned recovery. It also validates a
+returned store only with changed target data, watch readback and both releases;
+that branch has synthetic coverage, not a target observation in this block.
+
+## Allocator argument recheck and independent I2C bounds candidate
+
+### Findings
+
+The archived 002e3a0c ELF was rechecked against the saved fault registers/stack:
+
+| Field | Value |
+|---|---|
+| Caller argument load | 0x4ff36df2: load from heap + 16 |
+| TLSF call / saved return | 0x4ff36df4 / 0x4ff36df6 |
+| Saved caller heap slot | 0x4ff5f4a8 |
+| Saved caller heap value | 0x4809e424 |
+| Derived heap_data address | 0x4809e434 |
+| Observed TLSF argument / matching S5 | 0x002960c4 / 0x002960c4 |
+| Fault address | 0x002960d4 |
+| Explicit heap-field snapshots in that log | 0 |
+
+The argument load is immediately before the call. The saved caller heap value
+is from the callee's ABI-verified saved-S0 slot, not an arbitrary code-looking
+stack word. This supports the watched-field choice. The old log does not
+directly dump that field's contents at the fault, so a bad argument is observed
+while a memory overwrite's timing/writer remains inferred.
+
+The same ELF/map places a 1,596-byte Arduino I2C bus array at 0x4809dde8,
+ending exactly at 0x4809e424. Its attribution is esp32-hal-i2c-ng.c. This
+proximity prompted a separate source audit, which found that the pinned
+`i2cRead` and `i2cWriteReadNonStop` paths pass a uint16 address to the common
+cache helper without the 7-bit guard already present in `i2cWrite`. The helper
+indexes dev_handles[128] before any range check.
+
+A source-bound host test compiled the actual helper and bus type. Address 128
+reproduced an out-of-bounds read under ASan/UBSan with strict trailing-array
+bounds. The guard candidate returns invalid-argument before indexing. Five
+invalid cases (128,129,255,256,65535), two in-range boundaries (0,127) and one
+existing-handle reuse case passed with stub hardware APIs. No SDK hardware
+call occurred in the invalid cases. No physical I2C transaction was performed.
+
+Apple clang 21.0.0's default sanitizer compilation did not produce the bounds
+diagnostic for this trailing array. The calibrated strict build uses
+fstrict-flex-arrays=3 and reproduces it; both build outcomes are retained
+privately. This is host instrumentation, with no device configuration change.
+The prepared patch adds the missing guard in the common helper. The installed
+Arduino file remains byte-identical, SHA-256
+d05cf90b96b6023061be5993959bb3fd6d802b9c43e2e31d71b72b5c4643ee53.
+
+### Interpretation and next work
+
+The bounds read is a reproducible independent correctness flaw in the pinned
+dependency. Invalid I2C input during the STT failures has not been established.
+The array's adjacency does not prove a write into the heap or make this driver
+the corrupting writer. The candidate is host-tested only, not applied, flashed
+or promoted. Keep it separate for review and eventual public-wrapper/target
+qualification; valid address behavior must remain unchanged.
+
+Next inspect actual caller/alias paths and plan a minimal fault-time capture
+of the heap field alongside the allocator argument. The SDK exposes a
+non-cached alias via a +0x40000000 offset; 0x8809e434 is the macro-derived
+candidate alias of the earlier field, not a measured fault-time value. Do not
+infer coverage of that alias from the cached scalar/vector controls. Any
+additional instrumentation must preserve panic-context restrictions, ownership,
+models, clocks, logging and rollback. No writer or corruption cure is claimed.

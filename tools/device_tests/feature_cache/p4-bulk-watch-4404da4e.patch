@@ -1,0 +1,205 @@
+diff --git a/components/hardwareone/System_STT.cpp b/components/hardwareone/System_STT.cpp
+index 61d4b3cf..a1806d1e 100644
+--- a/components/hardwareone/System_STT.cpp
++++ b/components/hardwareone/System_STT.cpp
+@@ -28,6 +28,7 @@
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+ #include "stt/heap_watch_readback.h"
+ extern bool sttDiagnosticHeapWatch(bool arm);
++extern bool sttDiagnosticHeapBulk(unsigned core,unsigned offset,bool recover);
+ #endif
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+ #include "esp_timer.h"
+@@ -3140,6 +3141,18 @@ static const char* cmd_sttperf(const String& argsInput) {
+   CommandArgs args(argsInput);
+   const String op = args.count() ? args.arg(0) : "show";
+ #if HW1_STT_SPEAKER_DIAGNOSTICS && defined(CONFIG_IDF_TARGET_ESP32P4)
++  if (op == "heapbulk") {
++    const bool recover=args.count()==2 && args.arg(1)=="recover";
++    if(args.unterminatedQuote() || (!recover && (args.count()!=3 || (args.arg(1)!="0" && args.arg(1)!="1") || (args.arg(2)!="0" && args.arg(2)!="4"))))
++      return "Error: Usage: sttperf heapbulk <core 0|1> <offset 0|4> | recover";
++    portENTER_CRITICAL(&gSTTMux);
++    const bool active=gSTT.snapshot.workerActive;
++    portEXIT_CRITICAL(&gSTTMux);
++    if(active)return "Error: stop STT before diagnostic bulk watch";
++    if(!sttDiagnosticHeapBulk(recover ? 0 : unsigned(args.arg(1)=="1"),recover ? 0 : (args.arg(2)=="4" ? 4 : 0),recover))
++      return "Error: diagnostic heap bulk refused";
++    return "OK: diagnostic heap bulk finished";
++  }
+   if (op == "heapwatch") {
+     if (args.count()!=2 || (args.arg(1)!="arm" && args.arg(1)!="off"))
+       return "Error: Usage: sttperf heapwatch arm|off";
+diff --git a/components/hardwareone/System_STTLocal.cpp b/components/hardwareone/System_STTLocal.cpp
+index 8ef5fd25..c990581e 100644
+--- a/components/hardwareone/System_STTLocal.cpp
++++ b/components/hardwareone/System_STTLocal.cpp
+@@ -38,10 +38,13 @@ using hw1::stt::sttPsramFree;
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+ #include "stt/heap_watch_readback.h"
+ #include "stt/heap_header_watch.h"
+-#include "stt/heap_watch_calibration.h"
++#include "stt/heap_bulk_watch.h"
+ extern "C" bool hw1_stt_feature_ownership_probe(const int16_t*, size_t);
+ #endif
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
++bool sttDiagnosticHeapBulk(unsigned core,unsigned offset,bool recover) {
++    return recover ? hw1::stt::heapBulkRecover() : hw1::stt::heapBulkRun(core,offset);
++}
+ bool sttDiagnosticHeapWatch(bool arm) {
+     return arm ? hw1::stt::heapHeaderWatchArm() : hw1::stt::heapHeaderWatchRelease();
+ }
+@@ -551,7 +554,6 @@ bool sttSpeakerBegin(STTLocalSession* session,size_t maxSamples,STTSpeakerStatus
+     b->speakerTried=true;
+ #if HW1_STT_SPEAKER_DIAGNOSTICS
+     (void)hw1::stt::heapWatchReadback(0);
+-    if(!hw1::stt::heapWatchCalibrate())return why("PSRAM watch calibration refused");
+ #endif
+     // trusted: fixed optional model path beside the STT model; content is SHA-checked.
+     const auto auth=VFS::systemAuth(VFS::sttModelScopeFor(kSpeakerPath),"stt.speaker_read");
+diff --git a/components/hardwareone/stt/heap_bulk_watch.h b/components/hardwareone/stt/heap_bulk_watch.h
+new file mode 100644
+index 00000000..75c2b37f
+--- /dev/null
++++ b/components/hardwareone/stt/heap_bulk_watch.h
+@@ -0,0 +1,141 @@
++#pragma once
++// Diagnostic-only overlap experiment. No heap descriptor or model writes.
++#include "heap_header_watch.h"
++#include "esp_attr.h"
++#include "esp_heap_caps.h"
++#include "esp_memory_utils.h"
++namespace hw1::stt {
++constexpr uint32_t kHeapBulkMagic=0x48574231;
++struct HeapBulkRecord {uint32_t magic,inverse,core,base,address,offset,phase,mask,word,adjacent;};
++static RTC_NOINIT_ATTR volatile HeapBulkRecord heapBulkRecord;
++static uint32_t* heapBulkAllocation=nullptr;
++DRAM_ATTR static const uint32_t heapBulkPattern[4] __attribute__((aligned(16)))={0x51a7cafe,0x51a7cafe,0x51a7cafe,0x51a7cafe};
++extern "C" __attribute__((naked,noinline)) void IRAM_ATTR hw1_heap_bulk_store(volatile uint32_t*,const uint32_t*) {
++  asm("esp.vld.128.ip q0,a1,16\n.global hw1_heap_bulk_store_pc\nhw1_heap_bulk_store_pc:\nesp.vst.128.ip q0,a0,16\nret");
++}
++struct HeapBulkCall {unsigned core=0,operation=0;bool ok=false,returned=false;uint32_t value=0;HeapTriggerRead state,after;};
++static void heapBulkOnCore(void* argument) {
++  auto& c=*static_cast<HeapBulkCall*>(argument);auto& r=heapBulkRecord;
++  const auto mask=HeapHeaderWatchCpu::maskInterrupts();
++  c.state=readHeapTriggers<HeapHeaderWatchCpu>();
++  if(c.operation==0) {
++    r.mask|=1u<<c.core;
++    c.ok=heapTriggerArm<HeapHeaderWatchCpu>(c.core,r.address);
++  } else if(c.operation==1) {
++    if(heapTriggerOwned(c.state,c.core,r.address)) {
++      auto* word=reinterpret_cast<volatile uint32_t*>(r.address);
++      c.value=word[0];word[1]=0x2468ace0;r.word=c.value;r.adjacent=word[1];
++      c.ok=c.value==0x13579bdf && r.adjacent==0x2468ace0;
++    }
++  } else if(c.operation==2) {
++    if(c.core==r.core && r.phase==2 && heapTriggerOwned(c.state,c.core,r.address)) {
++      hw1_heap_bulk_store(heapBulkAllocation,heapBulkPattern);
++      c.returned=true;c.value=*reinterpret_cast<volatile const uint32_t*>(r.address);
++      c.ok=c.value==0x51a7cafe;
++    }
++  } else if(c.operation==3) {
++    c.ok=(r.mask&(1u<<c.core)) ? heapTriggerRelease<HeapHeaderWatchCpu>(c.core,r.address)
++      : heapTriggersIdle(c.state,c.core);
++  } else if(c.operation==5) {
++    if(heapTriggersIdle(c.state,c.core)) {
++      c.ok=true;
++      for(unsigned i=0;i<4;++i)c.ok=c.ok && static_cast<volatile uint32_t*>(heapBulkAllocation)[i]==0x13579bdf;
++      if(c.ok)hw1_heap_bulk_store(heapBulkAllocation,heapBulkPattern);
++      for(unsigned i=0;i<4;++i)c.ok=c.ok && static_cast<volatile uint32_t*>(heapBulkAllocation)[i]==0x51a7cafe;
++      c.value=*reinterpret_cast<volatile const uint32_t*>(r.address);
++    }
++  } else if(c.operation==4) {
++    c.ok=heapTriggerOwned(c.state,c.core,r.address) && c.state.controlBefore==0x88;
++  }
++  c.after=readHeapTriggers<HeapHeaderWatchCpu>();
++  if(c.operation==2)c.ok=c.ok && heapTriggerOwned(c.after,c.core,r.address) && c.after.controlBefore==0x88;
++  HeapHeaderWatchCpu::restoreInterrupts(mask);
++}
++static bool heapBulkCall(HeapBulkCall& c) {
++  const auto e=c.core==esp_cpu_get_core_id() ? (heapBulkOnCore(&c),ESP_OK)
++    : esp_ipc_call_blocking(c.core,heapBulkOnCore,&c);
++  return e==ESP_OK && c.ok;
++}
++static bool heapBulkIdle() {
++  for(unsigned core=0;core<2;++core) {
++    HeapTriggerRead r;
++    const auto e=core==esp_cpu_get_core_id() ? (heapTriggerReadOnCore(&r),ESP_OK)
++      : esp_ipc_call_blocking(core,heapTriggerReadOnCore,&r);
++    if(e!=ESP_OK || !heapTriggersIdle(r,core))return false;
++  }
++  return true;
++}
++static bool heapBulkRetained() {
++  const auto& r=heapBulkRecord;
++  return r.magic==kHeapBulkMagic && r.inverse==~kHeapBulkMagic && r.core<2 && (r.offset==0 || r.offset==4)
++    && r.base && !(r.base%16) && r.address==r.base+r.offset && esp_ptr_external_ram((const void*)r.base)
++    && esp_ptr_external_ram((const void*)(r.base+31)) && r.phase>=1 && r.phase<=3 && r.mask<=3;
++}
++static bool heapBulkRelease(HeapBulkCall (&calls)[2]) {
++  bool ok=true;
++  for(unsigned core=0;core<2;++core){calls[core].core=core;calls[core].operation=3;ok=heapBulkCall(calls[core]) && ok;}
++  return ok && heapBulkIdle();
++}
++static bool heapBulkRecover() {
++  if(!heapBulkRetained()){ESP_LOGI("STT","TL hwbulk_refused reason=1 end");return false;}
++  auto& r=heapBulkRecord;const uint32_t phase=r.phase;HeapBulkCall calls[2];
++  const bool idle=heapBulkRelease(calls);
++  for(unsigned core=0;core<2;++core) {
++    const auto& c=calls[core];
++    ESP_LOGI("STT","TL hwbulk_recovery core=%u phase=%lu address=%lu released=%u idle=%u data1=%lu data2=%lu control=%lu end",core,
++      (unsigned long)phase,(unsigned long)r.address,unsigned(c.ok),unsigned(idle),(unsigned long)c.state.slots[0].data1,
++      (unsigned long)c.state.slots[0].data2,(unsigned long)c.state.controlBefore);
++  }
++  if(idle)r.phase=3;
++  // The numeric old address is used only to identify owned triggers. Never
++  // dereference/free a reset allocation. Ordinary BSS pointer is null on boot.
++  return idle;
++}
++static bool heapBulkRun(unsigned core,unsigned offset) {
++  if(core>1 || (offset!=0 && offset!=4) || (heapBulkRetained() && heapBulkRecord.phase!=3) || !heapBulkIdle()) {
++    ESP_LOGI("STT","TL hwbulk_refused reason=2 end");return false;
++  }
++  auto* allocation=static_cast<uint32_t*>(heap_caps_aligned_alloc(16,32,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
++  const uintptr_t base=reinterpret_cast<uintptr_t>(allocation);
++  const bool external=allocation && !(base%16) && esp_ptr_external_ram(allocation) && esp_ptr_external_ram((const void*)(base+31));
++  ESP_LOGI("STT","TL hwbulk_target core=%u offset=%u base=%lu address=%lu bytes=32 width=16 external=%u end",core,offset,
++    (unsigned long)base,(unsigned long)(base+offset),unsigned(external));
++  if(!external){if(allocation)heap_caps_free(allocation);return false;}
++  for(unsigned i=0;i<8;++i)allocation[i]=0x13579bdf;
++  heapBulkAllocation=allocation;auto& r=heapBulkRecord;
++  r.magic=0;r.inverse=~kHeapBulkMagic;r.core=core;r.base=base;r.address=base+offset;r.offset=offset;
++  r.phase=1;r.mask=0;r.word=0;r.adjacent=0;asm volatile("":::"memory");r.magic=kHeapBulkMagic;
++  bool safe=true;
++  for(unsigned c=0;c<2 && safe;++c) {
++    for(unsigned i=0;i<8;++i)allocation[i]=0x13579bdf;
++    HeapBulkCall warm;warm.core=c;warm.operation=5;safe=heapBulkCall(warm);
++    ESP_LOGI("STT","TL hwbulk_warm core=%u ok=%u words=4 value=%lu end",c,unsigned(safe),(unsigned long)warm.value);
++  }
++  for(unsigned i=0;i<8;++i)allocation[i]=0x13579bdf;
++  for(unsigned c=0;c<2 && safe;++c) {
++    HeapBulkCall arm;arm.core=c;safe=heapBulkCall(arm);
++    ESP_LOGI("STT","TL hwbulk_armed core=%u ok=%u address=%lu data1=%lu data2=%lu control=%lu end",c,unsigned(safe),
++      (unsigned long)r.address,(unsigned long)arm.after.slots[0].data1,(unsigned long)arm.after.slots[0].data2,(unsigned long)arm.after.controlBefore);
++  }
++  for(unsigned c=0;c<2 && safe;++c) {
++    HeapBulkCall probe;probe.core=c;probe.operation=1;safe=heapBulkCall(probe);
++    ESP_LOGI("STT","TL hwbulk_probe core=%u ok=%u value=%lu end",c,unsigned(safe),(unsigned long)probe.value);
++  }
++  for(unsigned c=0;c<2 && safe;++c){HeapBulkCall verify;verify.core=c;verify.operation=4;safe=heapBulkCall(verify);}
++  if(safe)r.phase=2;
++  ESP_LOGI("STT","TL hwbulk_ready cores=2 phase=%lu verified=%u end",(unsigned long)r.phase,unsigned(safe));
++  vTaskDelay(pdMS_TO_TICKS(500));
++  HeapBulkCall store;store.core=core;store.operation=2;
++  const bool stored=safe && heapBulkCall(store);
++  HeapBulkCall calls[2];const bool released=heapBulkRelease(calls);
++  ESP_LOGI("STT","TL hwbulk_result core=%u offset=%u address=%lu returned=%u stored=%u value=%lu released=%u data1=%lu data2=%lu control=%lu end",
++    core,offset,(unsigned long)r.address,unsigned(store.returned),unsigned(stored),(unsigned long)store.value,unsigned(released),
++    (unsigned long)store.after.slots[0].data1,(unsigned long)store.after.slots[0].data2,(unsigned long)store.after.controlBefore);
++  for(unsigned c=0;c<2;++c) {
++    ESP_LOGI("STT","TL hwbulk_release core=%u ok=%u data1=%lu data2=%lu control=%lu end",c,unsigned(calls[c].ok),
++      (unsigned long)calls[c].after.slots[0].data1,(unsigned long)calls[c].after.slots[0].data2,(unsigned long)calls[c].after.controlBefore);
++  }
++  if(released){r.phase=3;heap_caps_free(heapBulkAllocation);heapBulkAllocation=nullptr;}
++  return stored && released;
++}
++}

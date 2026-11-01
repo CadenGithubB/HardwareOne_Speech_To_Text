@@ -4,7 +4,7 @@ Status: readback, individual-core and dual-armed RTC positive controls complete.
 Ten fresh-boot heap-field watch trials completed without catching a write or
 reproducing a fault. Original app restored/full-slot-verified after each block.
 The corrupting writer remains unknown. Allocated-PSRAM scalar controls passed
-on both cores; a wider overlapping-store control is next; keep this work separate from ring timing/product qualification.
+on both cores; 128-bit overlap controls also passed on both cores; keep this work separate from ring timing/product qualification.
 
 ## Evidence being investigated
 
@@ -185,3 +185,28 @@ if the instruction returns. The generic RISC-V compare-address rule motivates
 this measurement (link in AB_TEST_RESULTS.md), but does not establish P4 PIE
 semantics. Keep scalar, wide, alias and DMA coverage claims separate. Do not
 repeat the unchanged ten-watch matrix as a substitute for closing this gap.
+
+
+## Overlap and source-audit checkpoint
+
+570be9f8 caught the exact 128-bit store at 0x4ff22ccc in conditions core/offset
+0/0, 0/4 and 1/4. Six unwatched old-to-new vector checks and six read/adjacent
+checks passed first. Both cores reset inactive after each trap with serial
+continuous. Final quiet STT smoke done, zero new faults/watchdogs/overruns;
+original full app slot restored/verified. Baseline LittleFS 5,562,368 B, logging
+inactive/PDM/model header-footer unchanged. No playback/SD fixture used.
+
+The 002e3a0c caller loads heap+16 at 0x4ff36df2 immediately before calling TLSF
+at 0x4ff36df4. Its ABI-saved heap handle is 0x4809e424; the bad argument is
+0x002960c4. No direct fault-time heap-field dump is present. Preserve that
+distinction when choosing the next instrumentation. The SDK's cached/non-cached
+offset is 0x40000000; the candidate field alias is 0x8809e434, not yet sampled.
+
+The old map's adjacent 1,596-byte I2C bus array ends at the heap start. A separate
+source-bound sanitizer test reproduces unchecked address 128 in the current
+pinned cache helper; a guard candidate passes eight cases. The SDK stays
+unchanged and no invalid runtime address or causal heap write is established.
+Keep the candidate separate, audit actual caller/alias paths, and design any
+fault-time cached/uncached snapshot within existing panic-context restrictions.
+Do not expand watch ranges or declare the original fault resolved merely from
+the passing overlap tests.
