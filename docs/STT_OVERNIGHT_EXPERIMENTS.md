@@ -36,14 +36,14 @@ confirmation, with rejected candidates retained as measured results.
 | 10 | Defer draft admission while a speaker job is executing | P4 paired runs, labels versus draft freshness and WER | P4 initial comparison complete; no promotion |
 | 11 | Bound draft deferral to 100 ms | Independent P4 scheduling arm, same endpoints | P4 initial comparison complete; no promotion |
 | 12 | Increase draft pacing multiplier from 2 to 3 | P4 paired runs, contention versus shown-text lag | P4 initial comparison complete; no promotion |
-| 13 | Apply 1.25x saturating PCM gain only to recognition input | Offline error screen then P4, clipping and WER | Build pipeline active; P4 queued |
-| 14 | Reduce the segmenter's minimum energy threshold by 10% | Quiet-word recall versus false speech and WER | Build pipeline active; P4 queued |
-| 15 | Increase recognition pre-roll by 150 ms | Initial-phoneme errors versus extra noise and latency | Build pipeline active; P4 queued |
-| 16 | Increase recognition trailing audio retention by 100 ms | Final-word deletions versus latency | Build pipeline active; P4 queued |
-| 17 | Lower language-model influence by 10% | Fixed-audio decoder replay, substitutions and WER | Build pipeline active; P4 queued |
-| 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | Build pipeline active; P4 queued |
+| 13 | Apply 1.25x saturating PCM gain only to recognition input | Offline error screen then P4, clipping and WER | P4 screen complete; controls drift; no promotion |
+| 14 | Reduce the segmenter's minimum energy threshold by 10% | Quiet-word recall versus false speech and WER | P4 screen complete; controls drift; no promotion |
+| 15 | Increase recognition pre-roll by 150 ms | Initial-phoneme errors versus extra noise and latency | P4 screen complete; controls drift; no promotion |
+| 16 | Increase recognition trailing audio retention by 100 ms | Final-word deletions versus latency | P4 screen complete; one rejected alignment; no promotion |
+| 17 | Lower language-model influence by 10% | Fixed-audio decoder replay, substitutions and WER | P4 screen complete; controls drift; no promotion |
+| 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | P4 screen complete; controls drift; no promotion |
 | 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Tested offline; reject |
-| 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | Positive float screen; P4 queued |
+| 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | Positive float screen; P4 running |
 | 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Built; P4 queued |
 | 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Built; P4 queued |
 | 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | Built; P4 queued |
@@ -993,3 +993,69 @@ changes. This rules out an sdkconfig difference as a simple explanation of the s
 slowdown, but does not identify its cause. The unchanged baseline image is now being
 replayed for both trailing controls; no interpretation should pick only the favorable
 control. No defaults changed.
+
+### Recognition group complete: 13–18 against both controls
+
+All 16 planned captures completed, followed by verified fixed-production restoration.
+The controller exited successfully; the predecessor gate released the normalization
+group. Canonical artifacts are `13-18-final-rms-alignment.json`,
+`13-18-final-rms-metrics.json`, `13-18-final-status-estimate-metrics.json` and
+`recognition-level-conditions.json`. Fifteen RMS fits qualify; arm16 conv3 remains
+rejected, with its alignment-dependent fields withheld below. WER and raw unknown
+coverage remain valid for all captures. Both initial and final controls are retained.
+
+| Arm | Fixture | WER | Right/scored | Raw unknown/all | Split/merge | Final median/p90 ms | Shown median ms | Label median ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| baseline-before | conv2 | 15.83% | 29/38 | 0/38 | 0/9 | 1778/2509 | 1251 | 1285.0 |
+| baseline-before | conv3 | 24.89% | 43/48 | 3/48 | 2/0 | 1303/1943 | 1112 | 1287.5 |
+| 13 | conv2 | 14.03% | 28/38 | 1/38 | 0/9 | 1766/2498 | 1254 | P4 screen complete; controls drift; no promotion |
+| 13 | conv3 | 33.26% | 36/47 | 8/47 | 3/1 | 1581/2569 | 1314 | P4 screen complete; controls drift; no promotion |
+| 14 | conv2 | 19.04% | 28/38 | 2/38 | 0/8 | 2205/3507 | 1758 | P4 screen complete; controls drift; no promotion |
+| 14 | conv3 | 29.61% | 28/44 | 11/44 | 5/1 | 1766/2559 | 1550 | P4 screen complete; controls drift; no promotion |
+| 15 | conv2 | 20.44% | 28/38 | 2/38 | 0/8 | 2329/3502 | 1709 | P4 screen complete; controls drift; no promotion |
+| 15 | conv3 | 31.12% | 22/46 | 19/46 | 5/1 | 1734/2875 | 1480 | P4 screen complete; controls drift; no promotion |
+| 16 | conv2 | 20.04% | 27/38 | 2/38 | 0/9 | 1833/3440 | 1789 | P4 screen complete; one rejected alignment; no promotion |
+| 16 | conv3 | 28.54% | unqualified | 3/45 | unqualified | unqualified | 1510 | P4 screen complete; one rejected alignment; no promotion |
+| 17 | conv2 | 23.85% | 27/37 | 1/37 | 0/9 | 2038/3461 | 1722 | P4 screen complete; controls drift; no promotion |
+| 17 | conv3 | 31.76% | 24/46 | 16/46 | 6/2 | 1664/2566 | 1540 | P4 screen complete; controls drift; no promotion |
+| 18 | conv2 | 21.44% | 27/36 | 2/37 | 0/7 | 2306/4445 | 1712 | P4 screen complete; controls drift; no promotion |
+| 18 | conv3 | 30.26% | 27/45 | 15/45 | 3/0 | 1874/2817 | 1521 | P4 screen complete; controls drift; no promotion |
+| baseline-after | conv2 | 22.85% | 28/39 | 2/39 | 0/9 | 2125/3531 | 1682 | 3001 |
+| baseline-after | conv3 | 30.47% | 32/46 | 11/46 | 3/1 | 1751/2506 | 1524 | 3815.5 |
+
+The **unchanged** controls drift materially: conv2 WER 15.83 → 22.85%, conv3
+24.89 → 30.47%; speaker trunk median 1167 → 2003ms and 1131 → 2748ms. Conv3 raw
+unknowns change 3/48 → 11/46. Therefore earlier comparisons against only the initial
+control cannot establish causal regressions for arms lying within this range. In
+particular, arm14/16/18 WER often lies between the controls. Do not cherry-pick the
+trailing control to claim improvement, either. There is one candidate capture per
+fixture, not replicated causal qualification.
+
+Noise telemetry also differs in the identical-image controls (native RMS, not calibrated
+ambient measurements):
+
+| Fixture | Control | Noise estimate median | Idle RMS median | Active RMS median |
+|---|---|---:|---:|---:|
+| conv2 | baseline-before | 4.0 | 4 | 32 |
+| conv3 | baseline-before | 4 | 5 | 17.5 |
+| conv2 | baseline-after | 12.0 | 14.0 | 28.5 |
+| conv3 | baseline-after | 10.0 | 12 | 21 |
+
+The noise/idle-level changes support a changed capture condition; their source and
+the cause of the timing change are not identified. Host route/volume checks and SDK
+comparisons rule out two simple alternatives, not every environmental or load effect.
+No claim of equivalent acoustic conditions, held-out accuracy or production qualification.
+
+Stability: 1 session watchdog warning (arm18 conv3), 38 boot/setup warnings
+(counts, not independent root causes), zero panics and zero audio overruns across all
+16 captures. Ring reconnect was confirmed disabled before every post-recovery setup.
+Minimum reported internal free low-water is 185,484 B;
+PSRAM minimum is 1,492,592 B (wider beam).
+
+Disposition: no 13–18 change demonstrates quality preservation and a general improvement
+across these fixtures and both controls. Arm13 improves conv2 WER but is worse than both
+conv3 controls. Arm15/17 have poor conv3 identity/unknowns; arm17 WER exceeds both
+controls on both fixtures. Arm16 has unqualified conv3 identity/true lag; arm18 also
+has the active-session watchdog. These are measured screens, not proof the hypotheses
+can never help under another setting. Production defaults remain unchanged.
+Normalization (20) is now running with its own fresh controls; 21–24 remain queued.

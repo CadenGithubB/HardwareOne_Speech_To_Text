@@ -962,3 +962,19 @@ Arm18 (compiled beam request 40 versus file beam 32) completed: WER
 with CPU1 running `stt`; no panic, no decoder fallback status. This fails a clean
 stability screen and is not a promotion candidate. The unchanged trailing baseline
 image is now replaying both fixtures. Baseline/arm sdkconfigs are identical.
+
+### Recognition group 13–18 complete; normalization running
+
+All 16 recognition captures completed and fixed production was restored/verified before
+the normalization controller took over. Fifteen RMS fits qualify; arm16 conv3 remains
+explicitly unqualified for identity/true lag. One session watchdog (arm18 conv3),
+38 boot/setup warning occurrences, zero panics and zero overruns. No 13–18 arm
+demonstrates a general quality-preserving win.
+
+The identical-image controls drift: conv2 WER 15.83 → 22.85%, conv3 24.89 → 30.47%;
+speaker trunk medians 1167 → 2003ms and 1131 → 2748ms. Estimated noise floors change
+4 → 12/10 RMS units, with higher idle levels. Do not attribute candidate results
+inside those ranges solely to their code change. The cause is unresolved. SDKconfigs
+match and host speaker route/volume were verified. Corrected final tables and source
+hashes are recorded in STT_OVERNIGHT_EXPERIMENTS.md. Nineteen of 24 screens are now
+measured; 20–24 remain in physical evaluation. No defaults changed or branches pushed.

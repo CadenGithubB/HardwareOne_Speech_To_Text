@@ -1,7 +1,8 @@
 # STT experiment results — provisional, 3 November 2026
 
 This is a concise ledger for the 24 required experiments. It is **not a completion
-report**: physical measurements are incomplete. Approved, verified diagnostic-log cleanup recovered
+report**: 19 of 24 experiment screens are measured; five physical comparisons remain.
+Approved, verified diagnostic-log cleanup recovered
 757,760 bytes of internal flash space, and the physical queue has resumed. Ring reconnect
 was confirmed off after reboot; setup watchdog warnings remain in the stability record. The detailed protocol, exact
 numbers, raw-artifact locations and limitations are in
@@ -23,23 +24,23 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 | 06 | Resolve unknowns using up to three later phrases | Two recorded unknowns resolved, including one extra identity error. Reject promotion. |
 | 07 | Increase profile capacity 8 → 10 | No recorded gain; slightly worse shuffled accuracy. Reject. |
 | 08 | Speaker window 300 → 400 frames | Fixed-weight float accuracy improves, but merges increase. No promotion; quantized/P4 effects unchecked. |
-| 09 | Highest-energy contiguous speaker window | Float gain; P4 mixed. Conv4 improves, conv2 regresses. Repeat/alignment validation required before promotion. |
+| 09 | Highest-energy contiguous speaker window | Float gain; P4 mixed. Conv4 improves, conv2 regresses. Corrected-reference analysis remains mixed; replication required. |
 | 10 | Defer new drafts while speaker jobs are pending | Ten-run scheduling comparison: strong label-speed gain, but WER/draft freshness worse than both surrounding controls. Reject default change. |
 | 11 | Limit draft deferral to 100ms | Mixed across two fixtures; no general label/quality benefit established. No default change. |
 | 12 | Draft pacing multiplier x2 → x3 | Less logged draft compute, inconsistent label gain and quality/freshness costs. No default change. |
+| 13 | 1.25x recognition-input gain | Conv2 WER beats both controls; conv3 WER exceeds both. No general quality-preserving win. |
+| 14 | Adaptive speech floor 45 → 41 | WER falls within broad control drift; poor conv3 identity. No reliable general win. |
+| 15 | Pre-roll 300 → 450ms | Poor conv3 identity and 19 raw unknowns versus controls 3/11. No promotion. |
+| 16 | Retained tail 500 → 600ms | WER falls within control drift; conv3 identity/true lag remain unqualified after RMS gate failure. |
+| 17 | LM strength ×0.9 | Successful 0.900 decodes; WER worse than both controls on both fixtures. No promotion. |
+| 18 | Decoder beam width ×1.25 | No general quality win; one conv3 session watchdog and lower PSRAM headroom. No promotion. |
 | 19 | Require confidence gap ≥0.08 for profile updates | Independent device-embedding replay regresses identity metrics. Reject. |
 
 ## Implemented; physical results pending
 
 | ID | Single change | Current scope |
 |---|---|---|
-| 13 | 1.25x recognition-input gain | Exact PCM arithmetic tested; both P4 fixtures measured. Conv2 WER improves, conv3 WER/identity/latency worsen; trailing baseline pending. |
-| 14 | Adaptive speech floor 45 → 41 | Both fixtures captured; WER worse than initial controls. Trailing controls pending. |
-| 15 | Pre-roll 300 → 450ms | Both P4 fixtures measured: WER worse; conv3 has 19 unknown labels versus initial control 3. No promotion; trailing controls pending. |
-| 16 | Retained tail 500 → 600ms | Both fixtures captured; WER worse than initial controls. Conv3 identity/true lag withheld after RMS gate failure; raw unknowns 3/45. |
-| 17 | LM strength ×0.9 | Both P4 fixtures measured with successful 0.900 decodes; WER worse than initial controls. Trailing controls pending. |
-| 18 | Decoder beam width ×1.25 | Both fixtures captured; WER worse than initial controls and one conv3 session watchdog. No promotion; trailing controls running. |
-| 20 | Speaker-input RMS normalization | Small positive float screen; independent P4 image built and queued. |
+| 20 | Speaker-input RMS normalization | Small positive float screen; P4 comparison is running with fresh controls. |
 | 21 | Freeze noise-floor/history adaptation during speech | Opt-in C++ policy and mechanism test pass; independent P4 image queued. |
 | 22 | Maximum segment 10 → 8s | Sample conservation checked; independent image queued, with separate long-speech stress controls. |
 | 23 | Force completed-phrase re-decode | Baseline already guards exact speculative coverage. Counterfactual policy tested and built; P4 queued. |
@@ -61,6 +62,10 @@ can never help under another setting or domain.
 - Energy-selected windows and loudness normalization are research leads, with positive
   float results. Energy selection's first P4 result is mixed; normalization is unmeasured
   on P4. Neither is ready for automatic adoption.
+- Recognition controls drifted: identical-image WER changed 15.83 → 22.85% on conv2
+  and 24.89 → 30.47% on conv3. Estimated noise floors rose too. Candidate results
+  inside that range are not causal regressions or demonstrated wins. One wider-beam
+  capture had a session watchdog; one tail capture lacks qualified alignment.
 - Earlier conv1-only hold/merge gains do not generalize cleanly. Always report unknowns,
   one-to-one identity accuracy, splits and merges together.
 
@@ -73,7 +78,7 @@ Original artifacts remain intact, and sparse RMS agreement is not absolute preci
 The live references still use estimated playback onset. The scorer retains alignment
 sensitivity, mixed/no-reference exclusions and missing labels; absolute manifest-end
 latencies and per-phrase attribution remain provisional. No held-out-speaker success,
-acoustic correlation, SD power-loss behavior or battery-life gain is claimed.
+raw sample-clock microphone correlation, SD power-loss behavior or battery-life gain is claimed.
 
 Remaining: complete queued physical batches, verify each mechanism was exercised,
 score target corrections versus control insertions, inspect faults and memory, compare
