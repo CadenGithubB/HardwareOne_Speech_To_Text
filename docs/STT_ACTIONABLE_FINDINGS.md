@@ -70,3 +70,25 @@ Required host checks passed: `tests/test_transcript.py`, `tests/test_product_sto
 (with ESP-IDF cJSON), `tests/test_viewer.mjs` and `tests/test_bridge.py`. The scoring
 and alignment checks also passed; alignment uses the existing NumPy environment.
 These host checks do not qualify microphone accuracy, P4 runtime or SD power-loss behavior.
+
+## Concrete storage-prevention work identified
+
+All 889 approved archived sensor files are exactly the same 88-byte sealed R1 CSV
+header, with **zero data rows**. This was verified byte-for-byte against the source's
+public magic and R1 column header, not inferred from file size. Their 889 boot directories
+still incur filesystem overhead. `System_SensorLogging.cpp` shapes unsynchronized
+sessions into `boot-%06lu` directories, and `sensorLogStart` creates the directory and
+promotes a staged header before any sample has arrived.
+
+A focused prevention candidate is to defer new boot-directory/file creation until the
+first eligible data row, while preserving sealing, path authorization, failure reporting,
+header compatibility, first-row retention and clock-rollover behavior. Validate repeated
+boots with no R1 samples, first sample after connection, failed header promotion and
+resumption into an existing compatible day file. This is identified work, not an
+implemented or qualified production change; do not silently disable health logging or
+apply an unapproved retention/deletion rule.
+
+The separate rotation-reserve mismatch also remains actionable: account for the temporary
+85%-of-cap copy when deciding whether logs can stay on LittleFS. Free-byte checks alone
+do not measure directory-traversal cost or prove realtime safety. Finish the clean-storage
+captures before claiming a speaker/recognition benefit from this recovery.
