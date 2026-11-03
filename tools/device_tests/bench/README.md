@@ -115,3 +115,11 @@ pipeline estimate. It explicitly rejects already-running output, missing transit
 and invalid clock data. It does not measure acoustic onset or snapshot age, and is
 not retroactively applied to earlier captures. Existing queued controllers still use
 their recorded sample-offset estimates; keep their timing limitations visible.
+
+`close_test_peers.py` handles setup teardown acknowledgements without conflating an
+explicit deferred response with silence. It retries only recognized transient
+`closering`/`closeg2` replies, with bounded waits; authentication errors and real
+command timeouts fail immediately. It uses the already-owned approved Console,
+opens no port, and must run before recording. Existing completed captures retain
+their original setup path. Run `tests/test_close_test_peers.py` for observed deferred
+reply, success, bounded exhaustion, authorization and timeout cases.

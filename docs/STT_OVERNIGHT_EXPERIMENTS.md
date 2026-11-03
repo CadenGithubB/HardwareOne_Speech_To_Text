@@ -641,3 +641,22 @@ unknown 1, merges 8, matching the baseline-before point estimates. Median label 
 worsened 1256 -> 1356 ms. No convincing label advantage from this point; conv4 and
 baseline-after remain pending. Full scheduling report must use both final baselines,
 not pick the favorable individual comparisons. Source: live scheduling metrics JSON.
+
+
+### Setup retry correction — 3 November 2026
+
+Found avoidable pre-test waiting in the old harness: `closering` immediately returned
+an explicit `Error: ... close deferred ... retry closering`, but its success-only regex
+waited the entire 90-second timeout before the next attempt. This was not 90 seconds
+of board computation. `close_test_peers.py` now matches success or error acknowledgements,
+retries recognized transient close replies after 5s (at most 12 acknowledgements), and
+propagates real serial timeouts or authorization/unexpected errors. It opens no port
+and changes no device settings by itself. Synthetic observed-response checks pass.
+
+Only the four then-idle successor controllers (13–18, 20, 21–23, 24) were stopped,
+verified terminal with exit 143, patched/parsed and restarted. Snapshots and old logs
+are preserved privately. The active scheduling owner was not touched. Their new logs
+are `<group>-p4-fast-close.log`; state paths/predecessor gates remain unchanged.
+This is a harness response-handling correction before recording, not a new algorithm
+arm or extra measured success. Comparisons within each later batch use the same setup
+path for its controls and candidates. Earlier measurements retain their original setup.
