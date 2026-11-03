@@ -47,7 +47,7 @@ confirmation, with rejected candidates retained as measured results.
 | 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Built; P4 queued |
 | 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Built; P4 queued |
 | 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | Built; P4 queued |
-| 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | Decoder-cap mechanism tested; end-to-end pending |
+| 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | Built; target/control P4 queued |
 
 Implementation feasibility and exact existing defaults must be inspected before each
 change. If an implementation is unsupported, record the concrete obstacle and choose
@@ -489,3 +489,49 @@ they are not real-audio WER or proper-name qualification. The unchanged-default 
 oracle/strength/context suite passes. No production vocabulary, files or settings changed.
 Still required: implement fixed experiment vocabulary in a private arm, target/control
 audio, and end-to-end scoring. Do not count 24 as completed from these unit checks.
+
+
+### 24 — Fixed vocabulary and end-to-end trial prepared
+
+Prepared and froze an independent four-term experiment vocabulary before any acoustic
+results, using task-related proper names/technical terms. Terms, spellings and all
+reference phrases are private in `vocab24/experiment.json`. They are appended only to
+the model's in-RAM vocabulary snapshot when capacity permits; existing stored vocabulary
+is not edited. A runtime diagnostic checks presence of all four terms without printing
+user vocabulary. The experimental decoder caps total custom-word bonus at 1.5 nats;
+LM alpha/beta, fixed weights and all other baseline policies remain unchanged. This is
+one fixed bounded-vocabulary feature trial, not a sweep or a claim that higher caps
+cannot help. Verify `TL vocab_test active=1`, successful LM decoding and positive
+configured bonus before interpreting target-word results; inactive trials are not gains.
+
+Private Mac-native Samantha fixture: 16 interleaved phrases (eight targets and eight
+controls, including confusable ordinary-word contexts), 72.736 seconds at 16 kHz mono
+int16 with 1.4s inter-phrase gaps and an initial two-second silence. Speech was rendered
+locally to files, not played during generation or sent to a service. Immutable config,
+audio and source hashes are in the manifest. This synthetic single-voice fixture tests
+bias mechanics; it cannot establish natural-speech or speaker-ID qualification. Score
+exact canonical spelling and control insertions transparently, preserving raw captions;
+do not hide tokenization differences by silently formatting captions.
+
+Built `bench-codex-24-vocabcap.bin`, SHA256
+`b37e00c0dcfda653c6f305e0d6408ecbb5c03f0c24381054a62da6f23f584bb1`.
+HardwareOne sources restored and clean after build. Private artifacts/scripts:
+`overnight/build24.py`, `prepare24.py`, `24-arm-ready.json`, and the standard arm
+source diff/build manifest. The first controller launch had an indentation syntax error
+before execution; no board operation occurred. The corrected script was parsed before
+launch, and the original error log is retained.
+
+Queued P4 sequence after successful 21–23 completion/restoration: baseline-before,
+vocabulary arm, baseline-after; each reads `vocab24` and natural conv3 via the Mac's
+speakers at 50%. No audio upload. Requires ten completed predecessor captures, checked
+image hash, exclusive lock and approved app-only flash; restores fixed production in
+its finalizer. Controller `overnight/run24_p4.py`, state `24-p4-status.json`, corrected
+log `overnight/24-p4-controller-retry.log`. Six new captures are planned, not complete.
+Runtime LM activation, target/control WER, false insertions, natural-conv3 regression,
+performance and memory effects are still unmeasured. Final all-arm report remains pending.
+
+Latest controller verification: the scheduling process and four successor queues all
+returned live session handles. The active chain has not been restarted due to stale
+state or an observation timeout. Scheduling is on its baseline conv4; later queues
+are waiting and do not own the board. Goal remains active until measurements and
+requirement-by-requirement report are complete.

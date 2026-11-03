@@ -366,7 +366,8 @@ Experiments 10–12 have independent built scheduling/pacing arms and a P4 contr
 queued behind 09; no measurements yet. Experiment 19 is screened and rejected;
 20 has a positive float loudness-normalization screen and independent P4 validation
 queued behind recognition. Experiments 10–18, 20 validation and 21–23 are independently built/queued, and 24 has a bounded-bonus mechanism test
-with end-to-end work still pending;
+and a built private-vocabulary arm plus frozen synthetic target/control fixture queued
+for P4 measurement;
 the goal stays active.
 
 Recognition experiment arms 13–18 now have a serialized build pipeline and a P4
@@ -378,6 +379,11 @@ Experiment 09 P4 comparison is complete and mixed: one-to-one conv4 speaker accu
 75.68% -> 91.67%, but conv2 75.68% -> 73.68% with an additional merge error.
 All four captures have zero overruns/watchdogs/panics. No automatic promotion;
 repeat testing and alignment checks remain necessary. Scheduling chain is now running.
+
+All 24 planned items now have either measured screens or implemented experimental
+arms/mechanism checks; this does not mean all 24 are complete. The serialized P4
+chain (10–12, 13–18, 20, 21–23, 24) is still running/waiting. Final scoring, activation
+checks, candidate repeat validation, restoration verification and reporting remain.
 
 ## Current overnight checkpoint — 1 November 2026
 
