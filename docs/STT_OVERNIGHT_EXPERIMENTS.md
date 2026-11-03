@@ -27,9 +27,9 @@ confirmation, with rejected candidates retained as measured results.
 | 01 | Resolve ambiguous matches only when best-minus-runner-up cosine >=0.08; do not update centroids | Device-voiceprint replay, identity errors vs unknowns | Tested offline; reject promotion |
 | 02 | Allow new profiles from 1.5 s phrases rather than 2 s | Replay, short-phrase unknowns and false profiles | Tested offline; reject |
 | 03 | Require 3 s for centroid updates, retaining current admission rules | Replay, centroid contamination vs adaptation | Tested offline; reject |
-| 04 | Cap contribution of repeatedly observed speakers to centroid history | Replay shuffled and recorded orders, returning voices | Screened; longer-history check pending |
+| 04 | Cap contribution of repeatedly observed speakers to centroid history | Replay shuffled and recorded orders, returning voices | Tested offline; reject promotion |
 | 05 | Hold uncertain new profiles only during their first four observations | Replay on broader voices; compare earlier hold failure | Tested offline; reject promotion |
-| 06 | Resolve a held phrase after subsequent agreeing evidence, with bounded delay | Sequential replay, revisions and delay | Planned |
+| 06 | Resolve a held phrase after subsequent agreeing evidence, with bounded delay | Sequential replay, revisions and delay | Tested offline; reject promotion |
 | 07 | Raise speaker capacity from 8 to 10 | Capacity-triggered unknowns, false-profile count and memory | Planned |
 | 08 | Extend speaker input window from 3 s to 4 s | Re-export fixed weights/shape if supported; embedding and device cost | Planned |
 | 09 | Select the highest-energy contiguous speaker window instead of the center | Offline acoustic embeddings, identity errors | Planned |
@@ -134,3 +134,49 @@ Reject promotion: the recorded-order gain is not robust to phrase order. Evidenc
 Current checkpoint: 01–03 and 05 screened and rejected; 04 implemented/screened with
 long-history validation outstanding. 06–24 remain to implement/test. The goal remains
 active. Next: complete 04's longer-history check, then deferred resolution (06).
+
+
+### 04 follow-up — Repeated-voice long-history stress
+
+Completed 12 consecutive passes through each of the six captured phrase sequences,
+preserving reference identity across returns. This is repeated-embedding stress, not
+new long-form acoustic evidence. It exposes profiles to many updates, but cannot
+model natural voice drift. Additional 50 shuffles per extended sequence: 306 replays,
+118,728 scored phrase instances including repeats; not independent observations.
+
+Recorded-sequence coverage/accuracy: production 82.8%/77.5%, history cap 82.1%/77.3%.
+Merges/100 improve 4.12 -> 3.65; splits remain 1.16. Over all orders, coverage/accuracy
+84.6%/79.8% -> 84.8%/80.2%, splits 1.44 -> 1.49, merges 3.50 -> 3.20. Reject promotion:
+benefits are order-dependent and the sequential returning-voice case loses coverage
+and accuracy. Natural long-conversation qualification remains unperformed; no claim
+that forgetting is universally ineffective. Evidence: ignored
+`04-long-repeated-sets.json` / `04-long-repeated-result.json` in the overnight folder.
+
+### 06 — Deferred unique-match resolution within three later phrases
+
+Implemented an offline sequential revision window. After assigning each new phrase,
+reconsider unresolved phrases from the preceding three positions against current
+profiles. Revise only when exactly one profile matches at the production threshold;
+never create/adapt a profile from a revision. No future evidence beyond that window.
+Unresolved phrases stay unknown at session end. The emitted reason records the number
+of later phrases waited (`resolved_after_1`, `_2`, `_3`). This bounds evidence distance
+in phrases, not wall-clock seconds; no maximum idle-time delay is claimed.
+
+Tests verify resolution after one/three phrases, expiration at four, no evidence at
+session end, neutral equivalence, unchanged profile decisions and ambiguous matches
+remaining unresolved. All prior speaker candidate regression tests pass.
+
+Recorded-order coverage rises 85.6% -> 86.6%, accuracy 77.8% -> 78.4%, splits remain
+3.61/100, merges rise 4.12 -> 4.64/100. Two unknown labels are revised (one after one
+later phrase, one after three); the net gain includes one additional identity error.
+Across 200 shuffles plus original order each: coverage 86.5% -> 87.3%, accuracy
+80.3% -> 81.0%, splits 2.62 -> 2.66/100, merges 3.87 -> 3.91/100. Revisions: 141/105/94
+at delays of one/two/three phrases. Reject promotion under the identity-error gate.
+No UI revision protocol or P4 timing claim: the standalone replay experiment is sufficient
+to reject this rule, and firmware is unchanged. Evidence:
+`private/resume-20261102/overnight/06-deferred-three.json`.
+
+Current checkpoint supersedes earlier progress notes: experiments 01–06 have offline
+implementations and measured rejection outcomes (04 includes repeated-history stress).
+Experiments 07–24 remain outstanding. Next: capacity change (07), then acoustic-window
+and scheduling experiments. Full goal remains active.

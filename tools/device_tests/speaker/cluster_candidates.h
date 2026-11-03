@@ -36,6 +36,7 @@ struct CandidateConfig {
     float merge_sim=-2.0f;
     size_t create_min_samples=0; // zero inherits min_new_samples
     size_t update_min_samples=0; // independently gate centroid adaptation
+    unsigned defer_steps=0; // replay-only revision window in subsequent phrases
     unsigned history_cap=0; // zero: unbounded; otherwise exponentially forget after cap
     float ambiguity_margin=0.0f; // zero disables; label only, never adapt centroid
 };
@@ -124,6 +125,24 @@ class CandidateClusters {
         ++phrases_[size_t(best)];
         out.reason="match";
         return out;
+    }
+
+    // Query current profiles without creating or adapting one. Only unique matches resolve.
+    int resolve(const float* embedding) const {
+        if(!embedding)return -1;
+        double norm=0;
+        for(size_t i=0;i<dim_;++i) {
+            if(!std::isfinite(embedding[i]))return -1;
+            norm+=double(embedding[i])*embedding[i];
+        }
+        if(!(norm>0) || !std::isfinite(norm))return -1;
+        const double inv=1.0/std::sqrt(norm);
+        int winner=-1; unsigned matches=0;
+        for(size_t s=0;s<ids_.size();++s)
+            if(similarity(&sums_[s*dim_],embedding,inv)>=config_.threshold) {
+                winner=ids_[s];++matches;
+            }
+        return matches==1 ? winner : -1;
     }
 
  private:

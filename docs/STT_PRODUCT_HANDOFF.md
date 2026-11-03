@@ -356,8 +356,9 @@ Experiments 02 and 03 now also have independent implementations and replay resul
 shorter admission and longer adaptation both regress broader speaker metrics and are
 rejected. Experiments 04–05 have now been screened: history capping shows no measured short-session
 gain (long-history check pending), and young-profile hold increases shuffled-order merges.
-The user expanded the required plan to 24. Experiment 04 follow-up and 06–24 remain
-outstanding; the goal stays active.
+The user expanded the required plan to 24. Experiment 04 repeated-history stress and 06 deferred revisions are now measured,
+with no promotion justified: sequential accuracy/coverage or identity errors regress.
+Experiments 07–24 remain outstanding; the goal stays active.
 
 ## Current overnight checkpoint — 1 November 2026
 

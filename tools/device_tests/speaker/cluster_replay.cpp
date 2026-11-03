@@ -9,7 +9,7 @@
 //   reset                                              (new session, same config; echoed)
 //   clear DIM                                          (empties the stored phrase set)
 //   load SAMPLES V1 ... VDIM                           (stores one phrase)
-//   run KIND THRESHOLD MIN_NEW MAX_SPEAKERS NEW_BELOW YOUNG MERGE_YOUNG MERGE_SIM AMBIGUITY_MARGIN CREATE_MIN UPDATE_MIN HISTORY_CAP N I1 ... IN
+//   run KIND THRESHOLD MIN_NEW MAX_SPEAKERS NEW_BELOW YOUNG MERGE_YOUNG MERGE_SIM AMBIGUITY_MARGIN CREATE_MIN UPDATE_MIN HISTORY_CAP DEFER_STEPS N I1 ... IN
 //                                                      (a session over stored phrases in that order;
 //                                                       KIND production or candidate)
 // stdout: per phrase command
@@ -32,7 +32,7 @@ static bool run(std::istringstream& in, size_t dim, const std::vector<float>& st
     unsigned maxSpeakers = 0;
     size_t n = 0;
     in >> kind >> c.threshold >> c.min_new_samples >> maxSpeakers >> c.new_below >> c.young >> c.merge_young
-       >> c.merge_sim >> c.ambiguity_margin >> c.create_min_samples >> c.update_min_samples >> c.history_cap >> n;
+       >> c.merge_sim >> c.ambiguity_margin >> c.create_min_samples >> c.update_min_samples >> c.history_cap >> c.defer_steps >> n;
     c.max_speakers = uint8_t(maxSpeakers);
     std::vector<size_t> order(n);
     for (auto& i : order) in >> i;
@@ -52,10 +52,24 @@ static bool run(std::istringstream& in, size_t dim, const std::vector<float>& st
     } else if (kind == "candidate") {
         CandidateClusters clusters;
         if (!clusters.reset(dim, c)) return false;
-        for (size_t i : order) {
-            const CandidateResult a = clusters.assign(&stored[i * dim], samples[i]);
-            line += std::to_string(a.speaker) + ':' + a.reason + ' ';
+        std::vector<int> labels(n,-1);
+        std::vector<std::string> reasons(n);
+        for (size_t pos=0;pos<n;++pos) {
+            const size_t i=order[pos];
+            const CandidateResult a=clusters.assign(&stored[i*dim],samples[i]);
+            labels[pos]=a.speaker;reasons[pos]=a.reason;
+            const size_t begin=pos>c.defer_steps ? pos-c.defer_steps : 0;
+            for(size_t q=begin;c.defer_steps && q<pos;++q) {
+                if(labels[q]>=0 || reasons[q]=="invalid")continue;
+                const int resolved=clusters.resolve(&stored[order[q]*dim]);
+                if(resolved>=0) {
+                    labels[q]=resolved;
+                    reasons[q]="resolved_after_"+std::to_string(pos-q);
+                }
+            }
         }
+        for(size_t q=0;q<n;++q)
+            line+=std::to_string(labels[q])+':'+reasons[q]+' ';
     } else {
         return false;
     }
