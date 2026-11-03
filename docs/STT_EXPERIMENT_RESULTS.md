@@ -1,11 +1,10 @@
-# STT experiment results — provisional, 3 November 2026
+# STT experiment screening results — completed, 3 November 2026
 
-This is a concise ledger for the 24 required experiments. It is **not a completion
-report**: all 24 initial screens now have measured outcomes. This does not finish
-qualification: the broader production/x2f comparison is complete, while the mandatory
-watchdog matrix and final restoration audit are still running/pending. No new general recognition/speaker-accuracy improvement
-has been qualified for production. The completed clean-storage vocabulary comparison
-shows no target-term gain and is not promoted.
+All 24 agreed changes have implemented, measured screens, and the broader pacing
+comparison plus mandatory watchdog reruns are complete. This is a completed experimental
+report, not production qualification. X2f is the preferred pacing candidate; no new
+general recognition/speaker-accuracy gain is established. Defaults remain unchanged.
+The final closure section records repeats, variability, exclusions and unchecked scope.
 
 The approved 889-directory cleanup is independently verified: all target directories
 are absent and 7,618,560 bytes were free versus 331,776 before cleanup. All archived
@@ -33,21 +32,21 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 | 06 | Resolve unknowns using up to three later phrases | Two recorded unknowns resolved, including one extra identity error. Reject promotion. |
 | 07 | Increase profile capacity 8 → 10 | No recorded gain; corrected shuffled accuracy unchanged at reported precision, with a small split increase. Reject. |
 | 08 | Speaker window 300 → 400 frames | Fixed-weight float accuracy improves, but merges increase. No promotion; quantized/P4 effects unchecked. |
-| 09 | Highest-energy contiguous speaker window | Float gain; P4 mixed. Conv4 improves, conv2 regresses. Corrected-reference analysis remains mixed; replication required. |
+| 09 | Highest-energy contiguous speaker window | Float gain; P4 mixed. Conv4 improves, conv2 regresses. Corrected-reference analysis remains mixed; further replication would be needed for adoption. |
 | 10 | Defer new drafts while speaker jobs are pending | Ten-run scheduling comparison: strong label-speed gain, but WER/draft freshness worse than both surrounding controls. Reject default change. |
 | 11 | Limit draft deferral to 100ms | Mixed across two fixtures; no general label/quality benefit established. No default change. |
 | 12 | Draft pacing multiplier x2 → x3 | Less logged draft compute, inconsistent label gain and quality/freshness costs. No default change. |
-| 13 | 1.25x recognition-input gain | Conv2 WER beats both controls; conv3 WER exceeds both. No general quality-preserving win. |
+| 13 | 1.25x recognition-input gain | Initial conv2 WER beats both controls and conv3 exceeds both; clean conv3 WER is 29.40% under changed, unbracketed conditions. No general win. |
 | 14 | Adaptive speech floor 45 → 41 | WER falls within broad control drift; poor conv3 identity. No reliable general win. |
-| 15 | Pre-roll 300 → 450ms | Poor conv3 identity and 19 raw unknowns versus controls 3/11. No promotion. |
-| 16 | Retained tail 500 → 600ms | WER falls within control drift; conv3 identity/true lag remain unqualified after RMS gate failure. |
-| 17 | LM strength ×0.9 | Successful 0.900 decodes; WER worse than both controls on both fixtures. No promotion. |
-| 18 | Decoder beam width ×1.25 | No general quality win; one conv3 session watchdog and lower PSRAM headroom. No promotion. |
+| 15 | Pre-roll 300 → 450ms | Initial conv3 has 19 unknowns versus controls 3/11; clean repeat has two. Changed, unbracketed conditions do not establish a causal benefit or harm. No promotion. |
+| 16 | Retained tail 500 → 600ms | Initial WER falls within control drift and its conv3 fit is rejected; the clean repeat is qualified but unbracketed. No established benefit. |
+| 17 | LM strength ×0.9 | Successful 0.900 decodes; initial WER worse than both controls on both fixtures. Later unbracketed variability does not establish benefit. No promotion. |
+| 18 | Decoder beam width ×1.25 | No general quality win; original conv3 watchdog did not recur in clean repeats. Lower PSRAM headroom; no promotion. |
 | 19 | Require confidence gap ≥0.08 for profile updates | Independent device-embedding replay regresses identity metrics. Reject. |
-| 20 | Speaker-input RMS normalization | Float gain did not transfer to P4: conv2 unknowns 1/38 → 19/38, correct labels 28/38 → 18/38; conv4 also trails fresh control. No promotion. |
+| 20 | Speaker-input RMS normalization | Initial P4 conv2 harm did not recur in a clean repeat (28/38 correct, one unknown); conv4 repeat is 25/34 with eight unknowns. No consistent benefit; no promotion. |
 | 21 | Freeze noise-floor/history adaptation during speech | All captures/controls complete. WER 18.84/26.61% versus final controls 19.04/26.39%; initial apparent gain is not established beyond control drift. No promotion. |
 | 22 | Maximum segment 10 → 8s | All natural/stress captures and controls complete. Stress WER 16.67% versus controls 12.00/13.33%; natural identity mixed. Cut mechanism exercised; no promotion. |
-| 23 | Force completed-phrase re-decode | All captures/controls complete. Label medians 7.363/14.744s versus initial 2.690/3.199s; five audio-pressure rejections and one session watchdog. Conv3 reference alignment rejected. No promotion. |
+| 23 | Force completed-phrase re-decode | Initial labels 7.363/14.744s versus controls 2.690/3.199s; clean tests retain extra label delay and warnings. Conv3 reference fits rejected. Keep reuse; no promotion. |
 | 24 | Four-term bounded vocabulary bias | Six clean-storage captures complete. No target-term gain; synthetic WER worse than both controls, natural unknowns higher than both. One late-control alignment rejected. No promotion. |
 
 Rows marked queued/built are not counted as measured device results. Offline identity
@@ -64,8 +63,8 @@ can never help under another setting or domain.
   baseline images gave conv4 one-to-one accuracy 32/34 and 26/34. That variability must
   not be mistaken for a candidate's causal effect.
 - Float gains do not establish P4 gains. Energy selection remains mixed; normalization
-  increased unknowns sharply on conv2 and also trailed its conv4 control. Neither is
-  ready for adoption.
+  initially increased conv2 unknowns, but that harm did not recur in its clean repeat.
+  Conv4 remains inconsistent; neither setting has a robust adoption result.
 - Recognition controls drifted: identical-image WER changed 15.83 → 22.85% on conv2
   and 24.89 → 30.47% on conv3. Estimated noise floors rose too. Candidate results
   inside that range are not causal regressions or demonstrated wins. One wider-beam
@@ -73,7 +72,7 @@ can never help under another setting or domain.
 - Earlier conv1-only hold/merge gains do not generalize cleanly. Always report unknowns,
   one-to-one identity accuracy, splits and merges together.
 
-## Interpretation and remaining work
+## Interpretation and qualification limits
 
 Live true-lag numbers before the measurement-correction entry are superseded: the
 early harness failed to shift `speech_end_s`. The corrected scorer rebuilds all clocks
@@ -84,11 +83,10 @@ sensitivity, mixed/no-reference exclusions and missing labels; absolute manifest
 latencies and per-phrase attribution remain provisional. No held-out-speaker success,
 raw sample-clock microphone correlation, SD power-loss behavior or battery-life gain is claimed.
 
-Remaining: finish the mandatory watchdog repeats and location comparisons, audit mechanism
-activation and incomplete checks against all 24 items, and produce the final report.
-The pacing comparison, fresh vocabulary controls and target/control scoring are complete. Promising candidates
-need repeat/held-out qualification before production promotion. Verify final production
-restoration, ring reconnect disabled, board lock released, and repository status.
+The requested screens, broader pacing comparison, target/control scoring and warning
+reruns are complete. Future production adoption still needs approval and separate
+held-out/long-soak qualification. Final restoration and repository/process checks are
+recorded in the closure below.
 
 Raw audio, captions, device logs, model artifacts and flash backups stay ignored/private.
 
@@ -324,3 +322,146 @@ ignored overnight folder. All 21 locally built archived apps were also checked a
 recorded SHA256, 64-byte L2, 250 MHz PSRAM and ESP-IDF 5.5.5 SDK settings; their numeric
 proof is `archived-build-config-audit.json`. Legacy Claude SD pause apps have separate
 historical image/ELF evidence; no absent local SDK archive is implied.
+
+## Requested sweep and watchdog reruns completed — 3 November, 15:38
+
+All 24 agreed changes have implemented, measured screens: eight device-embedding
+replay experiments, one fixed-weight float-window experiment, and fifteen P4 experiments.
+The broader twelve-capture production/x2f comparison and the user's mandatory warning
+reruns are complete. This completes the requested experimental sweep/report, not
+held-out-speaker, long-soak or production-default qualification. No default is changed.
+
+**Recommendation:** prefer x2f pacing with the existing 600/1000ms pauses for a subsequent
+approved adoption step. Its twelve-capture screen holds measured WER/speaker outcomes
+while substantially shortening additional speaker-label delay; final/shown-text tradeoffs
+remain visible in the pacing table. Keep production speaker identity rules, centered
+speaker input and exact-coverage speculative reuse. No new general accuracy gain is
+established; do not promote the other tested changes from single or unbracketed runs.
+
+### Final mandatory live reruns
+
+Nineteen queued live reruns completed, followed by one additional same-image/conv2
+match for its newly encountered in-session warnings. All 20 completed without panic,
+audio overrun or filesystem-full errors. The only warnings were two in forced-redecode
+conv3 and two in forced-redecode conv2; the additional conv2 match had zero. Minimum
+observed internal/PSRAM free values were 178,096 / 1,548,616 bytes.
+
+| Arm / fixture | WER | Unknowns / captions | Correct / eligible | Final median / p90 ms | Shown ms | Label after text ms | Session / all WD |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 23-clean-repeat / conv3 | 29.40% | 11/47 | withheld | withheld | 1439 | 9721 | 2 / 2 |
+| 13 / conv3 | 29.40% | 5/44 | 36/44 | 1529 / 2348 | 1250 | 2118 | 0 / 0 |
+| 14 / conv2 | 22.24% | 2/38 | 28/38 | 1975 / 2663 | 1337 | 2036.5 | 0 / 0 |
+| 14 / conv3 | 29.18% | 8/46 | 34/45 | 1523 / 2394 | 1243 | 2163.5 | 0 / 0 |
+| 15 / conv2 | 19.84% | 3/38 | 28/38 | 1858 / 2890 | 1295 | 2033.5 | 0 / 0 |
+| 15 / conv3 | 30.04% | 2/46 | 43/46 | 1542 / 2475 | 1235 | 2260.5 | 0 / 0 |
+| 16 / conv2 | 23.25% | 3/38 | 28/38 | 1961 / 3106 | 1302 | 2033 | 0 / 0 |
+| 16 / conv3 | 31.33% | 4/46 | 41/45 | 1550 / 2093 | 1246 | 2048.5 | 0 / 0 |
+| 17 / conv2 | 24.45% | 3/38 | 27/38 | 1933 / 2837 | 1284 | 1747.5 | 0 / 0 |
+| 17 / conv3 | 28.11% | 2/46 | 43/46 | 1563 / 2034 | 1215 | 2164.5 | 0 / 0 |
+| 18 / conv2 | 23.05% | 2/38 | 28/38 | 1952 / 2632 | 1313 | 1555.5 | 0 / 0 |
+| 20 / conv2 | 20.24% | 1/38 | 28/38 | 1982 / 2817 | 1293 | 2037.5 | 0 / 0 |
+| 20 / conv4 | 19.36% | 8/34 | 25/34 | 2228 / 3362 | 1558 | 2539 | 0 / 0 |
+| 21 / conv2 | 21.64% | 3/38 | 27/38 | 1973 / 3015 | 1284 | 2006.5 | 0 / 0 |
+| 21 / conv3 | 30.04% | 4/43 | 35/41 | 1552 / 2667 | 1241 | 2279 | 0 / 0 |
+| 22 / conv2 | 22.65% | 3/42 | 29/42 | 1919 / 2476 | 1294 | 1988.5 | 0 / 0 |
+| 22 / conv3 | 29.18% | 8/47 | 36/47 | 1517 / 2260 | 1252 | 2170 | 0 / 0 |
+| 22 / long22 | 14.67% | 0/7 | 7/7 | unavailable | unavailable | 3080 | 0 / 0 |
+| 23 / conv2 | 21.44% | 1/37 | 27/37 | 2715 / 4571 | 1589 | 4156 | 2 / 2 |
+| 23-conv2-clean-match / conv2 | 20.24% | 2/38 | 28/38 | 2529 / 4170 | 1543 | 4011.5 | 0 / 0 |
+
+
+Nineteen of the 20 reference fits passed. The fresh forced-redecode conv3 fit failed
+the unchanged RMS gate; its identity and true-end lag are withheld, while global WER,
+raw unknown coverage and device-internal label delay remain reportable. Long22 lacks
+`speech_end_s` annotations and the draft tool has no usable timing summary: its true-end
+and shown-text lags are unavailable, with no substituted clip endpoint. Qualified
+identity includes unknowns and retains mixed/no-reference exclusions in the private
+report. Speaker-label delay starts at final-text publication, not true speech end.
+
+These are reproduction runs under recovered storage, not fresh bracketing quality
+comparisons. They reveal variability: normalized conv2's initial 18/38 correct and
+19 unknowns became 28/38 and one unknown; normalized conv4's repeat is 25/34 with
+eight unknowns. The large initial conv2 harm did not recur, but a consistent normalization
+benefit is not established. Likewise pre-roll conv3's original 19 unknowns became two;
+this unbracketed repeat cannot isolate the setting from the changed conditions.
+Do not cherry-pick either the initial harm or the best later outcome as a general effect.
+
+### Warning locations and coverage
+
+The complete matrix contains 37 warning-bearing firmware/input/mode groups and zero
+missing later completed observations, including whole-log and original session-counter/
+after-capture-start scopes. Existing verified later observations count; setup and
+in-session warnings stay distinct. Earlier no-warning and interrupted/storage-confounded
+attempts remain covered by their separate audits. This is not a claim that every later
+warning reproduces the same instruction or that a warning-free repeat fixes a defect.
+
+- Forced-redecode conv3: original flash/cache IPC at capture +50.612s; first clean repeat
+  ESP-DL workers at +118.817s; next clean match ESP-DL workers at +42.280/+107.788s.
+  The worker/kernel family recurs, but the input positions and sampled PCs differ.
+- Forced-redecode conv2: new clean warnings at +202.061s (speaker frontend return address;
+  ROM PC unresolved) and +227.885s (ESP-DL convolution-argument work). Its next unchanged
+  image/WAV match completed without a warning. Capture-relative times are not exact
+  acoustic positions; the second event is near the playback tail.
+- Production pacing: warnings recur in its later conv2–4 controls, totaling 11 across
+  six captures. X2f has zero in its six balanced captures. The earlier table retains
+  the sampled worker/decoder/math differences; no deterministic same-PC fault is claimed.
+- The other 17 original cases in the final live batch and the additional conv2 match
+  have zero warnings. Earlier clean vocabulary and wider-beam conv3 warnings also did
+  not recur. Approved storage recovery changed conditions; no sole-cause inference.
+
+All sampled addresses use the matching archived ELF when available. The unresolved
+ROM PC and unavailable legacy SD ELF mappings are not guessed from another image.
+No PSRAM software-writer hunt is reopened and no Espressif issue is filed.
+
+### Two legacy SD-input matches
+
+Both reuse `/sd/recordings/bench_conv1.pcm`; no audio upload occurred. The first queue
+launch stopped before board ownership because the host manifest path was wrong; it
+was corrected to the existing `~/claude-heaptw/conv1/manifest.json` before these runs.
+
+| Repeat | WER | Correct / eligible | Unknowns / captions | Final median / p90 ms | Shown ms | Label after text ms | Session / all WD |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| diagnostic conv1 | 3.80% | 25/40 | 14/40 | 1805 / 2571 | 1229 | 2202.5 | 0 / 0 |
+| short-pause700 conv1 | 4.22% | 26/41 | 14/41 | 1671 / 2855 | 1190 | 2491 | 0 / 0 |
+
+Both have one split, zero merges, zero excluded reference captions, no panic/full error,
+and zero overruns recovered from actual terminal `stt status` replies in their raw logs
+(the legacy helper omits that field from `bench.json`). True lag covers 31/32 clip ends.
+Majority-mapped speaker scores differ from these one-to-one scores; do not conceal the
+split. Short-pause700's last historical in-session warning did not recur; diagnostic
+conv1's setup warnings did not recur. Remote PCM hashes and historical peer-policy
+readbacks are unavailable. The same recorded path/source=0 and exact image are verified;
+old peer behavior/full-storage state was not recreated. Keep existing closing pauses.
+
+### Final state, validation and unchecked scope
+
+Fixed production `soak-app.bin` was app-only flashed and readback-verified, SHA256
+`172f4377e59c544a9ce39a492708adf5c7f208f98d1f2bdbed6520ad21f1eb7e`.
+The helper verified P4 MAC `e8:f6:0a:e3:a7:68` and the recorded partition-table checksum.
+A fresh console read back persisted ring reconnect **disabled** and 7,196,672 bytes free.
+No full erase/filesystem-partition flash, model/vocabulary persistence change, production-
+default change, branch push, main merge or outward filing was performed. Private rollback
+and filesystem backups are retained. Normal device audit logging continued.
+
+Required host checks passed on the current code: `tests/test_transcript.py`,
+`tests/test_product_storage.py` with ESP-IDF cJSON, `tests/test_viewer.mjs` and
+`tests/test_bridge.py`. Numeric logs/hashes are in `overnight/final-host-checks/report.json`.
+Scoring/alignment checks passed earlier; only documentation changed after the final host run.
+The requirement-by-requirement private audit is `overnight/completion-audit.json`.
+
+Not checked/claimed: unseen-speaker qualification; natural long-history drift; quantized/P4
+four-second speaker-window accuracy/cost; raw sample-clock microphone alignment; SD/FAT
+power-loss behavior; battery/energy gain; isolated gain/DC/clipping effects or quiet-word
+acoustic recall; direct runtime effective-beam telemetry (the source requests 40 from the
+loaded file's 32); a deterministic causal watchdog defect; or safe production retention.
+The vocabulary cap was nonbinding at the existing 1.0-nat bonus, and the synthetic fixture
+is a single voice. Offline shuffled/repeated embeddings are not new independent recordings.
+These limits are explicit outcomes of the requested screens, not deferred claims of success.
+
+Private final evidence: `final-qualification-analysis-status.json`,
+`final-board-readback.json`, and `overnight/watchdog-final-rms-alignment.json`,
+`watchdog-final-rms-metrics.json`, `watchdog-final-status-estimate-metrics.json`,
+`watchdog-final-sd-metrics.json`, `watchdog-repeat-matrix.json` and
+`forced-redecode-final-warning-comparison.json`. Raw captures and before-cleanup backups
+remain ignored/private. Full per-event clocks, tasks, PCs/RA, hashes and exclusions remain
+reviewable there; public material contains numeric summaries only.

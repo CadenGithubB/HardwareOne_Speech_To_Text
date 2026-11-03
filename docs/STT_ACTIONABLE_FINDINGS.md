@@ -8,7 +8,7 @@ problems, and a concrete runtime failure to reproduce. Production defaults are u
 |---|---|---|
 | Prefer x2f for further pacing qualification | Twelve conv2–4 ABBA captures: lower mean WER on each fixture, pooled speaker correctness held, label medians 1.650–2.754s versus production 5.436–23.503s. Zero watchdogs in six x2f captures versus 11 in six production captures. | Strongest pacing candidate; complete mandatory reliability matrix before default adoption. Conv4 final-text latency and shown-text freshness are tradeoffs; no general accuracy or long-soak claim. |
 | Keep exact-coverage speculative reuse | Forcing final re-decode raised label median 2.690 → 7.363s on conv2 and 3.199 → 14.744s on conv3; five speaker jobs rejected for audio pressure and one session watchdog. | Do not adopt forced re-decode. This does not compare disabling speculation entirely. |
-| Reject the tested normalization setting | Conv2 correct labels 28/38 → 18/38; unknowns 1/38 → 19/38. Conv4 also trails its fresh control. | Do not promote this target/gain configuration; do not infer all normalization is ineffective. |
+| Do not promote normalization from these screens | Initial conv2 harm did not recur in the clean repeat (28/38 correct, one unknown); conv4 repeat is 25/34 with eight unknowns. | No consistent quality-preserving benefit; changed-condition repeats lack fresh bracketing controls. Do not generalize either initial harm or later recovery. |
 | Do not promote noise freezing yet | WER 18.84/26.61% versus final controls 19.04/26.39%; the initial apparent gain is not established beyond control drift. One extra initial-control conv2 merge. | Keep as a research lead only; no claimed general accuracy improvement. |
 | Do not promote the tested four-term vocabulary configuration | Target hits 0/8 versus controls 1/8 and 0/8; synthetic WER 21.05% versus 15.04/18.05%. Natural unknowns 10 versus 9/3; one late-control alignment is unqualified. | No target-term benefit established at the existing 1.0-nat bonus; preserve editable vocabulary as user data, with no default vocabulary or model change. |
 | Keep production closing pauses | Long-pause400 improves conv1 WER by one word but increases unknowns; short700 and combined pauses raise WER. | Retain 600/1000ms. |
@@ -40,28 +40,20 @@ clearing those alone cannot provide the audit rotation headroom.
 The previous 128 KiB free-space gate was insufficient. Do not continue tuning or
 claim a clean watchdog reproduction while storage errors persist.
 
-## Ordered next actions and acceptance criteria
+## Requested checks completed
 
-1. **Storage headroom recovered; clean qualification resumed.** The explicitly approved
-   889-file/directory cleanup is independently verified: none of the approved target
-   directories remains, and free space is 7,618,560 bytes versus 331,776 before cleanup.
-   Every archived file is the same 88-byte header, with zero data rows. Fixed production
-   was restored and ring reconnect off was read back before starting qualification.
-   Continue recording capacity before/after captures and reject filesystem-full errors;
-   this does not establish a production retention policy or prove realtime safety.
-2. **Priority reproductions measured; one new warning needs a match.** The unchanged
-   vocabulary/conv3 image completed the full fixture without watchdogs after recovery;
-   the wider-beam warning also did not recur. Forced re-decode produced a different
-   warning: ESP-DL convolution workers at capture +118.817s, versus old flash/cache
-   IPC at +50.612s. One more clean same-image/fixture repeat is queued after the active
-   pacing batch. Sampled PC/RA locations are not causal proof of a kernel defect.
-3. **Broader x2f pacing screen completed.** Twelve matched ABBA captures on conv2–4
-   hold the measured WER/speaker metrics and show much faster labels. Keep the
-   shown/final-text tradeoffs visible. Finish the watchdog matrix before default adoption;
-   these two repeats per fixture do not establish held-out or long-soak qualification.
-4. **Close the experiment report.** Keep rejected settings rejected, show control drift
-   and excluded comparisons, and complete the watchdog repeat matrix. No more tuning
-   arms until these reliability and qualification checks are resolved.
+1. **Storage recovery verified.** All 889 approved header-only targets are absent;
+   free space was 7,618,560 bytes after cleanup and 7,196,672 after the final tests.
+   Private backups remain. No production retention policy is inferred.
+2. **Mandatory warning matches completed.** The 37-group matrix has no missing later
+   observations. Forced-redecode conv3 repeats a worker family at different positions;
+   conv2's new warnings do not recur on its extra match. No deterministic defect is proved.
+3. **Broader pacing measured.** Twelve ABBA captures support x2f as the preferred pacing
+   candidate, with its shown/final-text tradeoffs and qualification limits retained.
+4. **Report and restoration closed.** All 24 screens have results and explicit exclusions;
+   required host checks pass. Fixed production and persisted ring-off readback are verified.
+   Future default adoption, storage-prevention implementation or broader qualification is
+   separate work; no unapproved production change is included in this sweep.
 
 See [STT_WATCHDOG_RETESTS.md](STT_WATCHDOG_RETESTS.md) for the user's mandatory rerun
 rule and [STT_OVERNIGHT_EXPERIMENTS.md](STT_OVERNIGHT_EXPERIMENTS.md) for numeric records.
@@ -120,3 +112,19 @@ changes. Corrected shuffled merges per 100 are production 3.84, hold0.50 5.83,
 hold0.45 6.74, young hold 5.20 and merge variants 8.25–8.83. Keep production identity
 rules; the conv1 hold improvement does not establish a safe gain on broader voices.
 Use the latest corrected tables in `STT_EXPERIMENT_RESULTS.md` for offline numbers.
+
+## Final decisions after the requested sweep
+
+The 24-change sweep and mandatory warning reruns are complete. Prefer x2f pacing
+with existing pauses for a separately approved adoption step; keep existing identity
+rules and exact speculative reuse. No new general accuracy gain is established.
+Final reruns expose normalization/pre-roll variability, so their initial harms are
+not treated as universal effects. Do not promote any candidate from a selected
+unbracketed repeat. The final full tables, 37-group warning coverage, exclusions,
+restoration evidence and unperformed product-level checks are in
+`STT_EXPERIMENT_RESULTS.md`.
+
+The next implementation opportunities are the identified empty-header creation and
+rotation-reserve fixes, plus separate held-out/long-soak qualification before production
+adoption. They are recommendations for future approved work, not claims that those
+production changes were implemented here. Current defaults remain unchanged.

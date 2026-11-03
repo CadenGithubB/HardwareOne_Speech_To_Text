@@ -1241,3 +1241,39 @@ Hold/merge was rechecked too: all-order merges per 100 are production 3.84, hold
 not a safe identity improvement. These remain development replays, not held-out success.
 All 21 locally built archived images match their recorded hashes and saved 64B/250MHz/
 IDF5.5.5 SDK settings. Mandatory board repeats and final restoration audit remain active.
+
+### Requested experimental sweep closed — 3 November, 15:38
+
+All 24 agreed experiments have implemented, measured screens (eight device-embedding
+replays, one fixed-weight float screen, fifteen P4 screens). The final report and
+per-run tables are in `STT_EXPERIMENT_RESULTS.md`; this completes the requested
+sweep and mandatory watchdog audit, not general production/model qualification.
+
+Recommend x2f pacing with unchanged 600/1000ms pauses for an approved adoption step.
+The twelve-run broader comparison preserves measured WER/speaker outcomes and reduces
+label delay substantially, with the documented text-latency tradeoffs. Keep existing
+speaker rules and exact speculative reuse. No defaults were changed.
+
+Twenty final live reproduction captures and two legacy SD matches completed, with
+no panic, audio overrun or filesystem-full error. Four warnings occurred in two forced-
+redecode captures: conv3 repeats the worker family at different positions; conv2's two
+new warnings did not recur on its additional unchanged-image/WAV match. Both SD matches
+have zero warnings. All 37 warning-bearing image/input/mode groups have later completed
+observations, with setup/session scopes, changed storage and legacy metadata limits
+kept explicit. A warning-free repeat is not proof of a general fix; no causal kernel
+or software-writer defect was established or outward report filed.
+
+Nineteen of 20 final live RMS fits passed; forced-redecode conv3 identity/true-end lag
+remain withheld. Long22 lacks speech-end annotations, so true lag is unavailable.
+The reruns also expose variability: normalization's initial conv2 19-unknown failure
+became one unknown in the clean repeat, while conv4 still has eight. Pre-roll's initial
+conv3 19 unknowns became two. These unbracketed, changed-condition repeats do not prove
+an isolated benefit or harm. The final tables supersede any blanket interpretation of
+those initial single captures. No other candidate earns promotion from selected reruns.
+
+Fixed production was restored/readback-verified through the approved MAC/partition-
+checked app-only helper. Fresh readback confirms ring reconnect disabled and 7,196,672
+free bytes. Required transcript/storage/viewer/bridge host checks passed; detailed
+hashes, timing exclusions and unperformed product-level checks are recorded in the
+final report. Private backups, raw logs/audio/captions and final numeric audits remain
+ignored. No push, main merge, production-default change or external filing occurred.

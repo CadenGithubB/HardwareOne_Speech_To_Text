@@ -1,6 +1,8 @@
 # Overnight STT experiments — 2 November 2026
 
 Scope: 24 required experiments. The user explicitly approved adding 19–24.
+Final status: all 24 implemented/measured screens and mandatory warning reruns complete;
+see the final closure in `STT_EXPERIMENT_RESULTS.md` for limits and recommendation.
 Each requires an implemented change and measured outcome, including rejected outcomes.
 
 Goal: fewer unknown speakers without more mistaken identities, better recognition,
@@ -46,7 +48,7 @@ confirmation, with rejected candidates retained as measured results.
 | 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | P4 complete; no promotion |
 | 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | P4 screen and controls complete; no promotion |
 | 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | P4 natural/stress screen and controls complete; no promotion |
-| 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | P4 screen and controls complete; no promotion; watchdog repeat pending |
+| 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | P4 screen and required repeats complete; no promotion |
 | 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | P4 clean comparison complete; no promotion; one control alignment rejected |
 
 Implementation feasibility and exact existing defaults must be inspected before each
@@ -1236,3 +1238,14 @@ All 24 initial screens now have measured outcomes. The six-capture vocabulary co
 and two priority watchdog reruns are complete; see `STT_EXPERIMENT_RESULTS.md` for the
 full numeric table and withheld comparisons. Broader pacing and the remaining watchdog
 matrix are not complete. No production defaults changed.
+
+### Requested sweep completed
+
+The final report in `STT_EXPERIMENT_RESULTS.md` closes all 24 measured screens,
+the twelve-capture broader pacing comparison and all required watchdog matches.
+Twenty final live repeats and two legacy SD matches are complete; nineteen live
+reference fits pass and one remains withheld. Changed-condition reruns expose
+variability, including normalization/pre-roll results, without supporting a new
+promotion. Fixed production/ring-off readback and required host checks passed.
+Earlier chronological checkpoints above are historical, not current pending queues.
+No production default, push/main merge or external report was made.

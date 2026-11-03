@@ -1,8 +1,8 @@
 # Watchdog reproduction requirement — 3 November 2026
 
 The user requires at least one rerun of the same test after a watchdog, to check
-whether it fires again at the same spot. This requirement is part of the active
-qualification work; completing the 24 initial screens alone does not finish it.
+whether it fires again at the same spot. The required repeat audit is now complete under the documented constraints;
+completing the 24 initial screens alone was not treated as sufficient.
 
 - Cover in-session and boot/setup warnings. Identify cases by exact firmware SHA256,
   input fixture/hash, input mode and test settings. Existing matching repetitions may
@@ -161,3 +161,33 @@ Retain the rejection of forced re-decode. Eighteen original live cases and the t
 legacy SD cases remain in the serialized queue, followed by final board readback.
 Private evidence is retained in `watchdog-backfill-status.json` and the expanded
 `overnight/watchdog-repeat-matrix.json` under the ignored run root.
+
+## Final repeat audit completed — 3 November, 15:38
+
+The complete numeric matrix has 37 warning-bearing image/input/mode groups and zero
+missing later completed matches in whole-log, original session-counter and after-
+capture-start scopes, plus the extra clean forced-redecode match. Historical paired
+observations supply some matches; do not count those as new independent captures.
+Earlier eight no-warning captures and the additional storage-confounded/interrupted
+attempts remain separately audited. Per-event task/PC/RA/timing evidence is retained.
+
+The final serialized work completed 20 live captures (19 queued plus one additional
+conv2 match) and two existing-SD-input captures. Eighteen live captures and both SD
+captures have zero warnings. Forced re-decode has two warnings on each conversation;
+its additional conv2 match has none. Conv3's DNN-worker family recurs at different
+positions (+118.817s, then +42.280/+107.788s). Conv2's +202.061s frontend/ROM sample
+and +227.885s ESP-DL argument sample did not recur. ROM resolution remains unknown.
+No new warning is treated as a deterministic same-instruction/kernel defect.
+
+No panic, overrun or filesystem-full error occurred in those 22 captures; SD overrun
+zeros are verified from raw terminal status replies, not inferred from missing helper
+fields. The full final live/SD tables and reference exclusions are in
+`STT_EXPERIMENT_RESULTS.md`. Source WAV/image hashes and current peer policy are
+preserved; storage recovery changed conditions. Legacy remote PCM hashes and old
+peer readbacks remain unavailable and were not fabricated/recreated.
+
+Final fixed-production app readback, MAC/partition checks, persisted ring-off and
+capacity readback passed. Full matrix: ignored `overnight/watchdog-repeat-matrix.json`;
+forced-event comparison: `forced-redecode-final-warning-comparison.json`. No additional
+rerun remains required by this audit. This does not qualify a long soak or erase the
+recorded warning/failure evidence. No firmware default change or outward filing.
