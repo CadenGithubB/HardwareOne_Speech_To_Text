@@ -35,8 +35,8 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 |---|---|---|
 | 13 | 1.25x recognition-input gain | Exact PCM arithmetic tested; both P4 fixtures measured. Conv2 WER improves, conv3 WER/identity/latency worsen; trailing baseline pending. |
 | 14 | Adaptive speech floor 45 → 41 | Both fixtures captured; WER worse than initial controls. Trailing controls pending. |
-| 15 | Pre-roll 300 → 450ms | Independent image built; physical recognition batch pending behind arm13. |
-| 16 | Retained tail 500 → 600ms | Independent image built; physical recognition batch pending behind arm13. |
+| 15 | Pre-roll 300 → 450ms | Both P4 fixtures measured: WER worse; conv3 has 19 unknown labels versus initial control 3. No promotion; trailing controls pending. |
+| 16 | Retained tail 500 → 600ms | Independent image built; physical batch now starting. |
 | 17 | LM strength ×0.9 | Image built; require successful LM decoding at changed strength. |
 | 18 | Decoder beam width ×1.25 | Image built; observed file beam 32 implies requested beam 40. Require successful decode; check memory/fallback. |
 | 20 | Speaker-input RMS normalization | Small positive float screen; independent P4 image built and queued. |

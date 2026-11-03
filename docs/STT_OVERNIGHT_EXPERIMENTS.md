@@ -883,3 +883,29 @@ across fixtures. Arm14 WER is worse on both fixtures than the initial control, w
 poor conv3 identity and longer label times. The slow post-recovery speaker trunk and
 boot warnings still require trailing-control comparison. Energy-window and scheduling
 dispositions are unchanged: no general quality-preserving win is established.
+
+### Arm15 completed: pre-roll 300 → 450ms
+
+Both fixtures completed, with usable independent RMS fits and zero scorer errors.
+The corrected secondary report now contains eight recognition-group captures. Compare
+with corrected initial controls above; final controls are still pending.
+
+| Fixture | WER | Right/scored | Unknown | Split/merge | Final median/p90 ms | Missed ends | Shown median ms | Label median ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| conv2 | 20.44% | 28/38 | 2 | 0/8 | 2329/3502 | 1 | 1709 | 3553.5 |
+| conv3 | 31.12% | 22/46 | 19 | 5/1 | 1734/2875 | 3 | 1480 | 3256.5 |
+
+Conv3 unknown reasons include 18 ambiguous matches and one short no-match; these are
+retained in the denominator. Initial control WER was 15.83%/24.89%, identity 29/38 and
+43/48, unknowns 0/3. Speaker trunk medians remain slow at 2381.115/2263.617ms; internal
+low-water minima 185,556/185,536 B and PSRAM minima 1,828,184/1,908,236 B. Both captures
+have zero session watchdogs/panics but three boot/setup watchdog warnings each. The
+longer pre-roll does not preserve measured quality here; no adoption is supported.
+Trailing baselines are still needed to separate algorithm effects from the persistent
+post-recovery timing change. Arm16 is starting.
+
+Independent host inspection confirmed Mac mini Speakers was the actual default output,
+volume 50 and unmuted. Sensor logging started successfully in every compared completed
+recognition capture, before and after storage recovery. Neither a changed audio route
+nor a simple sensor-logging on/off transition explains the timing change. This does not
+rule out filesystem contention or other load; no causal diagnosis is claimed yet.

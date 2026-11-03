@@ -940,3 +940,8 @@ Corrected tables and limitations are in the measurement-correction section of
 STT_OVERNIGHT_EXPERIMENTS.md. Gain's apparent conv2 lag win shrinks to 12ms; no gain
 promotion is supported. Arm14 is measured on both fixtures; arm15 is running. This
 remains an incomplete, development-fixture comparison with trailing controls pending.
+
+Arm15 (450ms pre-roll) is now captured on both fixtures: WER 20.44%/31.12%,
+one-to-one identity 28/38 and 22/46, unknowns 2/19. This fails quality preservation
+against the initial controls; trailing baselines remain pending. Mac mini speaker
+route and volume 50 were independently verified. Arm16 is starting.
