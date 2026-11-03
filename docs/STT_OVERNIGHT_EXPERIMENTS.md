@@ -909,3 +909,38 @@ volume 50 and unmuted. Sensor logging started successfully in every compared com
 recognition capture, before and after storage recovery. Neither a changed audio route
 nor a simple sensor-logging on/off transition explains the timing change. This does not
 rule out filesystem contention or other load; no causal diagnosis is claimed yet.
+
+### Arm16 completed: retained tail 500 → 600ms
+
+Both fixtures were captured. Runtime activation is explicit: initial controls had exactly
+8000 samples after `voiced_end` on 29/38 conv2 and 41/50 conv3 decoded segments; arm16
+had exactly 9600 on 24/39 and 33/47, with no 8000-sample cases. Counts include decoded
+segments that may not publish a caption. Hashes/counts are in `16-tail-activation.json`.
+
+| Fixture | WER | Raw unknown/all captions | One-to-one right/scored | Corrected final median/p90 ms | Shown median ms | Label median ms |
+|---|---:|---:|---:|---:|---:|---:|
+| conv2 | 20.04% | 2/38 | 27/38 | 1833/3440 | 1789 | 3073 |
+| conv3 | 28.54% | 3/45 | **not qualified** | **not qualified** | 1510 | 3354 |
+
+Conv3 fails the pre-existing RMS alignment gate: all/even/odd correlations are
+0.657/0.625/0.709, below the required 0.65 for the even subset. Split offsets agree
+within 20ms, but that does not waive the correlation requirement. Its original status
+onset is 1.088s versus clock estimate 2.654s; do not fall back to that stale reference
+for identity or true-lag claims. The RMS report retains the rejected fit and the
+secondary scorer exits with an explicit error for this capture. Nine earlier captures
+remain usable. Original-estimate output is retained separately for audit, not adopted
+as qualified identity/timing evidence.
+
+WER uses the complete reference/caption word sequences and is unaffected by reference
+clock shifts. Device-internal shown/label timings and raw unknown/all-caption coverage
+are also independent of source alignment. The scorer now exposes that raw coverage
+separately, with missing diagnostics counted unknown and reason counts; tests cover
+non-admitted and missing speaker jobs. Both focused scoring/alignment checks pass.
+Conv3's three raw unknowns are ambiguous matches, with no missing diagnostics. This
+is coverage, not proof of correct identity. Both captures have zero session watchdogs/
+panics and three boot/setup warnings. Speaker trunk medians are 2356.207/2449.647ms.
+No quality-preserving general win is established versus initial control WER
+15.83%/24.89%; trailing controls are still pending.
+
+Arm17 is running; actual `TL lm_decode` telemetry already shows strength 0.900 and
+successful decoding, confirming that the intended LM change is exercised.

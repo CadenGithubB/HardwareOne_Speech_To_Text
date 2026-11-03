@@ -152,3 +152,9 @@ Early private live harnesses shifted only `start_s`/`end_s`; their direct `truel
 outputs overstated latency and must be rescored. Caption-based WER is unaffected by
 this clock-field repair. Speaker attribution and true lag still depend on alignment.
 SD PCM bench input and production firmware are unchanged by these analysis tools.
+
+`raw_speaker_coverage` counts labels across every published caption without reference
+attribution: missing and rejected jobs remain unknown. This coverage metric, global
+sequence WER and device-internal shown/label timings can still be described when a
+reference-alignment fit is rejected. They do not substitute for identity accuracy or
+manifest-end latency, which must remain unqualified in that case.

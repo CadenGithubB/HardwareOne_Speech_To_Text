@@ -56,9 +56,7 @@ def speaker_cost(log):
             'draft_overlap_median':round(statistics.median(overlap),4),
             'jobs_with_draft_overlap':sum(v>0 for v in overlap)}
 
-def caption_speaker_metrics(clips,captions,log):
-    # Include failures and captions with no embedding/label; never improve coverage
-    # merely by excluding a skipped speaker job from the denominator.
+def speaker_labels(log):
     labels={};reasons={}
     for line in log.splitlines():
         v=fields(line)
@@ -67,6 +65,21 @@ def caption_speaker_metrics(clips,captions,log):
         if 'TL spk_match seq=' in line or ('TL spk_submit seq=' in line and v.get('admitted')==0):
             m=re.search(r'\breason=(\S+)',line)
             if m:reasons[v['seq']]=m[1]
+    return labels,reasons
+
+def raw_speaker_coverage(captions,log):
+    """All published captions, independent of reference timing or speaker identity."""
+    labels,reasons=speaker_labels(log)
+    unknown=[c['sequence'] for c in captions if labels.get(c['sequence'],-1)<0]
+    return {'captions':len(captions),'labelled':len(captions)-len(unknown),
+            'unknown_or_missing':len(unknown),
+            'missing_diagnostic':sum(c['sequence'] not in labels for c in captions),
+            'unknown_reasons':dict(Counter(reasons.get(q,'unknown_or_missing') for q in unknown))}
+
+def caption_speaker_metrics(clips,captions,log):
+    # Include failures and captions with no embedding/label; never improve coverage
+    # merely by excluding a skipped speaker job from the denominator.
+    labels,reasons=speaker_labels(log)
     phrases=[];assigned=[]
     for cap in sorted(captions,key=lambda c:c['sequence']):
         a,b=cap['startSample']/16000,cap['endSample']/16000
@@ -149,6 +162,7 @@ def score_capture(entry,terms=None,alignment=None):
          'watchdogs_total_including_setup':log.count('Task watchdog got triggered'),
          'overruns':run.get('overruns'),'captions':len(caps),'activation':activation(log,caps),
          'speaker_cost':speaker_cost(log),'alignment':'estimated playback onset; acoustic comparison provisional'}
+    row['raw_speaker_coverage']=raw_speaker_coverage(caps,log)
     if source_sha:
         row['source_manifest_sha256']=source_sha
         row['reference_timing']='all time fields rebuilt from original playlist manifest; legacy mixed-clock manifest not used for true lag'

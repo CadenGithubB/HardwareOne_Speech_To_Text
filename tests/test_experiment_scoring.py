@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/device_tests/bench'))
-from score_experiments import activation,speaker_cost,caption_speaker_metrics,vocabulary_metrics
+from score_experiments import activation,speaker_cost,caption_speaker_metrics,vocabulary_metrics,raw_speaker_coverage
 log='''Language model fixture: beam 32, 0 custom words
 TL lm_decode call=1 frames=10 strength=0.900 status=ok
 TL lm_decode call=2 frames=10 strength=0.900 status=unavailable
@@ -33,6 +33,11 @@ metric,missing=caption_speaker_metrics(clips,caps,'TL spk seq=1 spk=0')
 assert metric['scored']==2 and metric['labelled']==1 and metric['right']==1 and missing==1
 metric,missing=caption_speaker_metrics(clips,caps,'TL spk seq=1 spk=0\nTL spk_submit seq=2 admitted=0 spk=-1 reason=audio_pressure')
 assert metric['scored']==2 and metric['labelled']==1 and missing==0
+
+coverage=raw_speaker_coverage([{'sequence':1},{'sequence':2},{'sequence':3}],
+    'TL spk seq=1 spk=0\nTL spk_submit seq=2 admitted=0 reason=audio_pressure')
+assert coverage=={'captions':3,'labelled':1,'unknown_or_missing':2,'missing_diagnostic':1,
+                 'unknown_reasons':{'audio_pressure':1,'unknown_or_missing':1}}
 
 clips=[{'start_s':0,'end_s':2,'kind':'target','text_norm':'foo board'},
        {'start_s':2,'end_s':4,'kind':'control','text_norm':'the board'}]

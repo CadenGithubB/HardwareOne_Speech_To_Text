@@ -945,3 +945,9 @@ Arm15 (450ms pre-roll) is now captured on both fixtures: WER 20.44%/31.12%,
 one-to-one identity 28/38 and 22/46, unknowns 2/19. This fails quality preservation
 against the initial controls; trailing baselines remain pending. Mac mini speaker
 route and volume 50 were independently verified. Arm16 is starting.
+
+Arm16 (600ms retained tail) completed both fixtures, WER 20.04%/28.54%. Conv3
+failed the fixed RMS alignment gate; its identity accuracy and true lag are withheld,
+not silently replaced by the stale status estimate. Raw unknown coverage is 2/38 and
+3/45 captions. Activation was verified in retained sample counts. Arm17 is decoding
+successfully at measured LM strength 0.900. Trailing controls remain pending.
