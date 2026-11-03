@@ -100,6 +100,112 @@ Results go to `~/claude-heaptw/arms1-summary.txt`. The board is left on the last
 The full working notes are in `~/claude-heaptw/pickup/2026-11-01-combined-stt-handoff.md` on the
 mini (private, not in git).
 
+## Codex pickup in progress — 2 November 2026
+
+The user authorized preserving the dirty standalone checkout before pickup. Local backup
+branch `codex/backup-local-stt-20261102`, commit `7aad4c0`, retains its editable source,
+tests and documentation. The untracked handoff package was moved intact to ignored
+`private/pre-claude-resume-20261102/handoff/`. No private evidence was committed.
+Speech then fetched/switched/fast-forwarded cleanly to `claude/spkeval-diagnostics`
+`8bda527`. The existing HardwareOne checkout is the reboot-preserved
+`~/stt-tmp-backup-20261101/hardwareone-ab`; its current branch
+`codex/stt-live-fault-capture` at `94183e1c` was left unchanged (it also has the requested
+`codex/stt-ab-heap-watch` branch). Prerequisite `aa6508fd` already existed. All three
+bundle refs match the handoff. A separate `../hw1-bench` worktree uses `9520a5b1`.
+
+The isolated `p4-openclaw` baseline build passed under ESP-IDF **5.5.5**, after copying
+that checkout's ignored Arduino component and running `tools/p4/prepare_sdk.sh`.
+Actual generated sdkconfig: `CONFIG_CACHE_L2_CACHE_LINE_64B=y` and
+`CONFIG_SPIRAM_SPEED_250M=y`. App size 6,029,008 bytes, below the recorded
+0x715000-byte app slot. This is a build result, not physical qualification.
+The additional worktree/build is retained for this active bench task; remove disposable
+build output after retaining selected app/ELF/config/source identities and results.
+
+The user authorized board access, then explicitly chose to let Claude's active bench
+chain finish while preparations proceed. Claude finished at 21:07; Codex acquired its
+own lock afterward. No concurrent serial access was attempted. The authoritative active
+controller state is `private/resume-20261102/test-status.json`; scripts and logs are in
+that directory. Three matched local x2f runs completed, all with 3.80% WER and 26/40
+speaker labels correct (14 unknown). One run had an in-session IDLE0 watchdog warning,
+no panic; further startup warnings are retained separately. The initial controller's
+warning gate stopped after this completed batch and restored/verified the fixed
+production image. `phase-one-status.json` preserves that stop. The remaining controller
+continues bounded tests with nonfatal warnings counted, stopping on panics or failed
+sessions, and restores the fixed production image afterward. Do not open the P4 while
+this controller owns the lock.
+The chain's `x2fes400` flash failed before any bench runs; preserve this harness failure
+and fill that arm separately. Evidence and pickup scripts are under ignored
+`private/resume-20261102/`. New tests must hold `~/claude-heaptw/busy.lock`, use the
+specified Python and `heaptw_remote.py`, and flash only through its verified app-only
+path. The fixed production rollback is `~/claude-heaptw/soak-app.bin`.
+
+Conv2–4 were found on `/Volumes/Audiodrive/stt/hw1-work/device-tests/speaker/`, and their
+WAV/manifest SHA-256 values match the previous qualification protocol. Three additional
+24-turn PCM playlists were prepared from the **development speaker partition** in
+`private/speaker/audio-window/plan.json` (LibriSpeech, AMI and VoxPopuli; 2/3/4 speakers).
+Their source stores include names containing “test”, but only the already designated
+development speaker IDs were selected. Reserved final-partition audio remains unused.
+These bounded playlists are screening coverage, not corpus-wide qualification.
+
+Existing host voiceprint replay (`spkrules.py`, 200 seeded shuffled orders on clean/session
+sets; 180 corpus conversations in recorded order) still rejects hold/merge promotion.
+Across corpus sets, hold 0.50/0.45 reduce splits by 4.00/5.46 per 100 scored phrases but
+increase merges by 2.17/2.80 per 100. Merge-young3 increases merges by 2.82 per 100.
+These are prior stored voiceprints, not new device results. New on-device diagnostics and
+final speaker-rule recommendations are still pending; completed pacing/pause results follow.
+
+### Completed conv1 pacing/pause screen
+
+All timings below are seconds. WER and speaker scores are from `benchscore.py`; final latency is
+`truelag.py` (true speech end to final caption), shown-text lag is `draftlag.py`. The original
+`latsplit.py` reports are retained privately. Caption segmentation differs between pause arms.
+
+| Arm | Runs | WER | Speaker accuracy | Unknown/run | Final median / p90 | Shown lag | Speaker-label lag |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Production pacing, 64 B | 3 | 3.80% | 64.10–65.00% | 14 | 2.008 / 3.189 | 1.576 | 19.486 |
+| x2f, earlier Claude build | 10 | 3.80% | 65.00% | 14 | 1.866 / 2.854 | 1.337 | 2.273 |
+| x2f, new local build | 3 | 3.80% | 65.00% | 14 | 2.084 / 3.261 | 1.762 | 4.063 |
+| x2f + 400 ms long pause, new local build | 3 | 3.59% | 62.79% | 16 | 2.029 / 3.023 | 1.564 | 4.090 |
+| x2f + 700 ms short pause | 3 | 4.22% | 65.85% | 14 | 1.911 / 3.093 | 1.670 | 3.505 |
+| x2f + both pause changes | 3 | 4.01% | 68.18% | 14 | 1.793 / 2.995 | 1.559 | 3.538 |
+
+**Recommendation:** x2f pacing with unchanged pauses is supported as a speaker-label-latency
+improvement on conv1, with unchanged WER and speaker outcomes. Keep its tradeoffs visible: the new
+local batch had slower final/shown-text timing than the earlier x2f batch, and one in-session watchdog
+warning. This is a bounded recommendation for further qualification, not a production-default change.
+**Do not adopt any tested pause change:** the 700 ms short pause and combined change increase WER;
+the 400 ms long pause improves WER (17 rather than 18 errors / 474 words) but lowers speaker accuracy
+and increases unknowns (16 rather than 14). Its modest timing gain against the matched local x2f arm
+does not meet the user’s no-speaker-regression criterion.
+
+Coverage and reliability qualifications:
+
+- The production-pacing runs emitted 40 captions each, but two runs report `labelled=39 skipped=1`.
+  Their 64.10% benchmark accuracy is 25/39; including the skipped label gives 25/40. x2f is 26/40.
+- `benchscore.py` maps each cluster to its majority reference speaker; this can hide duplicate-cluster
+  splits. The separate one-to-one `spkrules.py` replay remains necessary for speaker-rule decisions.
+- The true-lag tool matched 31/32 clip ends per run. The omitted clip can change with segmentation
+  (for example, zero-based clip 28 in production/x2f versus clip 24 in the combined-pause arm).
+  These reported medians/p90s are tool-defined covered-clip summaries, not complete-clip guarantees.
+- All 25 completed runs in this table reached `done` without a reported panic. In-session watchdog
+  warnings: short-pause 1/3, combined-pause 2/3, new x2f 1/3; none in the other table batches. Additional
+  warnings outside the STT session window are preserved in raw logs and whole-log scores. Do not
+  describe these batches as warning-free. The interrupted earlier production batch (one completed
+  run) and failed original long-pause flash are retained separately, not pooled into this table.
+- Repeated deterministic conv1 runs are timing repetitions of one conversation, not independent
+  accuracy samples or broader/long-duration qualification. No production defaults, main branches,
+  HardwareOne pushes, or outward-facing reports were changed.
+
+New arms were built with `tools/device_tests/bench/build_arms.sh`, `HW1_BENCH` pointing to the
+isolated worktree. Apps: x2f `eaacec59`, long-pause `480ac08c`, x2f diagnostics `c770fd98`. Matching
+ELFs, sdkconfigs, build manifests and source diffs are retained under `private/resume-20261102/arms/`.
+Both cache/PSRAM settings were checked in every arm. Source defaults were restored; the worktree
+is clean. The diagnostic build enables full voiceprint logging and fixture self-checks; the
+recognition model and speaker-rule knobs remain unchanged. Diagnostic timings are not substitutes
+for the non-diagnostic arm comparison.
+
+Broader device diagnostics are active/pending; consult `test-status.json` before board access.
+
 ## Current overnight checkpoint — 1 November 2026
 
 - Stable-PCM candidate b7598680 retains bit parity in host/target tests; its
