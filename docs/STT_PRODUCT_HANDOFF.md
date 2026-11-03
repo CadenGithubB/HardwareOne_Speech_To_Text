@@ -366,6 +366,11 @@ Experiments 10–12 have independent built scheduling/pacing arms and a P4 contr
 queued behind 09; no measurements yet. Experiments 10–24 remain outstanding;
 the goal stays active.
 
+Recognition experiment arms 13–18 now have a serialized build pipeline and a P4
+queue gated on successful completion/restoration of 09 and 10–12. Gain arithmetic
+passes exhaustive sanitizer checks; no recognition improvement is claimed yet.
+See the overnight plan for exact changes and required activation checks.
+
 ## Current overnight checkpoint — 1 November 2026
 
 - Stable-PCM candidate b7598680 retains bit parity in host/target tests; its

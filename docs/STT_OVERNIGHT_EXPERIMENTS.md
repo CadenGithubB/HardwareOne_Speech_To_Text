@@ -36,12 +36,12 @@ confirmation, with rejected candidates retained as measured results.
 | 10 | Defer draft admission while a speaker job is executing | P4 paired runs, labels versus draft freshness and WER | Built; P4 queued |
 | 11 | Bound draft deferral to 100 ms | Independent P4 scheduling arm, same endpoints | Built; P4 queued |
 | 12 | Increase draft pacing multiplier from 2 to 3 | P4 paired runs, contention versus shown-text lag | Built; P4 queued |
-| 13 | Apply 1.25x saturating PCM gain only to recognition input | Offline error screen then P4, clipping and WER | Planned |
-| 14 | Reduce the segmenter's minimum energy threshold by 10% | Quiet-word recall versus false speech and WER | Planned |
-| 15 | Increase recognition pre-roll by 150 ms | Initial-phoneme errors versus extra noise and latency | Planned |
-| 16 | Increase recognition trailing audio retention by 100 ms | Final-word deletions versus latency | Planned |
-| 17 | Lower language-model influence by 10% | Fixed-audio decoder replay, substitutions and WER | Planned |
-| 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | Planned |
+| 13 | Apply 1.25x saturating PCM gain only to recognition input | Offline error screen then P4, clipping and WER | Build pipeline active; P4 queued |
+| 14 | Reduce the segmenter's minimum energy threshold by 10% | Quiet-word recall versus false speech and WER | Build pipeline active; P4 queued |
+| 15 | Increase recognition pre-roll by 150 ms | Initial-phoneme errors versus extra noise and latency | Build pipeline active; P4 queued |
+| 16 | Increase recognition trailing audio retention by 100 ms | Final-word deletions versus latency | Build pipeline active; P4 queued |
+| 17 | Lower language-model influence by 10% | Fixed-audio decoder replay, substitutions and WER | Build pipeline active; P4 queued |
+| 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | Build pipeline active; P4 queued |
 | 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Planned |
 | 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | Planned |
 | 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Planned |
@@ -313,3 +313,47 @@ preceding failure stops admission of new tests for inspection. Build success and
 policy unit checks are not performance/accuracy results; 10–12 remain unmeasured.
 Controller: `private/resume-20261102/overnight/run10_12_p4.py`;
 log: `overnight/10-12-p4-controller.log`. The active energy comparison retains the port.
+
+
+### 13–18 — Recognition arm preparation (not measured yet)
+
+Recognition experiment arms are built serially from restored baseline source, never
+stacked. Fixed recognition/speaker weights, centered speaker windows, speaker rules,
+x2f pacing, diagnostics and 600/1000 ms closing pauses stay common.
+
+- 13: exact saturating 1.25x int16 gain in recognition frontend sample conversion,
+  including full, incremental and ring feature paths. Segmentation and speaker PCM
+  stay original. Integer implementation rounds halves away from zero; an exhaustive
+  65,536-value sanitizer check verifies rounding, saturation and monotonicity. This
+  does not by itself establish recognition improvement; normalization may remove much
+  of the gain effect. Gain is applied before existing dither/pre-emphasis.
+- 14: adaptive speech floor 45 -> 41 (nearest integer to a 10% reduction; actual 8.9%).
+- 15: recognition pre-roll 4,800 -> 7,200 samples (300 -> 450 ms).
+- 16: common retained-tail constant 8,000 -> 9,600 samples (500 -> 600 ms), including
+  the matching speculative coverage requirements; phrase closing pauses unchanged.
+- 17: scale the existing LM strength by 0.9, preserving the alpha/beta/custom-word
+  balance rather than changing only one bonus. Must verify LM actually loaded and
+  decoded successfully; fallback runs cannot demonstrate this experiment.
+- 18: request ceil(1.25 * file beam), capped at decoder `kMaxBeam` (64). Must inspect
+  the loaded file beam and ensure this actually increases it; a cap-induced no-op is
+  not a tested change. Decoder workspace may rise; memory errors/fallbacks are outcomes
+  to record, not discard. Existing fixed LM blob is not overwritten.
+
+Build controller: ignored `private/resume-20261102/overnight/build13_18.py`; arm map
+`13-18-arms.json`, full source diffs and build manifests in the arms folders. Source
+restoration is in a finalizer. At this checkpoint 13–16 are built and 17–18 are still
+building; never infer full build success from the controller's existence.
+
+The recognition P4 controller waits for the scheduling chain to complete ten successful
+captures and restore fixed production, then requires all six SHA-verified images. It
+runs conv2/conv3 on baseline-before, each independent arm, and baseline-after. The
+serialized controllers own busy.lock only during board use. They stop and restore on
+failed captures. The still-idle scheduling queue was intentionally restarted once to
+strengthen its predecessor gate to require four successful energy captures; recognition
+queue likewise requires ten successful scheduling captures. No observation timeout was
+treated as a stopped board task or used to restart an active test.
+
+Recognition controller: `overnight/run13_18_p4.py`, state `13-18-p4-status.json`, log
+`overnight/13-18-p4-controller-queued.log`. A three-hour predecessor wait is bounded;
+expiry leaves the board untouched. These are queued tests, not measured improvements.
+The energy comparison and scheduling work retain priority. Full goal remains active.
