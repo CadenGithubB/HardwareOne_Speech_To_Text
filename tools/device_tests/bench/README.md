@@ -98,3 +98,13 @@ A positive `vocab_test` flag proves term presence, not transcription improvement
 
 Run `python3 tests/test_experiment_scoring.py` for clock, activation, and missing-label
 coverage checks. A report is evidence for review, not an automatic promotion decision.
+
+For vocabulary trials, add `--vocab-config private/.../experiment.json`. Exact canonical
+term hits, control insertions and global excess term occurrences are separate metrics.
+Captions spanning multiple reference clips receive no clip-level credit; their term
+occurrences remain in a mixed-attribution counter and the global count. Terms outside
+all reference clips are also counted separately. Missing target captions remain in the
+target denominator. Pooled raw WER is unchanged; no alias or formatting rewrite hides
+spelling/tokenization differences. Treat clip attribution as provisional when audio
+alignment is uncertain, and never interpret zero attributable insertions as proof when
+mixed/unattributed terms are present.

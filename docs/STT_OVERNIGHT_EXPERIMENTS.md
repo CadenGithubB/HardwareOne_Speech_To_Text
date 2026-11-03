@@ -577,3 +577,45 @@ change solely to scheduling from one pair. The remaining scheduling captures and
 baseline are still pending. Counterbalancing/single-pair screens are not replication.
 The scorer distinguishes in-session watchdogs from total setup warnings and keeps raw
 counts rather than silently excluding skipped speaker jobs. No defaults changed.
+
+
+### Coverage strengthening and vocabulary attribution — 3 November 2026
+
+The first natural conv2 baseline has zero forced boundaries. Added a separately frozen
+45.00s same-speaker stress source to ensure experiment 22 can exercise hard cuts:
+concatenate nine source clips from the existing conv2 speaker with the most audio,
+compress low-energy runs >=260 ms to 100 ms (threshold max(32 PCM RMS, 10% of source
+p90 frame RMS)), retain the rest, and bracket with silence. Stored under ignored
+`long22/`, with source manifest/audio hashes and transformation metadata. This is a
+synthetic stress case; compressed low-level frames can contain soft speech, so it is
+not natural-conversation accuracy qualification. No board upload or new identity data.
+
+The still-idle 21–23 queue was intentionally restarted to add `long22` to its baseline
+before/after and only arm 22. It now expects 13 total captures. The idle 24 queue was
+updated to require those 13 successes/restoration. Neither owned the board during this
+change; the active scheduling run was not interrupted. Corrected queue logs:
+`21-23-p4-controller-stress.log`, `24-p4-controller-stress-gate.log`. A detected queue
+wait or an observation timeout was not treated as process termination.
+
+Vocabulary scoring now accepts the frozen experiment config. It separately reports
+exact target-token hits, ordinary-control insertions, globally excess terms, and terms
+in mixed-reference or unassigned captions. No mixed caption gets clip-level credit;
+missing target captions remain in the denominator. Synthetic checks demonstrate that
+control false insertions cannot be presented as target corrections, and out-of-reference
+terms remain visible. Raw pooled WER is not formatted or rewritten. This scoring is
+prepared for 24; no vocabulary-arm acoustic result is available yet.
+
+Further provisional scheduling captures (single runs, baseline-after still pending):
+- 10 conv4: median trunk 1371.842 -> 767.097 ms; label delay 1910.5 -> 886 ms;
+  draft-overlap jobs 28/34 -> 0/35. But actual correct speaker phrases 32/34 -> 27/35,
+  unknowns 2 -> 7, splits 0 -> 1, and WER 17.66% -> 18.30%. Shown lag 1554 -> 1651 ms,
+  no-draft phrases 3 -> 5. Strong compute benefit, unacceptable quality evidence so far.
+- 11 conv2: trunk 977.212 ms, labels 1278 ms versus baseline 1165.735 / 1286.5 ms;
+  shown lag 1260 versus 1256 ms. WER 15.23% versus 16.43%, correct speaker phrases
+  remain 29/38, but unknown 1 -> 0 comes with merge phrases 8 -> 9. A faster kernel
+  wall time is not automatically a faster useful label. Full arm/baseline-after pending.
+
+The natural clip references and estimated playback onset still limit absolute live
+latency and per-phrase identity attribution. The scorer records ±0.5s sensitivity;
+repeat validation with measured playback onset is required before promoting a promising
+candidate. No default changed, no failed/ambiguous reference was silently hidden.

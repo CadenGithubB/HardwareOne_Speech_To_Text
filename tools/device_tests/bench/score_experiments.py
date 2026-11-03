@@ -76,7 +76,33 @@ def caption_speaker_metrics(clips,captions,log):
     metric=spkrules.run_metrics(phrases,list(range(len(phrases))),assigned)
     return metric,sum(c['sequence'] not in labels for c in captions)
 
-def score_capture(entry):
+def vocabulary_metrics(clips,captions,terms):
+    terms=set(terms);by_clip=[[] for _ in clips];mixed=unattributed=0;all_words=[]
+    for cap in captions:
+        words=benchscore.norm(cap.get('sttText',''));all_words+=words
+        a,b=cap['startSample']/16000,cap['endSample']/16000
+        matches=[i for i,c in enumerate(clips) if min(b,float(c['end_s']))-max(a,float(c['start_s']))>=.3]
+        count=sum(w in terms for w in words)
+        if len(matches)>1:mixed+=count;continue
+        if not matches:unattributed+=count;continue
+        for i in matches:by_clip[i]+=words
+    result={'expected_target_terms':0,'attributable_target_hits':0,'control_term_insertions':0,
+            'mixed_caption_term_occurrences':mixed,'unattributed_term_occurrences':unattributed,
+            'target_clips':0,'control_clips':0}
+    refs=Counter(w for c in clips for w in benchscore.norm(c.get('text_norm','')) if w in terms)
+    hyp=Counter(w for w in all_words if w in terms)
+    result['global_excess_term_occurrences']=sum(max(0,hyp[w]-refs[w]) for w in terms)
+    for c,words in zip(clips,by_clip):
+        expected=Counter(w for w in benchscore.norm(c.get('text_norm','')) if w in terms)
+        observed=Counter(w for w in words if w in terms)
+        if c.get('kind')=='target':
+            result['target_clips']+=1;result['expected_target_terms']+=sum(expected.values())
+            result['attributable_target_hits']+=sum(min(observed[w],n) for w,n in expected.items())
+        elif c.get('kind')=='control':
+            result['control_clips']+=1;result['control_term_insertions']+=sum(max(0,observed[w]-expected[w]) for w in terms)
+    return result
+
+def score_capture(entry,terms=None):
     d=Path(entry['path']);manifest=d/'manifest-aligned.json'
     inputs=[d/'bench.json',d/'serial-0.log',manifest]
     digest=hashlib.sha256(b''.join(p.read_bytes() for p in inputs)).hexdigest()
@@ -90,6 +116,7 @@ def score_capture(entry):
          'overruns':run.get('overruns'),'captions':len(caps),'activation':activation(log,caps),
          'speaker_cost':speaker_cost(log),'alignment':'estimated playback onset; acoustic comparison provisional'}
     row['memory_minima']={key:min(map(int,values)) if values else None for key in ['int_min','psram_min'] for values in [re.findall(r'\b'+key+r'=(\d+)',log)]}
+    if terms:row['vocabulary']=vocabulary_metrics(clips,caps,terms)
     row['majority_metrics']=benchscore.score_run(clips,caps,log.splitlines())
     sets=benchsets.run_set(clips,d.name,caps,log.splitlines())
     phrases=sets['phrases']
@@ -111,14 +138,19 @@ def score_capture(entry):
     return row
 
 def main():
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('statuses',nargs='+',type=Path);ap.add_argument('--out',required=True,type=Path);a=ap.parse_args()
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('statuses',nargs='+',type=Path);ap.add_argument('--out',required=True,type=Path);ap.add_argument('--vocab-config',type=Path);a=ap.parse_args()
     report={'captures':[],'incomplete':[],'controllers':[],'errors':[]}
+    terms=None
+    if a.vocab_config:
+        data=a.vocab_config.read_bytes();terms=json.loads(data)['words']
+        if not terms or any(not re.fullmatch(r"[a-z']{1,31}",w) for w in terms):raise ValueError('invalid vocabulary experiment configuration')
+        report['vocabulary_config_sha256']=hashlib.sha256(data).hexdigest()
     for path in a.statuses:
         status=json.loads(path.read_text());report['controllers'].append({'path':str(path),'phase':status['phase'],'restored_fixed_production':status.get('restored_fixed_production')})
         for entry in status.get('runs',[]):
             if entry.get('state')!='done' or 'path' not in entry:
                 report['incomplete'].append(entry);continue
-            try:report['captures'].append(score_capture(entry))
+            try:report['captures'].append(score_capture(entry,terms))
             except Exception as exc:report['errors'].append({'path':entry.get('path'),'error':str(exc)})
     a.out.parent.mkdir(parents=True,exist_ok=True);temp=a.out.with_suffix('.tmp');temp.write_text(json.dumps(report,indent=2));temp.replace(a.out)
     print(f"Scored {len(report['captures'])} captures; {len(report['errors'])} errors; {len(report['incomplete'])} incomplete")

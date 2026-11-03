@@ -391,6 +391,12 @@ scheduling chain/final baseline are still pending; no production recommendation.
 Live scoring now includes missing speaker labels in coverage and runtime activation
 checks; details and provisional counts are in the overnight plan.
 
+The live chain continues. Experiment 22 gained a separate long-speech stress source
+to guarantee hard-cut exposure; only idle successor queues were updated. Vocabulary
+scoring now distinguishes target corrections from control insertions and ambiguous
+attribution. Additional scheduling captures retain the speed/quality trade-off; final
+baselines and all downstream physical measurements are still pending.
+
 ## Current overnight checkpoint — 1 November 2026
 
 - Stable-PCM candidate b7598680 retains bit parity in host/target tests; its

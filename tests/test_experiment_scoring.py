@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/device_tests/bench'))
-from score_experiments import activation,speaker_cost,caption_speaker_metrics
+from score_experiments import activation,speaker_cost,caption_speaker_metrics,vocabulary_metrics
 log='''Language model fixture: beam 32, 0 custom words
 TL lm_decode call=1 frames=10 strength=0.900 status=ok
 TL lm_decode call=2 frames=10 strength=0.900 status=unavailable
@@ -33,3 +33,16 @@ metric,missing=caption_speaker_metrics(clips,caps,'TL spk seq=1 spk=0')
 assert metric['scored']==2 and metric['labelled']==1 and metric['right']==1 and missing==1
 metric,missing=caption_speaker_metrics(clips,caps,'TL spk seq=1 spk=0\nTL spk_submit seq=2 admitted=0 spk=-1 reason=audio_pressure')
 assert metric['scored']==2 and metric['labelled']==1 and missing==0
+
+clips=[{'start_s':0,'end_s':2,'kind':'target','text_norm':'foo board'},
+       {'start_s':2,'end_s':4,'kind':'control','text_norm':'the board'}]
+caps=[{'startSample':4000,'endSample':28000,'sttText':'Foo board'},
+      {'startSample':36000,'endSample':60000,'sttText':'foo foo'}]
+x=vocabulary_metrics(clips,caps,['foo'])
+assert x['expected_target_terms']==1 and x['attributable_target_hits']==1
+assert x['control_term_insertions']==2 and x['global_excess_term_occurrences']==2
+caps=[{'startSample':16000,'endSample':48000,'sttText':'foo'}]
+x=vocabulary_metrics(clips,caps,['foo'])
+assert x['mixed_caption_term_occurrences']==1 and x['attributable_target_hits']==0
+x=vocabulary_metrics(clips,[{'startSample':80000,'endSample':96000,'sttText':'foo'}],['foo'])
+assert x['unattributed_term_occurrences']==1 and x['attributable_target_hits']==0
