@@ -32,7 +32,7 @@ confirmation, with rejected candidates retained as measured results.
 | 06 | Resolve a held phrase after subsequent agreeing evidence, with bounded delay | Sequential replay, revisions and delay | Tested offline; reject promotion |
 | 07 | Raise speaker capacity from 8 to 10 | Capacity-triggered unknowns, false-profile count and memory | Tested offline; reject |
 | 08 | Extend speaker input window from 3 s to 4 s | Re-export fixed weights/shape if supported; embedding and device cost | Float screen tested; no promotion |
-| 09 | Select the highest-energy contiguous speaker window instead of the center | Offline acoustic embeddings, identity errors | Positive float screen; P4 A/B running |
+| 09 | Select the highest-energy contiguous speaker window instead of the center | Offline acoustic embeddings, identity errors | P4 initial comparison complete; mixed |
 | 10 | Defer draft admission while a speaker job is executing | P4 paired runs, labels versus draft freshness and WER | P4 initial comparison complete; no promotion |
 | 11 | Bound draft deferral to 100 ms | Independent P4 scheduling arm, same endpoints | P4 initial comparison complete; no promotion |
 | 12 | Increase draft pacing multiplier from 2 to 3 | P4 paired runs, contention versus shown-text lag | P4 initial comparison complete; no promotion |
@@ -55,6 +55,8 @@ an equivalent experiment addressing the same hypothesis; do not silently count i
 tested. No network audio uploads. Keep logs and transcripts in ignored private folders.
 
 ## Results
+
+See [the concise current ledger](STT_EXPERIMENT_RESULTS.md) for measured versus pending work.
 
 ### 01 — Ambiguity margin 0.08
 
