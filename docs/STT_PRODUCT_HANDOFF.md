@@ -1025,3 +1025,44 @@ final controls remain missing. An exact-image/fixture reproduction is now runnin
 See STT_ACTIONABLE_FINDINGS.md for decisions: qualify earlier x2f pacing, preserve strict
 speculative reuse, reject the tested normalization and pause changes, and prioritize
 reproducing/profiling the vocabulary failure rather than adding tuning arms.
+
+### 3 November checkpoint — storage recovery and actionable decisions
+
+The initial experiment ledger now records 23 measured screens out of 24. This is not
+qualification completion. See `docs/STT_EXPERIMENT_RESULTS.md` and
+`docs/STT_ACTIONABLE_FINDINGS.md` for current decisions: preserve exact-coverage reuse,
+reject the tested normalization/shorter pauses, do not promote noise freezing, and
+prioritize broader x2f pacing qualification after reliability checks.
+
+Both failed vocabulary conv3 attempts contain filesystem-full errors; the repeat was
+interrupted with zero captions and cannot establish a vocabulary failure. Fixed production
+was restored and verified afterward. Required same-test watchdog reruns remain pending.
+The archived wider-beam watchdog samples are in decoder math; forced-redecode samples
+are in flash/cache coordination. See `docs/STT_WATCHDOG_RETESTS.md` for the inventory
+scope, signatures and uncompleted reproduction requirements.
+
+A read-only storage inspection measured 352,256 bytes free. Audit-log rotation may
+need 435,200 bytes of temporary storage, exceeding both that space and the earlier
+128 KiB bench gate. A full LittleFS snapshot was read twice through the approved
+helper; the independent reads matched. The verified private snapshot contains 953 files
+with 1,242,003 content bytes, including 927 sensor files totaling 82,737 bytes across
+892 boot directories. Directory/allocation overhead is substantial. This is separate
+from the closed 128-byte L2 PSRAM fault.
+
+Prepared, but not authorized or performed: remove 889 old sensor files (78,232 bytes)
+and their 889 named boot directories below boot 1200. Every proposed file was extracted,
+fsynced and reread privately; the full snapshot has independent readback verification.
+The user's earlier three-diagnostic-log cleanup approval does not cover these files.
+The pending request preserves boot 1200 onward and every other path. No filesystem
+image is to be flashed back or edited wholesale. Recovery must be measured afterward;
+do not claim free space from file-content totals alone.
+
+Private snapshot/proposal manifests are under
+`private/resume-20261102/filesystem-snapshot-20261103-101810/` (ignored; never commit
+contents). The board was returned to the approved fixed-production image after snapshot
+verification and the controller released its lock. No tuning/default changes or pushes.
+
+Required host regressions passed: transcript, product storage, viewer and bridge. Scoring
+and NumPy alignment checks also passed. These do not qualify model accuracy, P4 realtime
+performance, microphone equivalence, SD power-loss behavior or the incomplete watchdog
+matrix. Goal remains active.

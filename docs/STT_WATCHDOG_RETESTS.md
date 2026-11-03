@@ -25,3 +25,29 @@ qualification work; completing the 24 initial screens alone does not finish it.
 
 Next: inventory warnings and existing matching repeats; run uncovered cases after the
 currently serialized vocabulary group releases the board. No additional tuning arms.
+
+## Inventory checkpoint — 3 November
+
+The initial 09–24 physical groups contain 51 captures and 126 watchdog events,
+including setup. Grouping by verified flash-image SHA256, source WAV SHA256 and
+live-microphone mode gives 27 warning-bearing image/input groups. Twenty-three have
+only one capture; four have existing repeat candidates whose setup and event locations
+still need comparison. This does not include earlier pacing or interrupted pre-recovery
+captures, so it is not the complete qualification matrix. Do not count shared firmware
+with different input as a same-test rerun.
+
+The three priority conv3 cases were symbolized with their corresponding archived ELF:
+
+- Wider beam (#18): sampled PC/RA in decoder `logOf`/`dAddOut`.
+- Forced re-decode (#23): sampled PC/RA in
+  `spi_flash_disable_interrupts_caches_and_other_cpu`.
+- Vocabulary (#24): samples include LittleFS reads/directory access, flash read,
+  flash/cache coordination and task/IPC functions. Its log also contains 22
+  filesystem-full errors. The interrupted repeat has 26 such errors and zero captions.
+
+These PC/RA samples identify where tasks were observed, not full causal backtraces.
+There is no basis to attribute all warnings to vocabulary, decoding or storage alone.
+Prioritize the clean-storage repeats of these cases; preserve their distinct signatures.
+Private numeric inventory and symbol records are under
+`private/resume-20261102/overnight/watchdog-inventory.json` and
+`watchdog-priority-symbols.json`.
