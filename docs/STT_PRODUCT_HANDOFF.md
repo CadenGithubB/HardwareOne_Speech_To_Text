@@ -928,3 +928,15 @@ resumed from its checkpoint; later physical groups are queued. Ring reconnect wa
 disabled after the arm13 reboot, before applying any setup command. Two watchdog warnings
 occurred during that boot/setup before STT started and remain part of the stability record.
 The full 24-item investigation and final restoration audit remain incomplete.
+
+### Live timing correction (09–14 progress)
+
+Earlier live true-lag figures are superseded: private capture manifests had left
+`speech_end_s` unshifted. The scorer now rebuilds all clocks from verified original
+references. A separate RMS/clock alignment check also identified stale status onset
+(e.g. arm14 conv2 was early by ~1.83s). All 20 completed 09–14 captures passed the
+secondary consistency gates and were rescored; original artifacts remain preserved.
+Corrected tables and limitations are in the measurement-correction section of
+STT_OVERNIGHT_EXPERIMENTS.md. Gain's apparent conv2 lag win shrinks to 12ms; no gain
+promotion is supported. Arm14 is measured on both fixtures; arm15 is running. This
+remains an incomplete, development-fixture comparison with trailing controls pending.

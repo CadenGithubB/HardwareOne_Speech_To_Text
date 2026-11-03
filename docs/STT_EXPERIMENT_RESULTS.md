@@ -34,7 +34,7 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 | ID | Single change | Current scope |
 |---|---|---|
 | 13 | 1.25x recognition-input gain | Exact PCM arithmetic tested; both P4 fixtures measured. Conv2 WER improves, conv3 WER/identity/latency worsen; trailing baseline pending. |
-| 14 | Adaptive speech floor 45 → 41 | Independent image built; physical recognition batch pending behind arm13. |
+| 14 | Adaptive speech floor 45 → 41 | Both fixtures captured; WER worse than initial controls. Trailing controls pending. |
 | 15 | Pre-roll 300 → 450ms | Independent image built; physical recognition batch pending behind arm13. |
 | 16 | Retained tail 500 → 600ms | Independent image built; physical recognition batch pending behind arm13. |
 | 17 | LM strength ×0.9 | Image built; require successful LM decoding at changed strength. |
@@ -66,7 +66,11 @@ can never help under another setting or domain.
 
 ## Interpretation and remaining work
 
-The live references use estimated playback onset. The scorer retains alignment
+Live true-lag numbers before the measurement-correction entry are superseded: the
+early harness failed to shift `speech_end_s`. The corrected scorer rebuilds all clocks
+from original references; a separate RMS/clock estimate repairs stale status onset.
+Original artifacts remain intact, and sparse RMS agreement is not absolute precision.
+The live references still use estimated playback onset. The scorer retains alignment
 sensitivity, mixed/no-reference exclusions and missing labels; absolute manifest-end
 latencies and per-phrase attribution remain provisional. No held-out-speaker success,
 acoustic correlation, SD power-loss behavior or battery-life gain is claimed.

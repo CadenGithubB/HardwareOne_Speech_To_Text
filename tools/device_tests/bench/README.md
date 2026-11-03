@@ -123,3 +123,32 @@ command timeouts fail immediately. It uses the already-owned approved Console,
 opens no port, and must run before recording. Existing completed captures retain
 their original setup path. Run `tests/test_close_test_peers.py` for observed deferred
 reply, success, bounded exhaustion, authorization and timeout cases.
+
+## Live-speaker experiment alignment
+
+Live microphone playback is less deterministic than SD PCM input. A status reply's
+sample count can already be stale when `afplay` starts. Keep the original capture,
+manifest and status estimate; do not select a timing shift by speaker accuracy or WER.
+
+`align_experiments.py STATUS.json --out private/alignment.json` (requires numpy)
+fits a secondary estimate using the logged host/device clock bridge and playlist
+RMS envelope against capture-task `TL level` telemetry. It never reads caption text
+or speaker labels to fit the offset. At least 50 level points, correlation ≥0.65
+in all/even/odd subsets, split agreement within 100ms, and an interior search peak
+are required. These checks reject weak/inconsistent fits; agreement does not prove
+absolute precision. The level timestamps are wall-clock samples, not recorded raw
+microphone audio or sample-clock acoustic correlation. Retain ±0.5s sensitivity.
+
+`score_experiments.py STATUS.json --alignment-report private/alignment.json --out private/corrected.json`
+requires a usable fit for every scored capture and matching log, bench and WAV hashes.
+It retains the original estimate and correction provenance in the numeric output.
+Use a distinct output file from the original-estimate report. No capture or original
+manifest is overwritten. Missing/rejected fits are errors, not silent fallbacks.
+
+For live captures, scoring rebuilds reference times from `FIXTURE/manifest.json`
+next to the status file/capture directories and verifies the original clip boundaries.
+It translates **all** clock fields, including `speech_end_s`, before invoking `truelag`.
+Early private live harnesses shifted only `start_s`/`end_s`; their direct `truelag`
+outputs overstated latency and must be rescored. Caption-based WER is unaffected by
+this clock-field repair. Speaker attribution and true lag still depend on alignment.
+SD PCM bench input and production firmware are unchanged by these analysis tools.

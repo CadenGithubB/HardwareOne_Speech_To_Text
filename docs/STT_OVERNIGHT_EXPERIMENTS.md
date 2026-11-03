@@ -821,3 +821,65 @@ confounds. Absolute manifest-end lag remains estimated, with four missed conv3 s
 clips versus one in the initial control. The resumed conv3 capture has zero session
 watchdogs/panics, but two earlier boot/setup watchdog warnings; total counts retain both.
 Arm14 is now running. No gain/default recommendation is supported by this partial group.
+
+### Measurement correction: complete reference clocks and RMS cross-check
+
+**Supersedes all earlier live true-lag values in this journal, including the arm13
+table above.** Early live capture manifests shifted `start_s`/`end_s` by the status
+sample estimate, but left `speech_end_s` on the playlist clock. Direct `truelag`
+therefore overstated delay and sometimes selected the wrong segment. WER and the
+device-internal shown/label timings are unaffected by that specific field bug.
+
+The scorer now reconstructs all time fields from the original playlist manifest,
+checks the original boundaries against the recorded onset, and hashes that source.
+A separate, optional alignment report addresses stale status replies: it fits logged
+RMS levels to the WAV envelope within the host/device clock estimate ±0.8s. Caption
+text and speaker labels never enter fitting. All/even/odd correlations must each be
+≥0.65, split offsets agree within 100ms, at least 50 points exist, and the peak is
+away from the search edge. Original logs/manifests/reports stay intact. Scoring rejects
+missing/rejected fits or mismatched log/bench/WAV hashes. Tests cover delayed onset,
+unrelated signals, conflicting halves, edge peaks, stale provenance and mixed-clock
+reference reconstruction. Both focused scoring/alignment checks pass.
+
+All 20 completed captures in 09–14 passed these consistency gates. Arm14 conv2's
+status estimate was 1.216s; clock estimate 2.888s; RMS estimate 3.048s, with even/odd
+3.038/3.048s. Its one-to-one scored denominator recovers from 13 to 38. This is an
+estimated correction from sparse **wall-clock** RMS telemetry, not raw sample-clock
+microphone correlation or proof of 10ms absolute accuracy. Keep ±0.5s sensitivity and
+missed-reference counts. Different capture-task/ADC delays may remain. No production
+firmware or recognition/speaker algorithms were changed for this analysis.
+
+Private canonical secondary reports are `09-12-rms-alignment.json`,
+`09-12-rms-metrics.json`, `13-18-rms-alignment.json` and `13-18-rms-metrics.json`.
+The latter is partial; trailing controls and later arms remain pending. Corrected
+results below use one-to-one identity counts, with unknowns retained in denominators.
+
+| Arm | Fixture | WER | Right/scored | Unknown | Split/merge | Final median/p90 ms | Missed ends | Shown median ms | Label median ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 09 center | conv2 | 15.63% | 29/38 | 1 | 0/8 | 1758/2980 | 1 | 1255 | 1296.5 |
+| 09 energy | conv2 | 14.83% | 28/38 | 1 | 0/9 | 1761/2548 | 0 | 1265 | 1401.0 |
+| 09 energy | conv4 | 17.66% | 33/36 | 3 | 0/0 | 2040/3249 | 0 | 1436 | 2068.5 |
+| 09 center | conv4 | 18.09% | 28/37 | 7 | 2/0 | 1821/3010 | 1 | 1329 | 1954 |
+| 10–12 baseline-before | conv2 | 16.43% | 29/38 | 1 | 0/8 | 1786/2543 | 1 | 1256 | 1286.5 |
+| 10–12 baseline-before | conv4 | 17.66% | 32/34 | 2 | 0/0 | 2112/2983 | 1 | 1554 | 1910.5 |
+| 10–12 codex-spk-gate | conv2 | 19.04% | 29/38 | 1 | 0/8 | 1752/2552 | 0 | 1365 | 883.0 |
+| 10–12 codex-spk-gate | conv4 | 18.30% | 27/35 | 7 | 1/0 | 1995/3023 | 1 | 1651 | 886 |
+| 10–12 codex-spk-gate100 | conv2 | 15.23% | 29/38 | 0 | 0/9 | 1770/2500 | 0 | 1260 | 1278.0 |
+| 10–12 codex-spk-gate100 | conv4 | 17.87% | 31/34 | 3 | 0/0 | 2191/3078 | 0 | 1536 | 1896.5 |
+| 10–12 codex-pace3 | conv2 | 16.43% | 29/38 | 1 | 0/8 | 1788/2505 | 1 | 1356 | 1283.0 |
+| 10–12 codex-pace3 | conv4 | 18.09% | 27/36 | 6 | 3/0 | 1849/2986 | 1 | 1520 | 1420.5 |
+| 10–12 baseline-after | conv2 | 17.23% | 28/38 | 2 | 0/8 | 1778/2530 | 0 | 1247 | 1286.0 |
+| 10–12 baseline-after | conv4 | 17.23% | 26/34 | 7 | 1/0 | 2257/2997 | 0 | 1461 | 1943.0 |
+| 13–18 baseline-before | conv2 | 15.83% | 29/38 | 0 | 0/9 | 1778/2509 | 0 | 1251 | 1285.0 |
+| 13–18 baseline-before | conv3 | 24.89% | 43/48 | 3 | 2/0 | 1303/1943 | 3 | 1112 | 1287.5 |
+| 13–18 13 | conv2 | 14.03% | 28/38 | 1 | 0/9 | 1766/2498 | 0 | 1254 | 1282.0 |
+| 13–18 13 | conv3 | 33.26% | 36/47 | 8 | 3/1 | 1581/2569 | 2 | 1314 | 2901 |
+| 13–18 14 | conv2 | 19.04% | 28/38 | 2 | 0/8 | 2205/3507 | 0 | 1758 | 3042.0 |
+| 13–18 14 | conv3 | 29.61% | 28/44 | 11 | 5/1 | 1766/2559 | 6 | 1550 | 3589.0 |
+
+With corrected clocks, arm13 conv2 final median changes 1778 → 1766ms (12ms),
+not the apparent 579ms gain in the earlier mixed-clock table. Its WER remains mixed
+across fixtures. Arm14 WER is worse on both fixtures than the initial control, with
+poor conv3 identity and longer label times. The slow post-recovery speaker trunk and
+boot warnings still require trailing-control comparison. Energy-window and scheduling
+dispositions are unchanged: no general quality-preserving win is established.

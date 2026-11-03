@@ -14,6 +14,7 @@ import re
 import statistics
 import subprocess
 import sys
+import tempfile
 
 HERE=Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE.parent/'speaker'))
@@ -102,19 +103,58 @@ def vocabulary_metrics(clips,captions,terms):
             result['control_clips']+=1;result['control_term_insertions']+=sum(max(0,observed[w]-expected[w]) for w in terms)
     return result
 
-def score_capture(entry,terms=None):
+def live_reference_clips(directory,fixture,original_manifest,original_onset,onset):
+    """Rebuild all time fields from the immutable playlist reference.
+
+    Early live harnesses shifted start/end but accidentally left speech_end_s
+    on the playlist clock. Never propagate that mixture into true-lag scores.
+    """
+    source=directory.parent/fixture/'manifest.json'
+    data=source.read_bytes();clips=json.loads(data)['clips']
+    old=original_manifest['clips']
+    if len(clips)!=len(old):raise ValueError('source/reference clip count mismatch')
+    for raw,aligned in zip(clips,old):
+        for key in ['start_s','end_s']:
+            if abs(float(raw[key])+original_onset-float(aligned[key]))>1e-5:
+                raise ValueError('source/reference boundaries do not match original onset')
+    keys={'start_s','end_s','speech_start_s','speech_end_s'}
+    shifted=[{k:float(v)+onset if k in keys else v for k,v in c.items()} for c in clips]
+    return sorted(shifted,key=lambda c:float(c['start_s'])),hashlib.sha256(data).hexdigest()
+
+def score_capture(entry,terms=None,alignment=None):
     d=Path(entry['path']);manifest=d/'manifest-aligned.json'
     inputs=[d/'bench.json',d/'serial-0.log',manifest]
     digest=hashlib.sha256(b''.join(p.read_bytes() for p in inputs)).hexdigest()
     runs=json.loads(inputs[0].read_text())
     if len(runs)!=1:raise ValueError('expected one finalized run per capture')
     run=runs[0];log=inputs[1].read_text(errors='replace');caps=run['captions']
-    clips=sorted(json.loads(manifest.read_text())['clips'],key=lambda c:float(c['start_s']))
+    manifest_data=json.loads(manifest.read_text())
+    clips=sorted(manifest_data['clips'],key=lambda c:float(c['start_s']))
+    if alignment is not None:
+        if not alignment.get('usable'):raise ValueError('alignment quality gate rejected capture')
+        if alignment['serial_sha256']!=hashlib.sha256(inputs[1].read_bytes()).hexdigest() or alignment['bench_sha256']!=hashlib.sha256(inputs[0].read_bytes()).hexdigest():
+            raise ValueError('alignment inputs do not match capture')
+        if alignment['original_onset_s']!=run['estimated_playback_sample_offset_s']:
+            raise ValueError('alignment original onset does not match capture')
+        delta=alignment['estimated_sample_onset_s']-alignment['original_onset_s']
+        clips=[{**c,'start_s':float(c['start_s'])+delta,'end_s':float(c['end_s'])+delta} for c in clips]
+    source_sha=None
+    if run.get('mode')=='live-microphone':
+        if alignment is not None and hashlib.sha256((d.parent/entry['fixture']/'playlist.wav').read_bytes()).hexdigest()!=alignment['fixture_sha256']:
+            raise ValueError('alignment fixture audio does not match capture reference')
+        onset=run['estimated_playback_sample_offset_s'] if alignment is None else alignment['estimated_sample_onset_s']
+        clips,source_sha=live_reference_clips(d,entry['fixture'],manifest_data,run['estimated_playback_sample_offset_s'],onset)
     row={'fixture':entry['fixture'],'arm':entry.get('arm'),'path':str(d),'input_sha256':digest,
          'state':run['state'],'panic':bool(run.get('panic')),'watchdogs':run.get('watchdog'),
          'watchdogs_total_including_setup':log.count('Task watchdog got triggered'),
          'overruns':run.get('overruns'),'captions':len(caps),'activation':activation(log,caps),
          'speaker_cost':speaker_cost(log),'alignment':'estimated playback onset; acoustic comparison provisional'}
+    if source_sha:
+        row['source_manifest_sha256']=source_sha
+        row['reference_timing']='all time fields rebuilt from original playlist manifest; legacy mixed-clock manifest not used for true lag'
+    if alignment is not None:
+        row['alignment']='secondary RMS/clock estimate; sparse wall-clock telemetry, sample-clock acoustic onset unproven'
+        row['alignment_details']=alignment
     row['memory_minima']={key:min(map(int,values)) if values else None for key in ['int_min','psram_min'] for values in [re.findall(r'\b'+key+r'=(\d+)',log)]}
     if terms:row['vocabulary']=vocabulary_metrics(clips,caps,terms)
     row['majority_metrics']=benchscore.score_run(clips,caps,log.splitlines())
@@ -131,16 +171,27 @@ def score_capture(entry,terms=None):
         metric,_=caption_speaker_metrics(shifted,caps,log)
         row['alignment_sensitivity'].append({'delta_s':delta,**{k:metric[k] for k in ['scored','labelled','right','split','merge']}})
     row['timing_tools']={}
-    for tool,with_manifest in [('truelag.py',True),('latsplit.py',False),('draftlag.py',False)]:
-        cmd=[sys.executable,str(HERE/tool)]+([str(manifest)] if with_manifest else [])+[str(d)]
-        result=subprocess.run(cmd,capture_output=True,text=True)
-        row['timing_tools'][tool]={'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr}
+    with tempfile.TemporaryDirectory(prefix='stt-score-') as temporary:
+        timing_manifest=manifest
+        if alignment is not None or source_sha is not None:
+            timing_manifest=Path(temporary)/'manifest.json'
+            data=json.loads(manifest.read_text());data['clips']=clips
+            timing_manifest.write_text(json.dumps(data))
+        for tool,with_manifest in [('truelag.py',True),('latsplit.py',False),('draftlag.py',False)]:
+            cmd=[sys.executable,str(HERE/tool)]+([str(timing_manifest)] if with_manifest else [])+[str(d)]
+            result=subprocess.run(cmd,capture_output=True,text=True)
+            row['timing_tools'][tool]={'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr}
     return row
 
 def main():
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('statuses',nargs='+',type=Path);ap.add_argument('--out',required=True,type=Path);ap.add_argument('--vocab-config',type=Path);a=ap.parse_args()
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('statuses',nargs='+',type=Path);ap.add_argument('--out',required=True,type=Path);ap.add_argument('--vocab-config',type=Path);ap.add_argument('--alignment-report',type=Path);a=ap.parse_args()
     report={'captures':[],'incomplete':[],'controllers':[],'errors':[]}
     terms=None
+    alignments=None
+    if a.alignment_report:
+        data=a.alignment_report.read_bytes()
+        report['alignment_report_sha256']=hashlib.sha256(data).hexdigest()
+        alignments={x['path']:x for x in json.loads(data)['captures']}
     if a.vocab_config:
         data=a.vocab_config.read_bytes();terms=json.loads(data)['words']
         if not terms or any(not re.fullmatch(r"[a-z']{1,31}",w) for w in terms):raise ValueError('invalid vocabulary experiment configuration')
@@ -150,7 +201,9 @@ def main():
         for entry in status.get('runs',[]):
             if entry.get('state')!='done' or 'path' not in entry:
                 report['incomplete'].append(entry);continue
-            try:report['captures'].append(score_capture(entry,terms))
+            try:
+                alignment=None if alignments is None else alignments[str(Path(entry['path']).resolve())]
+                report['captures'].append(score_capture(entry,terms,alignment))
             except Exception as exc:report['errors'].append({'path':entry.get('path'),'error':str(exc)})
     a.out.parent.mkdir(parents=True,exist_ok=True);temp=a.out.with_suffix('.tmp');temp.write_text(json.dumps(report,indent=2));temp.replace(a.out)
     print(f"Scored {len(report['captures'])} captures; {len(report['errors'])} errors; {len(report['incomplete'])} incomplete")
