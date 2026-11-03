@@ -44,10 +44,10 @@ confirmation, with rejected candidates retained as measured results.
 | 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | Build pipeline active; P4 queued |
 | 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Tested offline; reject |
 | 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | Positive float screen; P4 queued |
-| 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Planned |
-| 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Planned |
-| 23 | Require complete audio coverage before accepting speculative final text | Forced partial-speculation cases, final WER and recomputation cost | Planned |
-| 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | Planned |
+| 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Built; P4 queued |
+| 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Built; P4 queued |
+| 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | Built; P4 queued |
+| 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | Decoder-cap mechanism tested; end-to-end pending |
 
 Implementation feasibility and exact existing defaults must be inspected before each
 change. If an implementation is unsupported, record the concrete obstacle and choose
@@ -418,3 +418,74 @@ Conv4 and final baseline are still running; wait for the complete paired report.
 Current work: 09 P4 running; 10–12 and 13–18 independently built/queued; 19 rejected
 in offline replay; 20 positive float screen with independent P4 arm built/queued.
 21–24 remain to implement/test. Full 24-experiment goal remains active.
+
+
+### 09 — Completed first P4 comparison (provisional)
+
+Four captures completed and the controller verified restoring fixed production before
+releasing the lock. Scheduling tests subsequently took ownership. All four completed
+captures have zero overruns, watchdog warnings or panics; production replay agrees
+with every recorded label/reason (38/38, 38/38, 36/36, 37/37).
+
+| Arm / fixture | Captions | Scored speaker phrases | WER | Actual one-to-one speaker accuracy | Unknown scored phrases | Split / merge phrases |
+|---|---:|---:|---:|---:|---:|---:|
+| Center conv2 | 38 | 37 | 15.63% | 28/37 = 75.68% | 1 | 0 / 8 |
+| Energy conv2 | 38 | 38 | 14.83% | 28/38 = 73.68% | 1 | 0 / 9 |
+| Energy conv4 | 36 | 36 | 17.66% | 33/36 = 91.67% | 3 | 0 / 0 |
+| Center conv4 | 37 | 37 | 18.09% | 28/37 = 75.68% | 7 | 2 / 0 |
+
+The conv4 majority-mapped baseline score was 81.08%; use the stricter 75.68% above
+because majority mapping conceals the duplicate cluster. Labels were scored directly
+from device assignments with `spkrules.run_metrics`, not replaced by offline predictions.
+Different segmentation/mixed-phrase exclusions produce different denominators. Alignment
+still uses estimated playback onset; independent acoustic runs and one run per arm/fixture
+are insufficient for a universal gain claim. No held-out speaker qualification yet.
+Decision: retain as promising on conv4, but do not promote automatically: conv2 identity
+errors regress. Repeat validation is needed. Full result:
+`overnight/09-p4-results.json`; scorer `overnight/score09.py`; logs remain private.
+
+### 21–23 — Independent segmentation/redecode arms built
+
+21 adds an opt-in freeze of both noise-floor estimate and ambient-history updates
+while an utterance is active. Baseline already freezes upward movement but permits
+quieter evidence to lower the floor. The new option freezes that downward movement
+as well. Existing speech-peak logic remains unchanged. Synthetic calibrated noise at
+RMS 60, speech at 1000, and a 50 ms quiet gap at RMS 5 demonstrates the difference:
+baseline floor falls to 5, frozen floor stays 60. The default flag is false.
+
+22 reduces only the max segment setting from 10s to 8s, preserving the 2s quiet-cut
+search. Sanitizer-backed tests force 25s of continuous voiced PCM through actual 8s
+and 10s configs, verify earlier cuts and exact sample conservation. Existing 720
+chunk comparisons / 1,076 reference segments continue to pass.
+
+23 inspection found baseline already requires matching request ID, phrase start,
+voiced end, and exact completed inference sample count. The original plan's proposed
+coverage guard would be a no-op. Refined the experiment to force fresh completed-phrase
+decoding instead of accepting otherwise valid speculation. Speculative work still runs;
+its completed result is discarded. This tests whether reuse has an accuracy/latency
+trade-off without claiming a missing guard was fixed. Actual C++ predicate checks
+cover missing/stale IDs, mismatched lengths, exact matches, and forced re-decode.
+
+All three builds retain the same fixed models, x2f pacing, production speaker rules,
+center windows, closing pauses, cache settings and diagnostics. HardwareOne tracked
+sources were restored. Queued P4 tests use conv2/conv3 on baseline-before, each independent
+arm, baseline-after, after 20 completes successfully/restores production. Their controller
+requires completed predecessor captures, exclusive busy.lock, Mac mini Speakers at 50%,
+approved app-only flashes and restoration afterward. No P4 measurement yet.
+- 21: `codex-21-freeze-noise` SHA256 `8e9ffad65a142af0c7168faebe2c02681fa1e998f4eef82b02dfe5225f0adab7`.
+- 22: `codex-22-max8` SHA256 `08af797aa3c0546743a090f99c04c89b03de94b4ff5005cd0710cd12246e8cfe`.
+- 23: `codex-23-redecode` SHA256 `76684ef2282dc86ed3e0470e8417c7fa88d002937637e5e7e77c388bdf33f5ac`.
+
+State: `21-23-p4-status.json`; build/controller scripts and source diffs are private.
+
+### 24 — Bounded vocabulary mechanism check (in progress)
+
+Added an opt-in compile-time decoder bonus cap; default is positive infinity, preserving
+existing behavior. The cap is applied consistently to the search score and its pruning
+upper bound. With cap 1.5 nats, actual C++ decoder tests show that a custom-word bonus
+can overturn a 0.25-nat acoustic preference but cannot overturn a 5-nat control preference.
+Strong target acoustics stay correct. Tests use synthetic logits/LM to isolate behavior;
+they are not real-audio WER or proper-name qualification. The unchanged-default LM
+oracle/strength/context suite passes. No production vocabulary, files or settings changed.
+Still required: implement fixed experiment vocabulary in a private arm, target/control
+audio, and end-to-end scoring. Do not count 24 as completed from these unit checks.

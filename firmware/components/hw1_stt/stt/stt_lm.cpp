@@ -5,6 +5,10 @@
 #include <cstring>
 #include <limits>
 #include <new>
+#ifndef HW1_STT_HOTWORD_BONUS_CAP
+#define HW1_STT_HOTWORD_BONUS_CAP (std::numeric_limits<double>::infinity())
+#endif
+static_assert(HW1_STT_HOTWORD_BONUS_CAP>=0.0,"hotword cap must be nonnegative");
 #if defined(ESP_PLATFORM)
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
@@ -522,7 +526,7 @@ class Search {
     Search(const Lm& lm, const CustomWords* words, uint8_t* w, const Layout& l, size_t beam, float strength)
         : lm_(lm), words_(words && words->size() ? words : nullptr),
           alphaLn_(double(lm.alpha())*kLn10*double(strength)),
-          beta_(double(lm.beta())*double(strength)), bonus_(double(lm.hotwordBonus())*double(strength)),
+          beta_(double(lm.beta())*double(strength)), bonus_(std::min(double(lm.hotwordBonus())*double(strength),double(HW1_STT_HOTWORD_BONUS_CAP))),
           nodes_(reinterpret_cast<Node*>(w+l.nodes)), table_(reinterpret_cast<uint32_t*>(w+l.table)),
           beams_(reinterpret_cast<Beam*>(w+l.beams)), cands_(reinterpret_cast<Cand*>(w+l.cands)),
           heap_(reinterpret_cast<HeapSlot*>(w+l.heap)), local_(reinterpret_cast<uint32_t*>(w+l.local)),

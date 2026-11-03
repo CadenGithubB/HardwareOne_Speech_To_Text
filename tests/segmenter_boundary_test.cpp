@@ -109,6 +109,24 @@ int main() {
         for(const auto& r:out) {assert(r.start==end);end=r.end;}
         assert(end==pcm.size());
     }
+    // Overnight experiment 22: actual 8s versus 10s limits, with the existing
+    // 2s quiet-cut search. Force long voice so both paths are exercised.
+    {
+        std::vector<int16_t> pcm(25*16000+79);
+        for(size_t i=0;i<pcm.size();++i)pcm[i]=int16_t(i&1?1000:-1000);
+        uint64_t first[2]={};unsigned index=0;
+        for(size_t seconds:{size_t(8),size_t(10)}) {
+            SegmenterConfig c;c.max_segment_samples=seconds*16000;
+            c.min_segment_samples=4*16000;c.min_voice_samples=3200;
+            c.pre_roll_samples=0;c.hard_cut_search_samples=2*16000;
+            const auto out=run(pcm,c,257,false,1);assert(out.size()>=3);
+            first[index++]=out.front().end;
+            uint64_t end=0;
+            for(const auto& r:out){assert(r.start==end);end=r.end;}
+            assert(end==pcm.size());
+        }
+        assert(first[0]<first[1]);
+    }
     // Stopping while a quiet-point cut is ready must deliver its entire
     // buffered suffix: no subsequent release/push can deliver the carry.
     {

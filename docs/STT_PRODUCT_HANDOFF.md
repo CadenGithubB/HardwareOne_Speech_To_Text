@@ -365,13 +365,19 @@ counterbalanced conv2/conv4 P4 comparison running. Device results are pending.
 Experiments 10–12 have independent built scheduling/pacing arms and a P4 controller
 queued behind 09; no measurements yet. Experiment 19 is screened and rejected;
 20 has a positive float loudness-normalization screen and independent P4 validation
-queued behind recognition. Experiments 10–18, 20 validation and 21–24 remain outstanding;
+queued behind recognition. Experiments 10–18, 20 validation and 21–23 are independently built/queued, and 24 has a bounded-bonus mechanism test
+with end-to-end work still pending;
 the goal stays active.
 
 Recognition experiment arms 13–18 now have a serialized build pipeline and a P4
 queue gated on successful completion/restoration of 09 and 10–12. Gain arithmetic
 passes exhaustive sanitizer checks; no recognition improvement is claimed yet.
 See the overnight plan for exact changes and required activation checks.
+
+Experiment 09 P4 comparison is complete and mixed: one-to-one conv4 speaker accuracy
+75.68% -> 91.67%, but conv2 75.68% -> 73.68% with an additional merge error.
+All four captures have zero overruns/watchdogs/panics. No automatic promotion;
+repeat testing and alignment checks remain necessary. Scheduling chain is now running.
 
 ## Current overnight checkpoint — 1 November 2026
 

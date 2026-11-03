@@ -22,6 +22,7 @@ struct SegmenterConfig {
     size_t min_voice_samples=3200;
     size_t forced_overlap_samples=0;
     uint16_t rms_threshold=400; // Fixed mode, DC-removed RMS in native int16 PCM units.
+    bool freeze_noise_during_speech=false; // opt-in: freeze floor and history while active
     bool adaptive=false; // Opt in per consumer; existing fixed-mode behavior is unchanged.
     size_t calibration_samples=8000; // Initial 500 ms is ambient only, never admitted as speech.
     size_t noise_window_frames=kSegmentNoiseWindowFrames;
@@ -260,7 +261,8 @@ private:
         bool voiced=false, silent=false;
         if(config_.adaptive) {
             const int32_t floor_before=noise_count_?noise_rms_:-1;
-            const uint16_t window_min=track_noise(current_rms_);
+            const uint16_t window_min=(config_.freeze_noise_during_speech && active_) ?
+                noise_rms_ : track_noise(current_rms_);
             if(!calibrated_) {
                 noise_rms_=window_min;calibration_seen_+=frame_count_;
                 if(calibration_seen_>=config_.calibration_samples)calibrated_=true;
