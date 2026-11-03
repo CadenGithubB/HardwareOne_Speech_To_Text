@@ -1078,3 +1078,35 @@ safety. It also rejects any filesystem-full message and reads capacity after eac
 session. Frozen images and WAVs are rehashed; production rollback remains mandatory.
 The queued first batch repeats vocabulary with fresh before/after controls, then the
 forced-redecode and wider-beam conv3 cases. No additional tuning variants are introduced.
+
+### Approved cleanup execution — maintenance batch
+
+The per-command serial cleanup was intentionally stopped after 62 acknowledged directory
+removals; the in-flight final operation completed too (the batch observed 63 absent
+targets). Repeated command-audit/metadata work made that route too slow. Both the old
+cleanup process and its old waiting test supervisor terminated before the replacement
+acquired the board. No test captures were started during the takeover.
+
+A temporary maintenance app, SHA256
+`255c078f3ec920c00cae58aa1fbf566c25ee2902d87e35d5c8ef159e896c277b`,
+adds one admin-only, explicit-confirm command containing only the 889 approved paths.
+All archived files share the same verified 88-byte contents. Every extant target must
+match those bytes before deletion; an unexpected file or nonempty directory stops the
+batch. Already removed targets are handled without deleting any additional paths.
+Per-target absence is checked and progress is logged privately. This is maintenance,
+not a new STT tuning arm, and its source was restored after the build.
+
+The actual helper was host-checked with ASan/UBSan for complete cleanup, repeat,
+changed bytes, extra unapproved directory contents, non-admin access, wrong size and
+an interrupted prefix; unrelated files were preserved. The real P4 batch is currently
+running under the approved helper/lock, with fixed-production rollback in its finally
+path. Do not claim recovery complete before its final capacity and restoration checks.
+The authoritative private state remains `private/resume-20261102/sensor-cleanup-status.json`;
+raw batch progress is under `sensor-batch-cleanup-*`. The replacement test supervisor
+starts the existing eight-capture queue only after successful recovery and lock release.
+
+The broader pacing control also built: production pacing with the same speaker diagnostics,
+64-byte L2, 250 MHz PSRAM, fixed models and 600/1000 ms pauses. Its SDK configuration is
+byte-identical to the archived x2f diagnostic control; tracked HardwareOne source is clean.
+A balanced twelve-capture production/x2f/x2f/production comparison across conv2–4 is
+prepared, but has not run. Do not count it as measured qualification.
