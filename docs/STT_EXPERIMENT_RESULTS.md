@@ -12,7 +12,9 @@ are absent and 7,618,560 bytes were free versus 331,776 before cleanup. All arch
 files were header-only. Eight subsequent captures completed with no filesystem-full
 errors; forced re-decode still had one watchdog at a different sampled location.
 
-See [STT_ACTIONABLE_FINDINGS.md](STT_ACTIONABLE_FINDINGS.md) for ordered next actions
+Original-six offline reference numbers were corrected during the final audit; the
+latest correction section below supersedes the older 194-phrase figures. Dispositions
+are unchanged. See [STT_ACTIONABLE_FINDINGS.md](STT_ACTIONABLE_FINDINGS.md) for ordered next actions
 and [STT_OVERNIGHT_EXPERIMENTS.md](STT_OVERNIGHT_EXPERIMENTS.md) for detailed results.
 
 No experimental production defaults have been adopted. No branches were pushed.
@@ -29,7 +31,7 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 | 04 | Cap centroid history at eight observations | Short screen null; repeated-history stress has order-dependent gains and sequential losses. No promotion; not a natural long-session qualification. |
 | 05 | Hold uncertain creation only for young profiles | Recorded-order accuracy improves, but shuffled merge errors increase. Reject promotion. |
 | 06 | Resolve unknowns using up to three later phrases | Two recorded unknowns resolved, including one extra identity error. Reject promotion. |
-| 07 | Increase profile capacity 8 → 10 | No recorded gain; slightly worse shuffled accuracy. Reject. |
+| 07 | Increase profile capacity 8 → 10 | No recorded gain; corrected shuffled accuracy unchanged at reported precision, with a small split increase. Reject. |
 | 08 | Speaker window 300 → 400 frames | Fixed-weight float accuracy improves, but merges increase. No promotion; quantized/P4 effects unchecked. |
 | 09 | Highest-energy contiguous speaker window | Float gain; P4 mixed. Conv4 improves, conv2 regresses. Corrected-reference analysis remains mixed; replication required. |
 | 10 | Defer new drafts while speaker jobs are pending | Ten-run scheduling comparison: strong label-speed gain, but WER/draft freshness worse than both surrounding controls. Reject default change. |
@@ -260,3 +262,65 @@ report was used only for alignment-independent fields; all published identity/fi
 values come from the strict qualified report. Two legacy SD-input repeats are serialized
 behind the live backfill, reuse existing audio, and end with fixed-production restoration
 and a fresh persisted ring-off/capacity readback. These final checks are not complete yet.
+
+## Corrected original-six speaker-rule references — 3 November
+
+This section supersedes the earlier 01–07 and 19 device-replay numbers and their
+repeated-history follow-up. The six original completed captures all pass the existing
+RMS/clock alignment gate. Their accepted onsets are 0.301–0.386s later than the old
+status-snapshot estimate. Rebuilding references from canonical manifests changes only
+two phrases' mixed flags from true to false, one in conv2 and one in conv3. Their
+reference speaker IDs remain unchanged. Derived sets preserve all embedding values, phrase lengths, order and device
+labels/reasons; original artifacts are untouched.
+
+All 196 phrases are now eligible, versus 194 previously. The original production replay
+matches all 196 device label/reason decisions. Each independent candidate uses its exact
+previous settings, seed 1, and the same 200 shuffled orders plus recorded order per
+fixture: 1,206 replays / 39,396 scored instances, not independent new audio/speakers.
+No caption or candidate result was used to fit onset, and no alignment gate was relaxed.
+
+| Rule | Recorded coverage / accuracy | All-order coverage / accuracy | All-order splits / merges per 100 |
+|---|---:|---:|---:|
+| Production | 85.7% / 78.1% | 86.4% / 80.2% | 2.59 / 3.84 |
+| #01 | 91.3% / 83.2% | 93.3% / 86.5% | 2.88 / 4.23 |
+| #02 | 87.2% / 78.6% | 86.0% / 78.6% | 4.06 / 3.56 |
+| #03 | 84.2% / 76.0% | 85.4% / 79.1% | 3.16 / 3.43 |
+| #04 | 85.7% / 78.1% | 86.4% / 80.2% | 2.60 / 3.84 |
+| #05 | 87.2% / 82.1% | 89.7% / 83.8% | 1.09 / 5.20 |
+| #06 | 86.7% / 78.6% | 87.2% / 81.0% | 2.63 / 3.88 |
+| #07 | 85.7% / 78.1% | 86.4% / 80.2% | 2.60 / 3.84 |
+| #19 | 87.8% / 78.6% | 86.5% / 80.1% | 2.83 / 3.88 |
+
+No promotion decision changes. #01/#05/#06 increase merges; #02/#03 reduce reordered
+accuracy; #07 has no reported-precision accuracy gain and slightly more splits;
+#19 regresses identity metrics. #04's short screen keeps accuracy unchanged, with a
+small split increase. Its corrected twelve-copy stress has recorded coverage/accuracy
+83.0%/77.8% → 82.3%/77.5%; all-order accuracy 79.6% → 80.1%, splits 1.43 → 1.47,
+merges 3.49 → 3.17. The sequential returning-voice result still loses coverage/accuracy.
+That stress is 119,952 scored repeated instances, not natural long-session evidence.
+
+The original hold/merge default suite was rerun on the same repaired references:
+
+| Rule | All-order coverage | All-order accuracy | Splits / merges per 100 |
+|---|---:|---:|---:|
+| Production | 86.4% | 80.2% | 2.59 / 3.84 |
+| Hold 0.50 | 89.0% | 82.9% | 0.52 / 5.83 |
+| Hold 0.45 | 86.3% | 79.5% | 0.40 / 6.74 |
+| Hold 0.50, young four | 89.7% | 83.8% | 1.09 / 5.20 |
+| Merge young three | 94.9% | 83.3% | 4.37 / 8.47 |
+| Merge young three, similarity 0.45 | 94.8% | 83.5% | 4.31 / 8.25 |
+| Hold 0.50 plus merge young three | 90.2% | 80.9% | 1.55 / 8.83 |
+
+More labelled phrases do not meet the no-extra-identity-errors gate. In particular,
+the earlier conv1 hold benefit does not justify promotion to these broader voices.
+These remain development recordings and estimated-reference replays, not unseen-speaker
+qualification or P4 latency measurements. Clean-source float screens #08/#09/#20 and
+the independently RMS-qualified later P4 comparisons are unaffected by this repair.
+
+Private provenance: `original-six-rms-alignment.json`, `offline-rms-reference-audit.json`,
+`offline-rms-voiceprints.json`, `offline-rms-corrected-rule-comparison.json`,
+`04-long-rms-corrected-result.json` and `offline-rms-default-hold-merge.json` under the
+ignored overnight folder. All 21 locally built archived apps were also checked against
+recorded SHA256, 64-byte L2, 250 MHz PSRAM and ESP-IDF 5.5.5 SDK settings; their numeric
+proof is `archived-build-config-audit.json`. Legacy Claude SD pause apps have separate
+historical image/ELF evidence; no absent local SDK archive is implied.

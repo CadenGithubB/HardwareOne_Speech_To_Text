@@ -1224,3 +1224,20 @@ Retain the rejection of forced re-decode. Eighteen original live cases and the t
 legacy SD cases remain in the serialized queue, followed by final board readback.
 Private evidence is retained in `watchdog-backfill-status.json` and the expanded
 `overnight/watchdog-repeat-matrix.json` under the ignored run root.
+
+### Original-six reference audit and hold/merge recheck
+
+All six early development captures passed the same RMS/clock gate. Repaired onsets
+are 0.301–0.386s later than the old status estimate, changing two mixed flags and
+raising eligible phrases from 194 to 196. Speaker IDs, embeddings, phrase lengths,
+order and device decisions are unchanged. The eight independent offline rules and
+long-history stress were rerun with their original settings/seeds; no promotion
+verdict changes. The corrected table in `STT_EXPERIMENT_RESULTS.md` supersedes the
+old offline numeric summaries; source-audio float screens and later RMS-qualified
+P4 comparisons are unaffected.
+
+Hold/merge was rechecked too: all-order merges per 100 are production 3.84, hold0.50
+5.83, hold0.45 6.74, young hold 5.20, and merge variants 8.25–8.83. More coverage is
+not a safe identity improvement. These remain development replays, not held-out success.
+All 21 locally built archived images match their recorded hashes and saved 64B/250MHz/
+IDF5.5.5 SDK settings. Mandatory board repeats and final restoration audit remain active.

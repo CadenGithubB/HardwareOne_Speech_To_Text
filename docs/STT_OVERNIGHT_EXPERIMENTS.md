@@ -56,6 +56,11 @@ tested. No network audio uploads. Keep logs and transcripts in ignored private f
 
 ## Results
 
+The final original-six RMS reference correction in `STT_EXPERIMENT_RESULTS.md`
+supersedes the historical 194-phrase 01–07/19 numbers below. All 196 phrases are
+eligible after two mixed-flag corrections; independent candidate dispositions are
+unchanged. Original chronological evidence is retained.
+
 See [the concise current ledger](STT_EXPERIMENT_RESULTS.md) for measured versus pending work.
 
 ### 01 — Ambiguity margin 0.08

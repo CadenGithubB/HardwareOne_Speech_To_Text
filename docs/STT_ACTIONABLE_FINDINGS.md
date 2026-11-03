@@ -110,3 +110,13 @@ Do not promise faster final text: conv4 reference-final medians rose, and shown-
 medians are slightly later. Keep existing pauses. No production default is changed.
 The production watchdogs have matching later controls; remaining original live-warning
 cases and two legacy SD-input cases are still running/queued. Final board audit remains.
+
+## Broader hold/merge decision after reference audit
+
+The original six device recordings were re-aligned without changing embeddings or
+phrase order: two mixed flags changed, making 196 eligible phrases. Original-rule
+replays and repeated-history stress were rerun; no candidate's promotion verdict
+changes. Corrected shuffled merges per 100 are production 3.84, hold0.50 5.83,
+hold0.45 6.74, young hold 5.20 and merge variants 8.25–8.83. Keep production identity
+rules; the conv1 hold improvement does not establish a safe gain on broader voices.
+Use the latest corrected tables in `STT_EXPERIMENT_RESULTS.md` for offline numbers.
