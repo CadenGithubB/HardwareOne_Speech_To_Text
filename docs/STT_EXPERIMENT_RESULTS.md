@@ -90,3 +90,20 @@ need repeat/held-out qualification before production promotion. Verify final pro
 restoration, ring reconnect disabled, board lock released, and repository status.
 
 Raw audio, captions, device logs, model artifacts and flash backups stay ignored/private.
+
+## Vocabulary partial screen — not complete
+
+The three finalized captures were scored with rebuilt reference timing and independently
+accepted RMS/clock fits. On the 16-phrase synthetic target/control fixture (133 words),
+baseline WER was 17.29% (23 edits), candidate WER 20.30% (27 edits). Each recognized
+1/8 expected target terms; each had zero vocabulary-term insertions on the eight control
+phrases. Vocabulary activation was observed only in the candidate. This partial screen
+shows no target-term improvement; one run and a missing trailing control do not establish
+a causal WER regression. The simple single-voice fixture scored 16/16 speaker identities
+in both runs and is not a similar-speaker qualification. The finalized natural baseline
+WER was 28.97%; the failed natural candidate is excluded from full-reference WER.
+
+The comparison remains incomplete: finish the unchanged natural candidate under usable
+storage conditions, mandatory watchdog reproduction, and trailing controls. Private numeric
+provenance is in `private/resume-20261102/overnight/24-partial-rms-metrics.json` and the
+matching alignment report. Audio, terms and captions remain private.
