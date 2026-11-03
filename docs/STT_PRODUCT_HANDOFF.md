@@ -1185,3 +1185,26 @@ mandatory reproduction checks, not additional tuning arms. The goal is not compl
 broader pacing results, watchdog matrix, final visual/report/audit and final board
 restoration/readback remain. No production defaults, branch pushes, main merges or
 outward-facing filings have been authorized or performed.
+
+### Broader pacing comparison completed; mandatory repeats active — 3 November
+
+All twelve production/x2f ABBA captures across conv2–4 completed; all twelve reference
+fits passed. The exact per-run table is in `STT_EXPERIMENT_RESULTS.md`. Mean WER
+production → x2f is 21.145 → 20.340%, 29.185 → 28.435%, and 22.340 → 20.745%;
+pooled one-to-one correctness is 52/72 → 55/74, 72/89 → 81/94, and 63/70 → 60/66.
+Raw unknown counts are 3 → 3, 9 → 9, and 7 → 6 with caption denominators retained
+in the report. Additional label-delay medians are 1.650–2.754s for x2f versus
+5.436–23.503s for production. This supports x2f as the preferred pacing candidate
+for further qualification, beyond the earlier conv1 result; it is not a new general
+accuracy, held-out-speaker, long-soak or production-default qualification.
+
+Tradeoffs: x2f shown text is slightly later, and conv4 final-text median is worse in
+both x2f captures than either production control. Do not describe every latency as
+improved. Production had 11 watchdog warnings across all six captures; x2f had zero
+across six. Warnings recur in later production controls with varying sampled code/
+positions. No panic, overrun or filesystem-full error occurred in the twelve captures.
+Fixed production was restored and verified, then the queued mandatory live-repeat
+controller started. Two legacy SD repeats and the final ring-off/capacity readback
+are serialized behind it, using existing SD audio without uploads. The goal remains
+active: finish those repeats, compare warning locations, update the final visual/
+report and verify final restoration/lock release. No defaults/push/main/outward changes.

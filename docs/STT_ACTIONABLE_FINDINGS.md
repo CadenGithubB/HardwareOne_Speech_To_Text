@@ -6,7 +6,7 @@ problems, and a concrete runtime failure to reproduce. Production defaults are u
 
 | Decision | Evidence | Action |
 |---|---|---|
-| Qualify x2f pacing | Earlier matched conv1 SD screen: label median 19.486 → 4.063s; WER 3.80% both; reported speaker outcomes held. One local x2f session watchdog. | Check matching repeats and watchdog location; broader matched qualification before adoption. This is a conv1 result, not a general accuracy claim. |
+| Prefer x2f for further pacing qualification | Twelve conv2–4 ABBA captures: lower mean WER on each fixture, pooled speaker correctness held, label medians 1.650–2.754s versus production 5.436–23.503s. Zero watchdogs in six x2f captures versus 11 in six production captures. | Strongest pacing candidate; complete mandatory reliability matrix before default adoption. Conv4 final-text latency and shown-text freshness are tradeoffs; no general accuracy or long-soak claim. |
 | Keep exact-coverage speculative reuse | Forcing final re-decode raised label median 2.690 → 7.363s on conv2 and 3.199 → 14.744s on conv3; five speaker jobs rejected for audio pressure and one session watchdog. | Do not adopt forced re-decode. This does not compare disabling speculation entirely. |
 | Reject the tested normalization setting | Conv2 correct labels 28/38 → 18/38; unknowns 1/38 → 19/38. Conv4 also trails its fresh control. | Do not promote this target/gain configuration; do not infer all normalization is ineffective. |
 | Do not promote noise freezing yet | WER 18.84/26.61% versus final controls 19.04/26.39%; the initial apparent gain is not established beyond control drift. One extra initial-control conv2 merge. | Keep as a research lead only; no claimed general accuracy improvement. |
@@ -14,7 +14,7 @@ problems, and a concrete runtime failure to reproduce. Production defaults are u
 | Keep production closing pauses | Long-pause400 improves conv1 WER by one word but increases unknowns; short700 and combined pauses raise WER. | Retain 600/1000ms. |
 | Fix evaluation before believing small changes | Identical-image controls changed WER 15.83 → 22.85% and 24.89 → 30.47%; noise estimates changed too. Stale onset and mixed-clock speech-end fields were corrected in analysis. | Retain both controls, raw unknown coverage, exclusions and rejected alignment fits. No cherry-picked baseline or causal claim. |
 
-## Immediate debugging target
+## Historical storage-confounded failure and recovery target
 
 The four-term vocabulary image completed its target/control fixture, but its natural
 conv3 test failed: `STT audio queue full; backend cannot keep up`, with 21 in-session
@@ -42,7 +42,7 @@ claim a clean watchdog reproduction while storage errors persist.
 
 ## Ordered next actions and acceptance criteria
 
-1. **Storage headroom recovered; realtime effect pending.** The explicitly approved
+1. **Storage headroom recovered; clean qualification resumed.** The explicitly approved
    889-file/directory cleanup is independently verified: none of the approved target
    directories remains, and free space is 7,618,560 bytes versus 331,776 before cleanup.
    Every archived file is the same 88-byte header, with zero data rows. Fixed production
@@ -55,11 +55,10 @@ claim a clean watchdog reproduction while storage errors persist.
    warning: ESP-DL convolution workers at capture +118.817s, versus old flash/cache
    IPC at +50.612s. One more clean same-image/fixture repeat is queued after the active
    pacing batch. Sampled PC/RA locations are not causal proof of a kernel defect.
-3. **Qualify the strongest candidate: x2f pacing.** Run matched production/x2f comparisons
-   on broader conversations. Report WER, speaker correctness/unknowns, final median/p90,
-   shown-text and label lag. Require quality to hold and investigate/repeat watchdogs
-   before recommending adoption. The earlier conv1 label-lag improvement is about 79%,
-   but remains limited to that conversation and setup.
+3. **Broader x2f pacing screen completed.** Twelve matched ABBA captures on conv2–4
+   hold the measured WER/speaker metrics and show much faster labels. Keep the
+   shown/final-text tradeoffs visible. Finish the watchdog matrix before default adoption;
+   these two repeats per fixture do not establish held-out or long-soak qualification.
 4. **Close the experiment report.** Keep rejected settings rejected, show control drift
    and excluded comparisons, and complete the watchdog repeat matrix. No more tuning
    arms until these reliability and qualification checks are resolved.
@@ -96,3 +95,18 @@ The separate rotation-reserve mismatch also remains actionable: account for the 
 85%-of-cap copy when deciding whether logs can stay on LittleFS. Free-byte checks alone
 do not measure directory-traversal cost or prove realtime safety. Finish the clean-storage
 captures before claiming a speaker/recognition benefit from this recovery.
+
+## Broader pacing checkpoint
+
+The twelve-capture conv2–4 ABBA comparison is complete and fully RMS-qualified. X2f
+holds the measured quality metrics in this screen and gives substantially faster
+speaker labels; it is the preferred next pacing configuration for qualification.
+The full per-run table, eligible-caption exclusions and latency tradeoffs are in
+`STT_EXPERIMENT_RESULTS.md`. Mean WER production → x2f is 21.145 → 20.340%,
+29.185 → 28.435%, and 22.340 → 20.745% on conv2/3/4 respectively. Two repetitions
+per fixture are descriptive evidence, not a held-out or statistical noninferiority test.
+
+Do not promise faster final text: conv4 reference-final medians rose, and shown-text
+medians are slightly later. Keep existing pauses. No production default is changed.
+The production watchdogs have matching later controls; remaining original live-warning
+cases and two legacy SD-input cases are still running/queued. Final board audit remains.

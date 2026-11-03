@@ -2,8 +2,8 @@
 
 This is a concise ledger for the 24 required experiments. It is **not a completion
 report**: all 24 initial screens now have measured outcomes. This does not finish
-qualification: the broader production/x2f comparison and mandatory watchdog matrix
-are still running/pending. No new general recognition/speaker-accuracy improvement
+qualification: the broader production/x2f comparison is complete, while the mandatory
+watchdog matrix and final restoration audit are still running/pending. No new general recognition/speaker-accuracy improvement
 has been qualified for production. The completed clean-storage vocabulary comparison
 shows no target-term gain and is not promoted.
 
@@ -82,9 +82,9 @@ sensitivity, mixed/no-reference exclusions and missing labels; absolute manifest
 latencies and per-phrase attribution remain provisional. No held-out-speaker success,
 raw sample-clock microphone correlation, SD power-loss behavior or battery-life gain is claimed.
 
-Remaining: finish the broader pacing comparison and mandatory watchdog repeats, verify each mechanism was exercised,
-score target corrections versus control insertions, inspect faults and memory, compare
-both bracketing baselines, and produce the final 24-item report. Promising candidates
+Remaining: finish the mandatory watchdog repeats and location comparisons, audit mechanism
+activation and incomplete checks against all 24 items, and produce the final report.
+The pacing comparison, fresh vocabulary controls and target/control scoring are complete. Promising candidates
 need repeat/held-out qualification before production promotion. Verify final production
 restoration, ring reconnect disabled, board lock released, and repository status.
 
@@ -189,3 +189,74 @@ or production qualification. Private provenance: `clean-vocabulary-qualified-sum
 `clean-eight-final-rms-metrics.json`, `clean-eight-final-status-estimate-metrics.json`,
 `vocabulary-failure-reproduction-comparison.json` and
 `forced-redecode-clean-watchdog-comparison.json`, all under the ignored overnight folder.
+
+## Completed broader production/x2f pacing comparison — 3 November
+
+All twelve ABBA captures completed: production before, x2f A, x2f B, production after,
+two of each per conv2–4. Fixture order reversed in the second half. Both images use
+the same fixed models, speaker diagnostics, 64-byte L2, 250 MHz PSRAM and 600/1000ms
+pauses; SDK configs are byte-identical. Production is pacing multiplier 1 / first-fast 0;
+x2f is multiplier 2 / first-fast 1. This compares the existing pacing package, not the
+isolated causal effect of either field. Microphone input used the same hashed private
+WAVs through Mac mini speakers at 50%, with ring reconnect off and runtime peers closed.
+
+All twelve RMS/clock fits passed the unchanged gate. No identity or reference-lag rows
+were dropped. No panic, audio overrun or filesystem-full message occurred. Minimum
+observed internal/PSRAM free values were 183,748 / 1,789,896 bytes. Fixed production
+was restored and verified before the mandatory watchdog backfill acquired the board.
+
+| Fixture / arm | WER | Unknowns / captions | Correct / eligible | Split / merge | True final median / p90 ms | Shown-text ms | Label after text ms | Session / all WD |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| conv2 / prod-before | 19.24% | 1/38 | 29/38 | 0 / 8 | 1854 / 2656 | 1258 | 5435.5 | 1 / 1 |
+| conv2 / x2f-a | 18.44% | 2/38 | 28/38 | 0 / 8 | 1978 / 2968 | 1260 | 1942 | 0 / 0 |
+| conv2 / x2f-b | 22.24% | 1/36 | 27/36 | 0 / 8 | 1988 / 2909 | 1279 | 1650 | 0 / 0 |
+| conv2 / prod-after | 23.05% | 2/35 | 23/34 | 0 / 9 | 2064 / 3268 | 1345 | 12510 | 2 / 2 |
+| conv3 / prod-before | 28.76% | 4/44 | 36/43 | 3 / 1 | 1717 / 2559 | 1096 | 12720 | 1 / 1 |
+| conv3 / x2f-a | 28.11% | 4/48 | 43/48 | 1 / 1 | 1470 / 2127 | 1201 | 1963.5 | 0 / 0 |
+| conv3 / x2f-b | 28.76% | 5/47 | 38/46 | 3 / 1 | 1504 / 2632 | 1232 | 2458 | 0 / 0 |
+| conv3 / prod-after | 29.61% | 5/47 | 36/46 | 5 / 1 | 1526 / 2621 | 1150 | 10061 | 1 / 1 |
+| conv4 / prod-before | 19.57% | 4/35 | 31/35 | 0 / 0 | 2215 / 3233 | 1452 | 22769 | 3 / 3 |
+| conv4 / x2f-a | 18.09% | 4/34 | 30/34 | 0 / 0 | 2561 / 3459 | 1525 | 2754 | 0 / 0 |
+| conv4 / x2f-b | 23.40% | 2/33 | 30/32 | 0 / 0 | 2331 / 3342 | 1622 | 2406 | 0 / 0 |
+| conv4 / prod-after | 25.11% | 3/35 | 32/35 | 0 / 0 | 2244 / 3434 | 1452 | 23503 | 3 / 3 |
+
+WER is global; unknowns count every published caption. One-to-one identity includes
+unknowns among eligible captions. Mixed-reference exclusions are production/x2f:
+conv2 1/0, conv3 2/1, conv4 0/1; no-reference exclusions are zero. Reference final-lag
+coverage varies: conv2 misses 0/0/1/1 clips in table order, conv3 5/2/2/1, conv4 0/1/1/1.
+Shown text uses the device voiced-end anchor. Speaker-label delay is additional time
+**after final-caption publication**, not after speech end. Do not add separate medians.
+
+| Fixture | Mean WER production → x2f | Pooled correct / eligible production → x2f | Raw unknowns / captions production → x2f | Range of per-run median label delay, production → x2f |
+|---|---:|---:|---:|---:|
+| conv2 | 21.145% → 20.340% | 52/72 → 55/74 | 3/73 → 3/74 | 5.436–12.510s → 1.650–1.942s |
+| conv3 | 29.185% → 28.435% | 72/89 → 81/94 | 9/91 → 9/95 | 10.061–12.720s → 1.964–2.458s |
+| conv4 | 22.340% → 20.745% | 63/70 → 60/66 | 7/70 → 6/67 | 22.769–23.503s → 2.406–2.754s |
+
+Means/pools describe two runs per configuration, not new independent speakers or a
+statistical noninferiority result. WER and pooled speaker correctness hold in this
+screen, with no raw-unknown increase; individual repeated WER values still vary.
+X2f is the preferred pacing candidate for subsequent qualification. Its label-speed
+benefit now extends beyond conv1. No default change or general accuracy gain is claimed.
+
+Tradeoffs remain visible: x2f shown-text medians are slightly later on all fixtures;
+conv4 reference-final medians are 2.331/2.561s versus production 2.215/2.244s. It does
+not make every latency metric better. Keep production 600/1000ms closing pauses.
+
+Production logged 11 session/whole-log watchdog warnings in all six captures, versus
+zero in all six x2f captures. Production warnings recur in its later same-image/input
+controls. Most sample ESP-DL workers; conv4 also samples decoder and math code. For
+example, conv2 depthwise-worker warnings occur at capture +124.057 and +121.585s;
+conv4 warnings near +181.442/+181.739s sample different code. These are recurrent
+warning-bearing cases, not identical-PC deterministic reproductions or proof of an
+ESP-DL defect. The broader mandatory matrix and extra clean forced-redecode repeat
+remain active. Do not promote production defaults while qualification is unresolved.
+
+Private numeric provenance: `pacing-final-analysis-status.json` in the ignored run
+root; `pacing-final-alignment.json`, `pacing-final-rms-metrics.json`,
+`pacing-final-status-estimate-metrics.json`, `pacing-qualified-summary.json` and
+`watchdog-repeat-matrix.json` in its overnight folder. The unqualified status-estimate
+report was used only for alignment-independent fields; all published identity/final-lag
+values come from the strict qualified report. Two legacy SD-input repeats are serialized
+behind the live backfill, reuse existing audio, and end with fixed-production restoration
+and a fresh persisted ring-off/capacity readback. These final checks are not complete yet.

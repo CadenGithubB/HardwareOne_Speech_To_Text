@@ -123,3 +123,25 @@ match plus eighteen remaining original image/fixture cases. The queue adds one b
 follow-up if a pacing warning first appears on the last matching ABBA observation.
 Already paired warning/repeat sets are not rerun forever. Two legacy SD-input cases
 (short-pause700, diagnostic conv1) remain separate. This is incomplete qualification.
+
+## Balanced pacing repeats measured
+
+All twelve conv2–4 ABBA captures are complete and fully RMS-qualified. Production has
+11 warnings across six captures (per fixture before/after: conv2 1/2, conv3 1/1,
+conv4 3/3); x2f has zero across six. The warnings are in the recorded session counters
+and after capture start, with no filesystem-full errors, panics or audio overruns.
+Each production warning-bearing fixture has a later same-image/input observation.
+Most sampled code is ESP-DL convolution/depthwise work, with some decoder/math samples.
+Conv2 depthwise-worker events at capture +124.057/+121.585s are near, but do not sample
+identical PCs. Conv4 events at +181.442/+181.739s have different sampled code. Report
+recurrence and these differences; no causal kernel defect or exact deterministic spot
+has been established. The private matrix retains per-event PC/RA/tasks and matching
+ELF symbols, verified against boot ELF hashes.
+
+The live backfill has started after verified pacing rollback. No additional pacing
+follow-up was needed: both later production controls supply matches and x2f had no
+new warnings. Nineteen live cases, two subsequent legacy SD cases, and the final
+production/ring-off/capacity audit remain incomplete. `compare_watchdog_repeats.py`
+separates whole-log, original session-counter and after-capture-start scopes so an
+earlier setup repeat cannot conceal a later in-session warning; the new clean forced-
+redecode DNN warning has its own required follow-up.
