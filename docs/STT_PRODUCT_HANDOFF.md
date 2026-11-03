@@ -223,7 +223,13 @@ can stall the console; their contribution to earlier timing variability is not e
 accepts an already committed same-chunk retry, and rejects stale/wrong acknowledgements.
 Six host regression cases pass. The local `heaptw_remote.py` was backed up, then updated
 for that module, explicit known-prefix resume and optional runtime-only Bluetooth quieting
-while uploading. Sensor polling pauses are balanced; saved settings are unchanged.
+while uploading. Sensor polling pauses are balanced. The optional `closeble` attempt
+also failed before PCM transfer; the controller restored the fixed production image.
+On explicit user request, ring auto-reconnect was then disabled with
+`bleautoreconnect r1-ring off`, `closering` confirmed the link closed, and a query
+confirmed auto-reconnect disabled. Flash was preserved as requested; no full erase
+was performed. Evidence is in private `stop-ring-result.json` and its serial log.
+The next upload attempt omits the unsuccessful full-Bluetooth quieting option.
 The original helper and patch are private. Physical transfer recovery and conv2–4/corpus
 bench results are still pending. The user explicitly chose to continue the broader tests
 rather than stop because of the upload duration.
