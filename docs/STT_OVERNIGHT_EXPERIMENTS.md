@@ -964,3 +964,32 @@ No quality-preserving improvement is established against the initial controls; f
 controls remain necessary given the shared post-recovery slowdown. Arm18 is running.
 The corrected report contains 11 qualified captures and one explicit rejected alignment
 (arm16 conv3); original-estimate/raw coverage output contains all 12 completed captures.
+
+### Arm18 completed: decoder beam width ×1.25
+
+The source override requests min(64, ceil(1.25 × file beam)); observed file beam 32
+therefore requests 40. The existing firmware log reports file beam, not actual override;
+do not describe 40 as a directly logged runtime value. The decoder implementation
+honors nonzero overrides. Successful decode counts are 96/104, cancellations 1/3,
+with no unavailable, OOM, or other fallback statuses. Both RMS fits pass.
+
+| Fixture | WER | Right/scored | Raw unknown/all | Split/merge | Final median/p90 ms | Missed ends | Shown median ms | Label median ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| conv2 | 21.44% | 27/36 | 2/37 | 0/7 | 2306/4445 | 1 | 1712 | 3525 |
+| conv3 | 30.26% | 27/45 | 15/45 | 3/0 | 1874/2817 | 4 | 1521 | 3514 |
+
+Conv3 raw unknowns are 12 ambiguous and three short no-matches. No missing diagnostics.
+Internal minima are 185,592/185,708 B, PSRAM minima 1,492,592/1,773,640 B. Conv2 has
+zero session watchdogs and three boot/setup warnings; **conv3 has one session watchdog**
+and three earlier setup warnings. At the session warning (~153.6s device time), IDLE1
+was starved while CPU1 ran `stt` and CPU0 ran `cmd_exec_task`. Both captures finished
+without panic. Do not describe this arm or the full recognition group as fault-free.
+No cache-line/root-cause recurrence is inferred from a nonfatal watchdog warning.
+The wider-beam arm has neither quality preservation nor a clean stability screen.
+
+Archived baseline and arm18 sdkconfigs compare byte-for-byte identical. The archived
+source diff contains only intended x2f pacing, speaker diagnostics and beam override
+changes. This rules out an sdkconfig difference as a simple explanation of the shared
+slowdown, but does not identify its cause. The unchanged baseline image is now being
+replayed for both trailing controls; no interpretation should pick only the favorable
+control. No defaults changed.

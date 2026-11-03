@@ -956,3 +956,9 @@ Arm17 (LM strength 0.9) completed both fixtures with actual 0.900 successful
 decodes. WER is 23.85%/31.76%, worse than initial controls; one-to-one identity
 27/37 and 24/46, raw unknowns 1/37 and 16/46. No adoption is supported from this
 partial group. Arm18 is running; final controls and the shared slowdown audit remain.
+
+Arm18 (compiled beam request 40 versus file beam 32) completed: WER
+21.44%/30.26%, raw unknowns 2/37 and 15/45. Conv3 had one in-session watchdog
+with CPU1 running `stt`; no panic, no decoder fallback status. This fails a clean
+stability screen and is not a promotion candidate. The unchanged trailing baseline
+image is now replaying both fixtures. Baseline/arm sdkconfigs are identical.

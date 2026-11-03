@@ -38,7 +38,7 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 | 15 | Pre-roll 300 → 450ms | Both P4 fixtures measured: WER worse; conv3 has 19 unknown labels versus initial control 3. No promotion; trailing controls pending. |
 | 16 | Retained tail 500 → 600ms | Both fixtures captured; WER worse than initial controls. Conv3 identity/true lag withheld after RMS gate failure; raw unknowns 3/45. |
 | 17 | LM strength ×0.9 | Both P4 fixtures measured with successful 0.900 decodes; WER worse than initial controls. Trailing controls pending. |
-| 18 | Decoder beam width ×1.25 | Physical test running; file beam 32 implies compiled request 40. Check successful decoding, memory and fallback. |
+| 18 | Decoder beam width ×1.25 | Both fixtures captured; WER worse than initial controls and one conv3 session watchdog. No promotion; trailing controls running. |
 | 20 | Speaker-input RMS normalization | Small positive float screen; independent P4 image built and queued. |
 | 21 | Freeze noise-floor/history adaptation during speech | Opt-in C++ policy and mechanism test pass; independent P4 image queued. |
 | 22 | Maximum segment 10 → 8s | Sample conservation checked; independent image queued, with separate long-speech stress controls. |
