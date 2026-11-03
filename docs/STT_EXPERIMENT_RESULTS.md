@@ -111,3 +111,18 @@ The comparison remains incomplete: finish the unchanged natural candidate under 
 storage conditions, mandatory watchdog reproduction, and trailing controls. Private numeric
 provenance is in `private/resume-20261102/overnight/24-partial-rms-metrics.json` and the
 matching alignment report. Audio, terms and captions remain private.
+
+## Clean-storage qualification: first finalized control
+
+The new baseline-before synthetic vocabulary fixture completed 16 captions. WER is
+15.04% (20 edits / 133 words), 1/8 target terms recognized, zero vocabulary-term
+insertions on controls, zero raw unknown labels, zero watchdogs including setup,
+zero overruns and no panic. The RMS/clock fit passed. Filesystem free space was
+7,606,272 bytes before and 7,593,984 after this capture. This is one simple single-voice
+control, not a demonstrated accuracy gain or general stability qualification. Candidate
+and trailing controls remain pending; do not combine this with the old storage-confounded
+attempts as a matched comparison. Natural conv3 baseline capture is running.
+
+Private numeric provenance is `overnight/clean-qualification-partial-metrics.json` and
+its alignment report under the existing ignored run root. Only finalized captures are
+scored; later snapshots may extend this checkpoint.

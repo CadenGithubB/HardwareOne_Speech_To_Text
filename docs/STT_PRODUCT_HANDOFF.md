@@ -1140,3 +1140,10 @@ remaining watchdog matrix and the final 24-item qualification report are still i
 The one-time maintenance command has been removed from the running app by production
 rollback; tracked HardwareOne source remains restored. No production-default or model
 change, push, main merge, or outward-facing report has been made.
+
+The first clean-storage baseline has finalized: 16 captions on the synthetic vocabulary
+fixture, WER 15.04% (20/133 edits), 1/8 target terms, no control-term insertions, no raw
+unknowns, zero watchdogs including setup, zero overruns and no panic. Reference alignment
+passed; free space stayed above 7.59 MB. This is one single-voice control, not a candidate
+win or general stability claim. The natural conv3 baseline is active and remaining
+candidate/controls and watchdog reruns are still pending in the serialized batch.
