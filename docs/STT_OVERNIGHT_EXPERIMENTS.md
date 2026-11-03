@@ -47,7 +47,7 @@ confirmation, with rejected candidates retained as measured results.
 | 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | P4 screen and controls complete; no promotion |
 | 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | P4 natural/stress screen and controls complete; no promotion |
 | 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | P4 screen and controls complete; no promotion; watchdog repeat pending |
-| 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | P4 incomplete; storage-confounded failure; clean repeat and controls pending |
+| 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | P4 clean comparison complete; no promotion; one control alignment rejected |
 
 Implementation feasibility and exact existing defaults must be inspected before each
 change. If an implementation is unsupported, record the concrete obstacle and choose
@@ -1224,3 +1224,10 @@ Internal minima 185,588/185,696 B; PSRAM minima 1,830,732/1,806,412 B. Decoder s
 are 110 successful calls (conv2), 98 successful/3 cancelled (conv3), no other fallbacks.
 No promotion of this configuration is supported. Preserve the distinction between
 strict speculative reuse, forcing final re-decode, and turning speculation off.
+
+### Clean-storage completion checkpoint
+
+All 24 initial screens now have measured outcomes. The six-capture vocabulary comparison
+and two priority watchdog reruns are complete; see `STT_EXPERIMENT_RESULTS.md` for the
+full numeric table and withheld comparisons. Broader pacing and the remaining watchdog
+matrix are not complete. No production defaults changed.

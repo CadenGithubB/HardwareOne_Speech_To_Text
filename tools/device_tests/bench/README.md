@@ -166,3 +166,10 @@ outcomes from one deterministic minimum-edit path across the complete word seque
 It agrees with global WER and does not use acoustic alignment. Repeated words can have
 ambiguous attribution; boundary-word errors are diagnostic proxies, not proof of clipped
 phonemes, quiet-word recall or a particular segment-boundary failure.
+
+`score_experiments.py` explicitly marks true-end lag unavailable when a fixture lacks
+`speech_end_s` annotations; it does not substitute clip ends or run `truelag.py` on
+missing annotations. An unusable/stale alignment report still rejects reference-dependent
+metrics. Keep global WER/raw coverage separate from withheld identity/true-end results.
+`benchscore.py` speaker-label lag means label availability **after final-text publication**;
+it is not speech-end-to-label latency, and adding medians does not produce that metric.

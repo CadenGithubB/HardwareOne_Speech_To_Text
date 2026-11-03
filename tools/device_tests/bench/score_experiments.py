@@ -228,6 +228,13 @@ def score_capture(entry,terms=None,alignment=None):
             data=json.loads(manifest.read_text());data['clips']=clips
             timing_manifest.write_text(json.dumps(data))
         for tool,with_manifest in [('truelag.py',True),('latsplit.py',False),('draftlag.py',False)]:
+            if tool=='truelag.py':
+                missing=sum('speech_end_s' not in c for c in clips)
+                if missing or not clips:
+                    row['timing_tools'][tool]={'returncode':None,'available':False,
+                        'reason':f'{missing}/{len(clips)} reference clips lack speech_end_s annotations',
+                        'stdout':'','stderr':''}
+                    continue
             cmd=[sys.executable,str(HERE/tool)]+([str(timing_manifest)] if with_manifest else [])+[str(d)]
             result=subprocess.run(cmd,capture_output=True,text=True)
             row['timing_tools'][tool]={'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr}

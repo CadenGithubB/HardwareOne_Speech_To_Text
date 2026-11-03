@@ -101,3 +101,25 @@ will provide another current-policy conv2 observation.
 
 Private provenance: `overnight/earlier-capture-watchdog-audit.json` and
 `overnight/earlier-storage-failure-repeat.json` under the existing private run root.
+
+## Clean-storage priority results
+
+Vocabulary/conv3 did not reproduce its earlier queue failure or watchdogs: the same
+archived image completed 234.368s of capture across the 220.04s input, versus the
+original failure at 100.15s (21 session / 24 whole-log warnings and 22 filesystem-full
+errors). The clean rerun has zero warnings/full errors. The approved cleanup changed
+storage conditions; this is not proof of an isolated causal fix or general stability.
+The wider-beam conv3 rerun also completed with zero warnings.
+
+Forced-redecode conv3 completed but warned again, at a **different** point/signature:
+old capture +50.612s, CPU0 `cmd_exec_task` / CPU1 `ipc1`, sampled flash/cache disable;
+clean repeat +118.817s, CPU0 `dl_mc0` / CPU1 `dl_mc1`, sampled ESP-DL convolution loop.
+Do not label this a same-spot reproduction or conclude a kernel defect from PC/RA.
+One more same-image/fixture clean-storage repeat is queued after pacing. Both captures
+and corresponding ELF symbols are in `forced-redecode-clean-watchdog-comparison.json`.
+
+Nineteen live reruns are prepared behind the balanced pacing batch: that fresh warning
+match plus eighteen remaining original image/fixture cases. The queue adds one bounded
+follow-up if a pacing warning first appears on the last matching ABBA observation.
+Already paired warning/repeat sets are not rerun forever. Two legacy SD-input cases
+(short-pause700, diagnostic conv1) remain separate. This is incomplete qualification.

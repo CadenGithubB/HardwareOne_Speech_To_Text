@@ -10,6 +10,7 @@ problems, and a concrete runtime failure to reproduce. Production defaults are u
 | Keep exact-coverage speculative reuse | Forcing final re-decode raised label median 2.690 → 7.363s on conv2 and 3.199 → 14.744s on conv3; five speaker jobs rejected for audio pressure and one session watchdog. | Do not adopt forced re-decode. This does not compare disabling speculation entirely. |
 | Reject the tested normalization setting | Conv2 correct labels 28/38 → 18/38; unknowns 1/38 → 19/38. Conv4 also trails its fresh control. | Do not promote this target/gain configuration; do not infer all normalization is ineffective. |
 | Do not promote noise freezing yet | WER 18.84/26.61% versus final controls 19.04/26.39%; the initial apparent gain is not established beyond control drift. One extra initial-control conv2 merge. | Keep as a research lead only; no claimed general accuracy improvement. |
+| Do not promote the tested four-term vocabulary configuration | Target hits 0/8 versus controls 1/8 and 0/8; synthetic WER 21.05% versus 15.04/18.05%. Natural unknowns 10 versus 9/3; one late-control alignment is unqualified. | No target-term benefit established at the existing 1.0-nat bonus; preserve editable vocabulary as user data, with no default vocabulary or model change. |
 | Keep production closing pauses | Long-pause400 improves conv1 WER by one word but increases unknowns; short700 and combined pauses raise WER. | Retain 600/1000ms. |
 | Fix evaluation before believing small changes | Identical-image controls changed WER 15.83 → 22.85% and 24.89 → 30.47%; noise estimates changed too. Stale onset and mixed-clock speech-end fields were corrected in analysis. | Retain both controls, raw unknown coverage, exclusions and rejected alignment fits. No cherry-picked baseline or causal claim. |
 
@@ -48,10 +49,12 @@ claim a clean watchdog reproduction while storage errors persist.
    was restored and ring reconnect off was read back before starting qualification.
    Continue recording capacity before/after captures and reject filesystem-full errors;
    this does not establish a production retention policy or prove realtime safety.
-2. **Repeat the failed case under usable storage conditions.** Keep the vocabulary
-   image, conv3 input and test settings identical. Record the changed storage condition.
-   Compare watchdog task, input position and failure stage with the original; do not
-   count the interrupted, zero-caption run as a clean reproduction. Finish controls.
+2. **Priority reproductions measured; one new warning needs a match.** The unchanged
+   vocabulary/conv3 image completed the full fixture without watchdogs after recovery;
+   the wider-beam warning also did not recur. Forced re-decode produced a different
+   warning: ESP-DL convolution workers at capture +118.817s, versus old flash/cache
+   IPC at +50.612s. One more clean same-image/fixture repeat is queued after the active
+   pacing batch. Sampled PC/RA locations are not causal proof of a kernel defect.
 3. **Qualify the strongest candidate: x2f pacing.** Run matched production/x2f comparisons
    on broader conversations. Report WER, speaker correctness/unknowns, final median/p90,
    shown-text and label lag. Require quality to hold and investigate/repeat watchdogs

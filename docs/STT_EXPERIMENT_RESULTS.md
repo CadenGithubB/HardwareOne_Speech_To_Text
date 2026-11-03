@@ -1,16 +1,17 @@
 # STT experiment results — provisional, 3 November 2026
 
 This is a concise ledger for the 24 required experiments. It is **not a completion
-report**: 23 of 24 initial screens are measured. The vocabulary comparison is
-incomplete; watchdog repeats and broader candidate qualification remain. The earlier
-approved cleanup freed 757,760 bytes, but later storage pressure invalidated the two
-failed vocabulary conv3 attempts. A current audit found no filesystem-full messages
-in the other 36 captures checked (13–18, 20 and 21–23 plus vocabulary controls/target).
-Absence of that message does not resolve their other qualification limits. The subsequent user-approved
-889-directory cleanup is independently verified complete: all target directories are
-absent, 7,618,560 bytes are free (up from 331,776), and ring reconnect remains disabled.
-All 889 archived files were header-only. The clean-storage eight-capture qualification
-batch has started; its results are not yet counted here.
+report**: all 24 initial screens now have measured outcomes. This does not finish
+qualification: the broader production/x2f comparison and mandatory watchdog matrix
+are still running/pending. No new general recognition/speaker-accuracy improvement
+has been qualified for production. The completed clean-storage vocabulary comparison
+shows no target-term gain and is not promoted.
+
+The approved 889-directory cleanup is independently verified: all target directories
+are absent and 7,618,560 bytes were free versus 331,776 before cleanup. All archived
+files were header-only. Eight subsequent captures completed with no filesystem-full
+errors; forced re-decode still had one watchdog at a different sampled location.
+
 See [STT_ACTIONABLE_FINDINGS.md](STT_ACTIONABLE_FINDINGS.md) for ordered next actions
 and [STT_OVERNIGHT_EXPERIMENTS.md](STT_OVERNIGHT_EXPERIMENTS.md) for detailed results.
 
@@ -42,16 +43,10 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 | 18 | Decoder beam width ×1.25 | No general quality win; one conv3 session watchdog and lower PSRAM headroom. No promotion. |
 | 19 | Require confidence gap ≥0.08 for profile updates | Independent device-embedding replay regresses identity metrics. Reject. |
 | 20 | Speaker-input RMS normalization | Float gain did not transfer to P4: conv2 unknowns 1/38 → 19/38, correct labels 28/38 → 18/38; conv4 also trails fresh control. No promotion. |
-
 | 21 | Freeze noise-floor/history adaptation during speech | All captures/controls complete. WER 18.84/26.61% versus final controls 19.04/26.39%; initial apparent gain is not established beyond control drift. No promotion. |
 | 22 | Maximum segment 10 → 8s | All natural/stress captures and controls complete. Stress WER 16.67% versus controls 12.00/13.33%; natural identity mixed. Cut mechanism exercised; no promotion. |
 | 23 | Force completed-phrase re-decode | All captures/controls complete. Label medians 7.363/14.744s versus initial 2.690/3.199s; five audio-pressure rejections and one session watchdog. Conv3 reference alignment rejected. No promotion. |
-
-## Incomplete physical comparison
-
-| ID | Single change | Current scope |
-|---|---|---|
-| 24 | Four-term bounded vocabulary bias | Baseline target/natural captures and candidate target captured. Candidate natural capture failed with filesystem-full errors. Same-image repeat interrupted under the same storage pressure, with zero captions. Final controls and clean repeat missing; no vocabulary quality/failure claim. |
+| 24 | Four-term bounded vocabulary bias | Six clean-storage captures complete. No target-term gain; synthetic WER worse than both controls, natural unknowns higher than both. One late-control alignment rejected. No promotion. |
 
 Rows marked queued/built are not counted as measured device results. Offline identity
 replays cannot establish firmware speed or stability. Host float windows do not prove
@@ -87,7 +82,7 @@ sensitivity, mixed/no-reference exclusions and missing labels; absolute manifest
 latencies and per-phrase attribution remain provisional. No held-out-speaker success,
 raw sample-clock microphone correlation, SD power-loss behavior or battery-life gain is claimed.
 
-Remaining: resolve storage headroom, finish vocabulary and mandatory watchdog repeats, verify each mechanism was exercised,
+Remaining: finish the broader pacing comparison and mandatory watchdog repeats, verify each mechanism was exercised,
 score target corrections versus control insertions, inspect faults and memory, compare
 both bracketing baselines, and produce the final 24-item report. Promising candidates
 need repeat/held-out qualification before production promotion. Verify final production
@@ -126,3 +121,71 @@ attempts as a matched comparison. Natural conv3 baseline capture is running.
 Private numeric provenance is `overnight/clean-qualification-partial-metrics.json` and
 its alignment report under the existing ignored run root. Only finalized captures are
 scored; later snapshots may extend this checkpoint.
+
+## Completed clean-storage vocabulary comparison and priority watchdog repeats
+
+All six vocabulary captures completed, followed by the two archived-image conv3
+watchdog reruns. Models, pauses, speaker rules and recorded image hashes were preserved.
+The explicitly approved storage cleanup changed the runtime environment; these are
+not claims of an identical filesystem state or proof of a sole historical cause.
+
+| Synthetic target/control fixture | WER | Target hits / 8 | Control-term insertions | Unknowns / captions |
+|---|---:|---:|---:|---:|
+| baseline before | 15.04% | 1/8 | 0 | 0/16 |
+| vocabulary | 21.05% | 0/8 | 0 | 0/16 |
+| baseline after | 18.05% | 0/8 | 0 | 0/16 |
+
+No target-term gain was established. Candidate WER exceeds both controls on this
+fixture; it is a single synthetic voice and all three runs scored 16/16 eligible
+speaker identities. The 1.5-nat ceiling was nonbinding: the tested existing bonus is
+1.0 nat. Do not promote this four-term configuration or infer that every vocabulary
+setting/domain is ineffective.
+
+| Natural conv3 | WER | Raw unknowns / captions | Correct / eligible | Final median / p90 ms | Shown-text lag ms | Label after text ms | Session / all watchdogs |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| baseline before | 28.76% | 9/47 | 35/46 | 1475 / 2275 | 1153 | 2037 | 0 / 0 |
+| vocabulary | 26.82% | 10/47 | 31/45 | 1516 / 2582 | 1227 | 2279 | 0 / 0 |
+| baseline after | 27.04% | 3/46 | withheld | withheld | 1233 | 2111 | 0 / 0 |
+| forced re-decode repeat | 27.04% | 10/47 | withheld | withheld | 1495 | 11461 | 1 / 1 |
+| wider-beam repeat | 28.33% | 9/44 | 23/41 | 1605 / 3227 | 1264 | 2049 | 0 / 0 |
+
+Speaker lag is **label availability minus final-caption publication**, as defined by
+`benchscore.py`; it is additional delay after text, not speech-end-to-label latency.
+Shown-text lag uses the device's voiced-end anchor. Final median/p90 uses accepted
+reference alignment and covered clip ends. Do not add medians to invent an end-to-end
+speaker metric. Mixed-reference exclusions for the qualified natural captures are
+1 (baseline before), 2 (vocabulary), and 3 (wider beam); no-reference exclusions are zero.
+
+The late baseline and forced-redecode repeat failed the unchanged RMS quality gate,
+so their reference identity and true-end lag are withheld. The late control's odd-split
+correlation was 0.6416, below 0.65. Global WER, raw coverage, device-internal delays and
+watchdog counts do not require that alignment. Synthetic clips lack `speech_end_s`;
+true-end lag is explicitly unavailable, with no clip-end substitution. The scorer now
+reports that missing annotation instead of a traceback. Its existing scoring checks
+and a functional check on the real synthetic/natural captures passed; the rejected
+alignments remain rejected.
+
+Vocabulary conv3 WER beats the late control by only one word, while unknowns are 10
+versus controls 9/3, and qualified identity is 31/45 versus the early control's 35/46.
+That does not establish a quality-preserving gain. Wider-beam WER falls within control
+drift; its 23/41 eligible identities include ten merge errors. No promotion.
+
+The old vocabulary failure stopped capture at 100.15s with 21 session / 24 whole-log
+watchdogs and 22 filesystem-full errors. Its unchanged-image clean-storage rerun
+completed 234.368s of capture over the whole 220.04s fixture, with zero watchdogs or
+filesystem-full errors. The wider-beam warning did not recur in its clean repeat.
+
+Forced re-decode still produced one warning: the old event sampled flash/cache IPC
+at capture +50.612s; the clean repeat sampled ESP-DL convolution workers on both cores
+at +118.817s. This is a different location/position, not a reproduced old signature or
+a demonstrated kernel defect. One more clean same-image/fixture repeat is queued.
+Its 11.461s additional label delay, unchanged WER versus the late control, and warning
+support retaining exact-coverage speculative reuse.
+
+All eight captures completed without panic, audio overruns or filesystem-full messages.
+The only watchdog was the forced-redecode event. Minimum observed internal/PSRAM free
+values were 183,488 / 1,599,692 bytes. These are screens, not long-soak, held-out-speaker
+or production qualification. Private provenance: `clean-vocabulary-qualified-summary.json`,
+`clean-eight-final-rms-metrics.json`, `clean-eight-final-status-estimate-metrics.json`,
+`vocabulary-failure-reproduction-comparison.json` and
+`forced-redecode-clean-watchdog-comparison.json`, all under the ignored overnight folder.

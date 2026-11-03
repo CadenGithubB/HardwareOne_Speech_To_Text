@@ -1147,3 +1147,41 @@ unknowns, zero watchdogs including setup, zero overruns and no panic. Reference 
 passed; free space stayed above 7.59 MB. This is one single-voice control, not a candidate
 win or general stability claim. The natural conv3 baseline is active and remaining
 candidate/controls and watchdog reruns are still pending in the serialized batch.
+
+### All 24 initial screens measured; wider qualification remains active
+
+The six clean-storage vocabulary captures and two priority conv3 watchdog reruns have
+completed, with fixed-production restoration verified before starting the broader
+pacing batch. Full numeric results and exclusions are in `STT_EXPERIMENT_RESULTS.md`.
+The tested four-term vocabulary configuration has no target-term gain: hits 0/8 versus
+controls 1/8 and 0/8, synthetic WER 21.05% versus 15.04/18.05%. Natural WER is 26.82%
+versus 28.76/27.04%, only one word better than the late control; raw unknowns are 10
+versus 9/3. Do not promote it. Stored user vocabulary and fixed models were unchanged.
+
+All eight clean captures completed without panic, overruns or filesystem-full errors.
+The vocabulary failure did not recur (100.15s original failed capture versus 234.368s
+successful rerun across the full fixture), and the wider-beam warning did not recur.
+Forced re-decode still had one watchdog, at a different position and sampled code:
+ESP-DL convolution workers at capture +118.817s, versus original flash/cache IPC at
++50.612s. Its additional label delay after final-text publication was 11.461s versus
+controls 2.037/2.111s, with no WER gain over the late control. Keep exact-coverage reuse.
+One more clean same-image/input repeat is queued; no kernel defect is established.
+
+Six of eight reference alignments passed. The late conv3 control and forced-redecode
+repeat failed the unchanged RMS gate; their reference identity and true-end lag are
+withheld. Global WER, raw unknown coverage and device-internal timing remain reportable.
+Synthetic manifests lack speech-end annotations: the scorer now emits explicit
+unavailability instead of a traceback, without substituting clip ends. Existing scoring
+checks and functional checks on the real captures passed; no failed fit was relaxed.
+Speaker lag throughout the benchmark is label timestamp minus final-caption publication,
+not speech-end-to-label delay. Do not add separate medians to invent end-to-end latency.
+
+The balanced twelve-capture production/x2f comparison across conv2–4 is now running.
+The next serialized controller is queued behind its successful completion/restoration:
+one fresh forced-redecode conv3 match plus 18 remaining original live warning cases,
+with a bounded extra match if a new pacing warning has no later same-image/fixture
+observation. Two legacy SD-input cases still need their separate reruns. These are
+mandatory reproduction checks, not additional tuning arms. The goal is not complete:
+broader pacing results, watchdog matrix, final visual/report/audit and final board
+restoration/readback remain. No production defaults, branch pushes, main merges or
+outward-facing filings have been authorized or performed.
