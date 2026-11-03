@@ -36,6 +36,7 @@ struct CandidateConfig {
     float merge_sim=-2.0f;
     size_t create_min_samples=0; // zero inherits min_new_samples
     size_t update_min_samples=0; // independently gate centroid adaptation
+    unsigned history_cap=0; // zero: unbounded; otherwise exponentially forget after cap
     float ambiguity_margin=0.0f; // zero disables; label only, never adapt centroid
 };
 
@@ -47,7 +48,7 @@ struct CandidateResult {
 class CandidateClusters {
  public:
     bool reset(size_t dim, const CandidateConfig& config) {
-        if(!dim || !config.max_speakers || !config.min_new_samples ||
+        if((config.history_cap && config.merge_young) || !dim || !config.max_speakers || !config.min_new_samples ||
            !(config.threshold>-1.0f && config.threshold<1.0f))return false;
         dim_=dim; config_=config; ids_.clear(); phrases_.clear(); sums_.clear(); next_=0;
         return true;
@@ -115,6 +116,10 @@ class CandidateClusters {
         out.speaker=ids_[size_t(best)];
         if(!updateEnough) { out.reason="short_match"; return out; }
         float* c=&sums_[size_t(best)*dim_];
+        if(config_.history_cap && phrases_[size_t(best)]>=config_.history_cap) {
+            const float retain=float(config_.history_cap-1)/float(config_.history_cap);
+            for(size_t i=0;i<dim_;++i)c[i]*=retain;
+        }
         for(size_t i=0;i<dim_;++i)c[i]+=float(double(embedding[i])*inv);
         ++phrases_[size_t(best)];
         out.reason="match";

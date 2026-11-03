@@ -349,12 +349,15 @@ targeted kernel work if warranted, and longer stress/accuracy qualification.
 ## Overnight follow-on investigation
 
 The user authorized at least 15 one-change experiments on speaker uncertainty,
-recognition accuracy, and speaker cost. The 18-item plan and sequential results are
+recognition accuracy, and speaker cost. The 24-item plan and sequential results are
 in `docs/STT_OVERNIGHT_EXPERIMENTS.md`. Experiment 01 is implemented and tested
 offline; coverage improves, but extra identity merges fail the promotion gate.
 Experiments 02 and 03 now also have independent implementations and replay results:
 shorter admission and longer adaptation both regress broader speaker metrics and are
-rejected. The goal remains active with experiments 04–18 outstanding.
+rejected. Experiments 04–05 have now been screened: history capping shows no measured short-session
+gain (long-history check pending), and young-profile hold increases shuffled-order merges.
+The user expanded the required plan to 24. Experiment 04 follow-up and 06–24 remain
+outstanding; the goal stays active.
 
 ## Current overnight checkpoint — 1 November 2026
 

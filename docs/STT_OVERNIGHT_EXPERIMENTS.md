@@ -1,5 +1,8 @@
 # Overnight STT experiments — 2 November 2026
 
+Scope: 24 required experiments. The user explicitly approved adding 19–24.
+Each requires an implemented change and measured outcome, including rejected outcomes.
+
 Goal: fewer unknown speakers without more mistaken identities, better recognition,
 and faster speaker labels. Each experiment starts from the same baseline; no stacking
 changes until independently evaluated. Production promotion requires user approval.
@@ -24,8 +27,8 @@ confirmation, with rejected candidates retained as measured results.
 | 01 | Resolve ambiguous matches only when best-minus-runner-up cosine >=0.08; do not update centroids | Device-voiceprint replay, identity errors vs unknowns | Tested offline; reject promotion |
 | 02 | Allow new profiles from 1.5 s phrases rather than 2 s | Replay, short-phrase unknowns and false profiles | Tested offline; reject |
 | 03 | Require 3 s for centroid updates, retaining current admission rules | Replay, centroid contamination vs adaptation | Tested offline; reject |
-| 04 | Cap contribution of repeatedly observed speakers to centroid history | Replay shuffled and recorded orders, returning voices | Planned |
-| 05 | Hold uncertain new profiles only during their first four observations | Replay on broader voices; compare earlier hold failure | Planned |
+| 04 | Cap contribution of repeatedly observed speakers to centroid history | Replay shuffled and recorded orders, returning voices | Screened; longer-history check pending |
+| 05 | Hold uncertain new profiles only during their first four observations | Replay on broader voices; compare earlier hold failure | Tested offline; reject promotion |
 | 06 | Resolve a held phrase after subsequent agreeing evidence, with bounded delay | Sequential replay, revisions and delay | Planned |
 | 07 | Raise speaker capacity from 8 to 10 | Capacity-triggered unknowns, false-profile count and memory | Planned |
 | 08 | Extend speaker input window from 3 s to 4 s | Re-export fixed weights/shape if supported; embedding and device cost | Planned |
@@ -39,6 +42,12 @@ confirmation, with rejected candidates retained as measured results.
 | 16 | Increase recognition trailing audio retention by 100 ms | Final-word deletions versus latency | Planned |
 | 17 | Lower language-model influence by 10% | Fixed-audio decoder replay, substitutions and WER | Planned |
 | 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | Planned |
+| 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Planned |
+| 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | Planned |
+| 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Planned |
+| 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Planned |
+| 23 | Require complete audio coverage before accepting speculative final text | Forced partial-speculation cases, final WER and recomputation cost | Planned |
+| 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | Planned |
 
 Implementation feasibility and exact existing defaults must be inspected before each
 change. If an implementation is unsupported, record the concrete obstacle and choose
@@ -93,3 +102,35 @@ All-orders means 200 shuffles plus recorded order per set, not independent sampl
 No new acoustic or device-performance claim. Evidence: ignored
 `private/resume-20261102/overnight/02-short-admission.json` and
 `03-long-update.json`. Next: experiment 04; experiments 04–18 remain outstanding.
+
+
+### 04 — Cap profile history at eight observations
+
+Implemented exponential forgetting after eight centroid updates: retain 7/8 of the
+old accumulated vector before adding the next unit vector. Keep the actual observation
+count for age-based rules. Zero is neutral. Combining this experimental cap with merging
+is explicitly unsupported rather than incorrectly combining differently weighted sums.
+A synthetic drifting-direction case verifies adaptation and a different assignment from
+unbounded history; production-equivalence checks pass.
+
+On the six device sets, reported coverage/accuracy/split/merge scores remained unchanged
+at the reported precision, both recorded and shuffled. This is a null short-session
+screen, not proof that forgetting cannot help long conversations. A longer-history
+returning-speaker check remains required for this item. Evidence:
+`private/resume-20261102/overnight/04-history-cap.json`.
+
+### 05 — Young-profile hold
+
+Used the existing C++ candidate implementation with `new_below=0.5,young=4`, independently
+of all previous overnight changes. While the closest profile has fewer than four
+observations, a non-matching phrase with similarity >=0.5 is held unknown instead of
+creating a new profile. Same six device sets, 200 shuffles plus recorded order each.
+Recorded coverage/accuracy improved 85.6%/77.8% -> 87.6%/82.5%; splits/100 fell
+3.61 -> 1.03 and merges stayed 4.12. Across all orders, coverage/accuracy improved
+86.5%/80.3% -> 89.8%/83.9%, but merges increased 3.87 -> 5.22 per 100.
+Reject promotion: the recorded-order gain is not robust to phrase order. Evidence:
+`private/resume-20261102/overnight/05-young-hold.json`. No firmware defaults changed.
+
+Current checkpoint: 01–03 and 05 screened and rejected; 04 implemented/screened with
+long-history validation outstanding. 06–24 remain to implement/test. The goal remains
+active. Next: complete 04's longer-history check, then deferred resolution (06).
