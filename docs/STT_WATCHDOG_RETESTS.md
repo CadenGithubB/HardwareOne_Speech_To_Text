@@ -51,3 +51,40 @@ Prioritize the clean-storage repeats of these cases; preserve their distinct sig
 Private numeric inventory and symbol records are under
 `private/resume-20261102/overnight/watchdog-inventory.json` and
 `watchdog-priority-symbols.json`.
+
+## Existing-repeat audit — 3 November
+
+The baseline-before/after pairs in group 21–23 were verified for conv2, conv3 and
+long22: identical flashed image SHA256 and source WAV SHA256, completed captures,
+ring-disabled readback, saved settings, loglink/perf diagnostics enabled, and no
+filesystem-full messages. Setup warnings recur in all three pairs; none has a recorded
+in-session warning. This supplies existing repeat evidence for these three baseline
+cases, not a fix or an assertion that every warning samples an identical instruction.
+For example, long22 setup warnings occur at device uptimes 27.175/41.795/56.834s
+before, and 27.392/41.962/57.913s after; running tasks are main/main/cmd_exec_task.
+The conv4 baseline's warning-bearing final run still needs a later matching repeat.
+
+Earlier conv1 PCM batches were also checked against original per-run session counters,
+raw logs, boot ELF identifiers, and flash SHA256 records matching the saved images:
+
+| Batch | Original per-run session warning counts | Existing later observation |
+|---|---|---|
+| Local x2f | 1, 0, 0 | The warning did not recur in the following two runs; setup warnings still occur. |
+| Long-pause400 | 0, 0, 0 | Setup warnings repeat across the three runs. |
+| Production pacing | 0, 0, 0 | Setup warnings repeat across the three runs. |
+| Earlier x2f250l64 | Ten zeros | Setup warnings repeat across the ten runs. |
+| Short-pause700 | 0, 0, 1 | No later run in this batch; same-image/input rerun required. |
+| Combined pauses | 1, 0, 0 | The warning did not recur in the following two runs; setup warnings still occur. |
+| Diagnostic conv1 | 0 | Only one capture; setup-warning repeat remains required. |
+
+The former combined-pause statement of 2/3 **in-session** warnings was incorrect;
+the original session counters establish 1/3. Whole-log setup warnings must be kept
+separate. Historical SD runs use the same recorded PCM path across fresh boots; a
+remote PCM hash and peer-policy readbacks were not recorded. Do not recreate old
+peer behavior for a new test; retain the comparability limit.
+
+Capture telemetry can be emitted after a watchdog. The audit therefore uses embedded
+capture timestamps plus paired Arduino/IDF clock origins, rather than output order,
+to distinguish after-capture events. Original session counters include STT startup and
+remain a separately reported scope. Capture start is not acoustic playback onset.
+Private evidence: `private/resume-20261102/overnight/existing-watchdog-repeats.json`.

@@ -188,7 +188,9 @@ Coverage and reliability qualifications:
   (for example, zero-based clip 28 in production/x2f versus clip 24 in the combined-pause arm).
   These reported medians/p90s are tool-defined covered-clip summaries, not complete-clip guarantees.
 - All 25 completed runs in this table reached `done` without a reported panic. In-session watchdog
-  warnings: short-pause 1/3, combined-pause 2/3, new x2f 1/3; none in the other table batches. Additional
+  warnings: short-pause 1/3, combined-pause 1/3, new x2f 1/3; none in the other table batches.
+  (Corrected 3 November against original per-run session counters; whole-log setup warnings
+  had been mixed into the earlier combined-pause count.) Additional
   warnings outside the STT session window are preserved in raw logs and whole-log scores. Do not
   describe these batches as warning-free. The interrupted earlier production batch (one completed
   run) and failed original long-pause flash are retained separately, not pooled into this table.
@@ -1049,11 +1051,12 @@ with 1,242,003 content bytes, including 927 sensor files totaling 82,737 bytes a
 892 boot directories. Directory/allocation overhead is substantial. This is separate
 from the closed 128-byte L2 PSRAM fault.
 
-Prepared, but not authorized or performed: remove 889 old sensor files (78,232 bytes)
+Prepared proposal: remove 889 old sensor files (78,232 bytes)
 and their 889 named boot directories below boot 1200. Every proposed file was extracted,
 fsynced and reread privately; the full snapshot has independent readback verification.
-The user's earlier three-diagnostic-log cleanup approval does not cover these files.
-The pending request preserves boot 1200 onward and every other path. No filesystem
+The user subsequently explicitly approved this exact sensor-log cleanup. Execution is
+underway with a fresh live-file hash check before each deletion; completion and recovered
+capacity are not yet claimed. The scope preserves boot 1200 onward and every other path. No filesystem
 image is to be flashed back or edited wholesale. Recovery must be measured afterward;
 do not claim free space from file-content totals alone.
 
@@ -1066,3 +1069,12 @@ Required host regressions passed: transcript, product storage, viewer and bridge
 and NumPy alignment checks also passed. These do not qualify model accuracy, P4 realtime
 performance, microphone equivalence, SD power-loss behavior or the incomplete watchdog
 matrix. Goal remains active.
+
+The fresh qualification runner now requires 770,048 bytes of pre-capture headroom:
+the largest capped-log rotation tail, existing 100 KiB reserve, and twice the largest
+observed between-start loss (36,864 bytes over 33 historical transitions), rounded up
+to 4 KiB blocks. This is an operational bench guard, not proof of production storage
+safety. It also rejects any filesystem-full message and reads capacity after each
+session. Frozen images and WAVs are rehashed; production rollback remains mandatory.
+The queued first batch repeats vocabulary with fresh before/after controls, then the
+forced-redecode and wider-beam conv3 cases. No additional tuning variants are introduced.
