@@ -289,6 +289,63 @@ recorded order were evaluated. Relative to production:
 Retain production speaker rules: the conv1-only gains do not justify increased merges
 on broader voices. No production STT defaults were changed.
 
+## Speaker-processing cost investigation — 2 November 2026
+
+The user requested immediate investigation of speaker-processing cost. Across the six
+completed broader runs (196 jobs), median job wall time was 1,279.8 ms: neural-network
+trunk 1,175.1 ms, frontend 60.5 ms, head 35.3 ms and clustering 2.9 ms. Medians do not
+add. Aggregated time shares were trunk 82.58%, frontend 12.93%, head 3.49%, clustering
+0.49%. Median `lag_ms - us/1000` was 11.0 ms; this residual includes queue wait,
+diagnostic fixture checks and other pre-embed scheduling, not a pure queue timer.
+
+A retrospective association with recognition drafts is substantial. Joining each
+speaker job's wall interval to `TL draft s/e` intervals, median trunk wall time was
+762.6 ms for <5% overlap (66 jobs), 1,180.9 ms for 5–50% overlap (89 jobs), and
+1,702.7 ms for >=50% overlap (41 jobs). These are observational buckets, not a causal
+A/B scheduling result; final recognition, preemption and memory contention are not
+isolated. All use the fixed-size speaker input window. This makes scheduling draft
+recognition against speaker work the strongest next experiment. Keep capture and
+final recognition priorities; measure draft freshness and stable-label delay together.
+Do not switch the speaker model to dual-core blindly: the code deliberately uses
+single-core mode to avoid contention with recognition's ESP-DL workers.
+
+A dedicated conv2 live profile kept the diagnostic session active beyond 240 seconds,
+collecting all 234 layer timings. Ten layers consumed 50.2% of timed module execution;
+the three largest were execution indices 192 (9.9%), 206 (8.4%) and 218 (7.3%). The
+module-name accessor returned `?`, so these indices are not yet mapped reliably to
+operator types or tensor shapes. Baseline mean measured module time was 1,075.5 ms,
+versus mean trunk wall time 1,109.1 ms: instrumentation/yields/outside-module overhead
+cannot explain the bulk of network time. Diagnostic heap probes and fixture checks
+remain enabled; these are diagnostic-build timings, not production qualification.
+
+A controlled experimental build gave only the speaker trunk a 65,536-byte internal
+arena budget, keeping the fixed model, rules, pacing, cache lines and PSRAM clock.
+Built through `build_arms.sh`: `bench-codex-spk-int64.bin`, SHA prefix `a8756827`.
+HardwareOne tracked sources were restored after the build; this is not a default change.
+
+| Conv2 diagnostic arm | Median job ms | Median trunk ms | Mean trunk ms | Mean timed modules ms | Arena internal / PSRAM bytes | Startup internal low-water bytes |
+|---|---:|---:|---:|---:|---:|---:|
+| Existing PSRAM arena | 1275.478 | 1168.659 | 1109.113 | 1075.484 | 0 / 600000 | 180744 |
+| 64 KiB internal budget | 1256.101 | 1150.033 | 1127.595 | 1102.743 | 65536 / 576000 | 128716 |
+
+Each trial completed 38 captions with zero overruns, watchdog warnings or panics.
+Baseline versus internal-arena WER was 16.83% / 16.03%; majority-mapped speaker
+accuracy was 76.32% / 73.68%. These separate acoustic captures cannot establish
+model equivalence; the speaker-score drop is an additional reason not to adopt the arm.
+The 19.4 ms median-job improvement (1.52%) is not persuasive: mean trunk time worsened
+1.67%, and measured startup internal headroom fell 52,028 bytes. One acoustic run per
+arm does not establish a speed or accuracy equivalence claim. **Reject adopting this
+arena change.** No production speaker algorithm, model or scheduling default changed.
+
+Artifacts are ignored under `private/resume-20261102/`: `speaker-cost.json`,
+`speaker-draft-overlap.json`, `speaker-layer-profile.json`, `speaker-arena-comparison.json`,
+the two `live-conv2-20261102-232554` / `233243` captures, and arm build/source manifests.
+Both profiling controllers verified restoring fixed production `soak-app.bin`.
+After the final restore, a fresh console boot confirmed ring auto-reconnect disabled;
+`final-board-verification.json` records the result. The board lock was released.
+Remaining: controlled draft/speaker scheduling A/B, reliable layer/operator mapping,
+targeted kernel work if warranted, and longer stress/accuracy qualification.
+
 ## Current overnight checkpoint — 1 November 2026
 
 - Stable-PCM candidate b7598680 retains bit parity in host/target tests; its
