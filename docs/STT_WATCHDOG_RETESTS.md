@@ -145,3 +145,19 @@ production/ring-off/capacity audit remain incomplete. `compare_watchdog_repeats.
 separates whole-log, original session-counter and after-capture-start scopes so an
 earlier setup repeat cannot conceal a later in-session warning; the new clean forced-
 redecode DNN warning has its own required follow-up.
+
+### Additional clean forced-redecode match completed
+
+The required same-image/conv3 repeat completed 47 captions with two session/whole-log
+watchdog warnings, no panic, no audio overruns and no filesystem-full errors. Both
+sample CPU0 `dl_mc0` / CPU1 `dl_mc1` and ESP-DL convolution loops, at capture
++42.280s and +107.788s; the previous clean warning was +118.817s. RA is the same
+`dl::base::conv_loop_pie`; sampled PCs are bias/relu convolution-loop variants.
+This reproduces the DNN-worker warning family under clean storage, **not the same
+input position or exact sampled instruction**, and does not establish a kernel defect.
+The original flash/IPC warning at +50.612s remains a different signature. The required
+additional clean match is now satisfied; do not rerun this reproduction set indefinitely.
+Retain the rejection of forced re-decode. Eighteen original live cases and the two
+legacy SD cases remain in the serialized queue, followed by final board readback.
+Private evidence is retained in `watchdog-backfill-status.json` and the expanded
+`overnight/watchdog-repeat-matrix.json` under the ignored run root.
