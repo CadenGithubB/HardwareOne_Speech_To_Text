@@ -205,6 +205,28 @@ recognition model and speaker-rule knobs remain unchanged. Diagnostic timings ar
 for the non-diagnostic arm comparison.
 
 Broader device diagnostics are active/pending; consult `test-status.json` before board access.
+The new conv1 diagnostic control completed 40 captions with no in-session watchdog/panic;
+`benchsets.py check` agrees on all 40 speaker IDs/reasons. One-to-one replay reproduces
+62.5% production accuracy versus 97.5% for hold 0.45/0.50 on this easy conversation.
+This does not validate the rules on similar speakers.
+
+The first conv2 upload failed after a confirmed 522,200-byte prefix, before any conv2
+bench run. The old uploader matched any `success:true` response, including stale replies,
+then retried sequential writes without recognizing an already committed offset. Raw logs
+contain offset mismatches; no partial input was benchmarked. A subsequent resume attempt
+failed at `loglink` setup before sending PCM. Both attempts restored/verified the fixed
+production image; `phase-two-status.json`, `phase-three-status.json` and private upload
+captures retain them. Repeated 30-second failed ring reconnects were also observed and
+can stall the console; their contribution to earlier timing variability is not established.
+
+`tools/device_tests/bench/upload_chunks.py` now checks the exact expected committed offset,
+accepts an already committed same-chunk retry, and rejects stale/wrong acknowledgements.
+Six host regression cases pass. The local `heaptw_remote.py` was backed up, then updated
+for that module, explicit known-prefix resume and optional runtime-only Bluetooth quieting
+while uploading. Sensor polling pauses are balanced; saved settings are unchanged.
+The original helper and patch are private. Physical transfer recovery and conv2–4/corpus
+bench results are still pending. The user explicitly chose to continue the broader tests
+rather than stop because of the upload duration.
 
 ## Current overnight checkpoint — 1 November 2026
 

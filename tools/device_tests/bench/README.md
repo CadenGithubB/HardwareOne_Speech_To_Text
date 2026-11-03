@@ -51,3 +51,23 @@ while that file exists.
 
 Host results do not prove model accuracy, realtime performance or SD power-loss behaviour on the
 board; only board runs do.
+
+## Upload acknowledgements
+
+`upload_chunks.py` supplies `write_chunk(console, destination, offset, payload)` for the local
+`heaptw_remote.py` uploader. It accepts only a reply carrying the current chunk's expected end
+offset. A delayed success for an earlier chunk cannot advance the upload; a retry whose write
+already committed can accept the firmware's `Offset mismatch` response at that exact end offset.
+An unexpected pre-existing end offset on the first attempt is rejected.
+
+Run `python3 tools/device_tests/bench/test_upload_chunks.py` for the delayed-reply, duplicate-retry,
+wrong-offset, write-failure and command-size regression cases. The helper module must be installed
+beside the local remote script when that script imports it.
+
+The mini's local uploader also supports `upload WAV DEST START_OFFSET [quiet-ble]`. Resume only an
+owned partial file from the same converted PCM, using its recorded committed offset. `quiet-ble`
+is an explicit bench upload mode for the configured Bluetooth-enabled boot state: it temporarily
+closes the Bluetooth runtime and restores it afterward, without changing saved settings. It avoids
+unavailable-ring reconnect attempts stalling console transfers. Sensor polling is paused only for
+the transfer and resumed if this upload acquired the pause. Bench runs use their normal fresh boot;
+upload quieting is not a change to the measured STT configuration.
