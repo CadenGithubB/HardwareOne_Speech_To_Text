@@ -706,3 +706,36 @@ alignment sensitivity; do not cherry-pick whichever baseline makes an arm look g
 This is one capture per arm/fixture bracketed by two controls, not replication or
 unseen-speaker qualification. Recognition experiments are now running; their results
 and all later queued work are still pending. No production defaults changed.
+
+### Resume interruption: internal filesystem full
+
+On model-switch resume, three recognition captures were finalized: baseline-before
+conv2/conv3 and arm13 conv2. Arm13 conv3 failed during setup, before `stt start`:
+`savesettings` returned a storage-full error rather than success. Its serial log has
+an IDLE0 watchdog warning with `cmd_exec_task` running, and LittleFS reported
+`No more free space`. This is a separate filesystem/setup failure; it is not evidence
+of an STT inference crash or recurrence of the closed cache-line fault.
+
+The controller restored and verified `soak-app.bin` (SHA256
+`172f4377e59c544a9ce39a492708adf5c7f208f98d1f2bdbed6520ad21f1eb7e`).
+Successor controllers stopped or were terminated while waiting, without running their
+physical comparisons. Existing completed captures remain preserved; no restart from
+scratch is warranted. The numeric scorer processed 17 finalized captures across
+09, 10–12 and partial 13–18 with zero scoring errors.
+
+A read-only capacity query measured LittleFS total 9,285,632 bytes, used 9,281,536,
+free 4,096; SD free space was 31,015,829,504 bytes. Runtime system/sensor logging was
+not running on inspection. Listing the broad capture directory itself stalled and
+produced filesystem watchdog warnings, so further broad traversal was stopped.
+Ring reconnection was seen on production boot despite earlier off/save acknowledgements;
+runtime reconnect was disabled again. Persistence remains to be reverified after
+space recovery and a successful save/reboot.
+
+Proposed recovery is private verified backups of only `errors.log`, `events.log`,
+and `system-events.log` under `/system/sys_logs`, followed by removal of those board
+copies (about 771 KB total). Automatic approval review rejected removal because explicit
+authorization for destructive changes is required by project instructions. User approval
+is pending; no board log deletion or flash erase has occurred. Backup preparation uses
+the approved helper and owns the board lock. Resume must preserve the three completed
+recognition captures, rerun the failed setup/capture, and retain both bracketing controls.
+No recognition candidate is qualified from this partial comparison.

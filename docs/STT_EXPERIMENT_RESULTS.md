@@ -1,7 +1,9 @@
 # STT experiment results — provisional, 3 November 2026
 
 This is a concise ledger for the 24 required experiments. It is **not a completion
-report**: physical measurements are still running. The detailed protocol, exact
+report**: physical measurements are incomplete. The recognition queue stopped during setup
+because internal LittleFS has only 4 KB free; fixed production firmware was restored.
+Verified log backup preparation is underway; board log removal awaits user approval. The detailed protocol, exact
 numbers, raw-artifact locations and limitations are in
 [STT_OVERNIGHT_EXPERIMENTS.md](STT_OVERNIGHT_EXPERIMENTS.md).
 
@@ -31,10 +33,10 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 
 | ID | Single change | Current scope |
 |---|---|---|
-| 13 | 1.25x recognition-input gain | Exact saturating PCM arithmetic tested; P4 recognition batch running. |
-| 14 | Adaptive speech floor 45 → 41 | Independent image built; physical recognition batch pending. |
-| 15 | Pre-roll 300 → 450ms | Independent image built; physical recognition batch pending. |
-| 16 | Retained tail 500 → 600ms | Independent image built; physical recognition batch pending. |
+| 13 | 1.25x recognition-input gain | Exact saturating PCM arithmetic tested; One P4 conv2 capture complete; conv3 setup failed from full storage. |
+| 14 | Adaptive speech floor 45 → 41 | Independent image built; physical recognition batch stopped pending storage recovery. |
+| 15 | Pre-roll 300 → 450ms | Independent image built; physical recognition batch stopped pending storage recovery. |
+| 16 | Retained tail 500 → 600ms | Independent image built; physical recognition batch stopped pending storage recovery. |
 | 17 | LM strength ×0.9 | Image built; require successful LM decoding at changed strength. |
 | 18 | Decoder beam width ×1.25 | Image built; observed file beam 32 implies requested beam 40. Require successful decode; check memory/fallback. |
 | 20 | Speaker-input RMS normalization | Small positive float screen; independent P4 image built and queued. |

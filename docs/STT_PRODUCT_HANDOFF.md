@@ -908,3 +908,14 @@ patches, numeric findings, sanitizer calibration and limits are in AB_TEST_RESUL
 HardwareOne diagnostic branch stays local at 570be9f8; all private evidence and
 selected matching app/debug inputs remain private. No model/policy/clock/cache
 geometry/configured-stack change or production promotion has occurred.
+
+### Model-switch resume: storage interruption (3 November 2026)
+
+The 24-item investigation is incomplete. Three recognition captures were preserved
+before a fourth failed at `savesettings`, prior to recognition start. Internal LittleFS
+has only 4,096 bytes free; filesystem setup produced watchdog warnings. Fixed production
+`soak-app.bin` was restored and verified. Downstream physical batches are stopped.
+The proposed three-log backup/cleanup requires explicit user approval following an
+automatic approval-review rejection; no full flash erase or log deletion occurred.
+Runtime ring reconnect was disabled again, but persistence must be reverified after
+storage recovery. See the detailed interruption entry in STT_OVERNIGHT_EXPERIMENTS.md.
