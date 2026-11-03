@@ -341,8 +341,8 @@ x2f pacing, diagnostics and 600/1000 ms closing pauses stay common.
 
 Build controller: ignored `private/resume-20261102/overnight/build13_18.py`; arm map
 `13-18-arms.json`, full source diffs and build manifests in the arms folders. Source
-restoration is in a finalizer. At this checkpoint 13–16 are built and 17–18 are still
-building; never infer full build success from the controller's existence.
+restoration is in a finalizer. All six builds completed, their image hashes were checked, and HardwareOne tracked
+sources are clean after restoration. This is build verification, not a device result.
 
 The recognition P4 controller waits for the scheduling chain to complete ten successful
 captures and restore fixed production, then requires all six SHA-verified images. It
