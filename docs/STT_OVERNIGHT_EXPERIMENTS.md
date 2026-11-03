@@ -43,7 +43,7 @@ confirmation, with rejected candidates retained as measured results.
 | 17 | Lower language-model influence by 10% | Fixed-audio decoder replay, substitutions and WER | Build pipeline active; P4 queued |
 | 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | Build pipeline active; P4 queued |
 | 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Tested offline; reject |
-| 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | Planned |
+| 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | Positive float screen; P4 queued |
 | 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Planned |
 | 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Planned |
 | 23 | Require complete audio coverage before accepting speculative final text | Forced partial-speculation cases, final WER and recomputation cost | Planned |
@@ -373,3 +373,48 @@ On six device sets, recorded coverage/accuracy 85.6%/77.8% -> 87.6%/78.4%, but s
 200 shuffles plus original order per set, coverage 86.5% -> 86.6%, accuracy 80.3% ->
 80.2%, splits 2.62 -> 2.85/100, merges 3.87 -> 3.91/100. Reject promotion under the
 identity-error gate. Evidence: `overnight/19-update-margin.json` (ignored).
+
+
+### 20 — Speaker-window loudness normalization
+
+Implemented opt-in native C++ RMS normalization to target 1,000 PCM units, clamping
+gain to [0.25,4] and rounding/saturating each sample. Silence stays unchanged; invalid
+targets are rejected as a no-op. Acts on the selected center speaker window, not the
+recognition or segmentation input. ASan/UBSan tests cover gain limits, silence, sparse
+clipping and invalid inputs. The host bridge returns an owned copy so source PCM is
+preserved. Older selector/frontend sanitizer checks still pass.
+
+Fresh float embeddings: fixed weights, same 300-frame center windows, same converted
+source audio and per-clip spans as 08/09, same production clustering, paired shuffle
+seeds. No energy selection or confidence changes are stacked. Six fixtures / 175
+scored source phrases per order, 200 shuffles plus recorded order per fixture:
+
+| Input | Recorded coverage / accuracy | Recorded splits / merges per 100 | All-orders coverage / accuracy | All-orders splits / merges per 100 |
+|---|---:|---:|---:|---:|
+| Original | 89.1% / 82.9% | 6.29 / 0.00 | 89.8% / 83.2% | 6.50 / 0.16 |
+| RMS normalized | 91.4% / 85.7% | 5.71 / 0.00 | 90.1% / 83.6% | 6.42 / 0.14 |
+
+Positive initial screen; small shuffled-order gain requires device confirmation and
+repetition. Not production qualification or evidence on unseen speakers. Private:
+`overnight/20-result.json`, `20-embeddings.json`, `20-selections.json`, `run20.py`.
+
+Built P4 image `bench-codex-speaker-level.bin`, SHA256
+`c094c1cf8ef18b955bc18abca54e3e53b124609d3195b9f31ca38bba793c01e1`.
+Only the already-owned center-cropped speaker job buffer is normalized immediately
+before embedding; no new runtime allocation. Fixed model, rules, pacing, pauses and
+cache configuration remain common. HardwareOne tracked source was restored and clean.
+The queued controller waits for successful 13–18 completion/restoration, then runs
+center conv2, normalized conv2/conv4, center conv4 with speakers at 50%, exclusive
+busy.lock and approved app-only flashes, restoring fixed production afterward.
+Private state: `20-p4-status.json`; controller `overnight/run20_p4.py`.
+P4 timings/quantized accuracy are pending; no defaults changed.
+
+Experiment 09's first P4 conv2 pair is mixed: center/energy majority speaker accuracy
+76.32%/73.68%, unknowns 1/1, label lag 1296.5/1401 ms; both 38 captions, no overruns
+or watchdogs. WER 15.63%/14.83% differs despite unchanged recognition code, illustrating
+acoustic run variation. This single pair does not validate the earlier float gain.
+Conv4 and final baseline are still running; wait for the complete paired report.
+
+Current work: 09 P4 running; 10–12 and 13–18 independently built/queued; 19 rejected
+in offline replay; 20 positive float screen with independent P4 arm built/queued.
+21–24 remain to implement/test. Full 24-experiment goal remains active.

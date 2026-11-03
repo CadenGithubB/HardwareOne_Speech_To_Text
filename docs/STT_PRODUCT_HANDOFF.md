@@ -363,7 +363,9 @@ Neither warrants promotion: no capacity gain; longer windows improve accuracy bu
 increase merges. Quantized/P4 window results remain unchecked. Experiment 09 has a positive fixed-weight float energy-window screen and a new
 counterbalanced conv2/conv4 P4 comparison running. Device results are pending.
 Experiments 10–12 have independent built scheduling/pacing arms and a P4 controller
-queued behind 09; no measurements yet. Experiments 10–24 remain outstanding;
+queued behind 09; no measurements yet. Experiment 19 is screened and rejected;
+20 has a positive float loudness-normalization screen and independent P4 validation
+queued behind recognition. Experiments 10–18, 20 validation and 21–24 remain outstanding;
 the goal stays active.
 
 Recognition experiment arms 13–18 now have a serialized build pipeline and a P4

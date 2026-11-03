@@ -19,3 +19,8 @@ extern "C" int speaker_select(const int16_t* pcm,size_t samples,unsigned policy,
     *threshold=out.threshold_rms;
     return 1;
 }
+
+#include "speaker_level.h"
+extern "C" float speaker_normalize(int16_t* pcm,size_t samples) {
+    return normalize_level(pcm,samples);
+}

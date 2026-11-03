@@ -21,10 +21,18 @@ class Native:
                         str(ENGINE/'speaker_frontend.cpp'),'-o',str(library)],check=True)
         self.lib=ctypes.CDLL(str(library))
         pcm=np.ctypeslib.ndpointer(dtype=np.int16,ndim=1,flags='C_CONTIGUOUS')
+        self.lib.speaker_normalize.argtypes=[pcm,ctypes.c_size_t]
+        self.lib.speaker_normalize.restype=ctypes.c_float
         floats=np.ctypeslib.ndpointer(dtype=np.float32,flags='C_CONTIGUOUS')
         self.lib.speaker_features.argtypes=[pcm,ctypes.c_size_t,floats]
         self.lib.speaker_select.argtypes=[pcm,ctypes.c_size_t,ctypes.c_uint,
                                         ctypes.POINTER(ctypes.c_size_t),ctypes.POINTER(ctypes.c_float)]
+
+    def normalize(self, pcm):
+        """Return an owned normalized copy and applied gain; preserve caller audio."""
+        out=np.array(pcm,dtype=np.int16,copy=True,order='C')
+        gain=self.lib.speaker_normalize(out,len(out))
+        return out,gain
 
     def features(self, pcm):
         pcm=np.ascontiguousarray(pcm,dtype=np.int16)
