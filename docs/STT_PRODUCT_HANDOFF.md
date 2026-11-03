@@ -397,6 +397,12 @@ scoring now distinguishes target corrections from control insertions and ambiguo
 attribution. Additional scheduling captures retain the speed/quality trade-off; final
 baselines and all downstream physical measurements are still pending.
 
+Scheduling 10–12 is complete: ten captures, zero panics/overruns/watchdogs, verified
+production restoration before recognition tests took over. Full deferral cuts median
+labels to ~0.88s but worsens WER and draft freshness against both surrounding controls.
+Bounded deferral/x3 pacing have no general default-change case. Conv4 baseline speaker
+accuracy itself varies substantially; see full counts and limitations in the overnight plan.
+
 ## Current overnight checkpoint — 1 November 2026
 
 - Stable-PCM candidate b7598680 retains bit parity in host/target tests; its
