@@ -32,7 +32,7 @@ confirmation, with rejected candidates retained as measured results.
 | 06 | Resolve a held phrase after subsequent agreeing evidence, with bounded delay | Sequential replay, revisions and delay | Tested offline; reject promotion |
 | 07 | Raise speaker capacity from 8 to 10 | Capacity-triggered unknowns, false-profile count and memory | Tested offline; reject |
 | 08 | Extend speaker input window from 3 s to 4 s | Re-export fixed weights/shape if supported; embedding and device cost | Float screen tested; no promotion |
-| 09 | Select the highest-energy contiguous speaker window instead of the center | Offline acoustic embeddings, identity errors | Planned |
+| 09 | Select the highest-energy contiguous speaker window instead of the center | Offline acoustic embeddings, identity errors | Positive float screen; P4 A/B running |
 | 10 | Defer draft admission while a speaker job is executing | P4 paired runs, labels versus draft freshness and WER | Planned |
 | 11 | Bound draft deferral to 100 ms | Independent P4 scheduling arm, same endpoints | Planned |
 | 12 | Increase draft pacing multiplier from 2 to 3 | P4 paired runs, contention versus shown-text lag | Planned |
@@ -231,3 +231,46 @@ fixture index and seed separately per arm. Evidence under ignored overnight fold
 Current checkpoint: 01–08 have measured screens, with explicitly limited scope for 08.
 09–24 remain outstanding. Next: energy-selected speaker windows (09), then P4 draft /
 speaker scheduling (10–12). No production defaults or fixed model weights changed.
+
+
+### 09 — Highest-energy contiguous speaker window
+
+Added opt-in policy 3 to the actual portable C++ selector: maximize raw PCM sum of
+squares over a fixed 2.99-second contiguous window, testing 10 ms start positions,
+the exact final endpoint and the center; equal-energy ties favor the center. The
+allocation-free `highest_energy_start` helper can be used by the P4 copy adapter.
+Unlike policy 1, this measures energy magnitude rather than active-frame density.
+Default selection and window/model size remain unchanged. Sanitizer-backed selector
+checks include constant-energy center ties, stronger beginning audio, exact non-grid
+endpoint inclusion, randomized bounds and all older policy tests.
+
+Fresh float embeddings use the same fixed weights, 300 frames, per-clip boundaries,
+converted 16 kHz source audio, references, threshold, and matched shuffle orders as 08.
+Only the window selector changes. Six fixtures, 175 scored phrases per order:
+
+| Selector | Recorded coverage / accuracy | Recorded splits / merges per 100 | All-orders coverage / accuracy | All-orders splits / merges per 100 |
+|---|---:|---:|---:|---:|
+| Center | 89.1% / 82.9% | 6.29 / 0.00 | 89.8% / 83.2% | 6.50 / 0.16 |
+| Energy | 90.9% / 85.7% | 5.14 / 0.00 | 90.6% / 84.5% | 5.99 / 0.16 |
+
+This passes the aggregate float-screen identity-error criterion, but is not production
+qualification. Result/embeddings/selections: ignored `overnight/09-result.json`,
+`09-embeddings.json`, `09-selections.json`. New window contents may alter quantized
+embeddings, runtime, noisy-audio behavior and mixed-speaker sensitivity.
+
+A P4 arm was built with `build_arms.sh`, x2f pacing, unchanged production rules/pauses,
+64-byte cache lines and 250 MHz PSRAM. Only long-phrase speaker-window start selection
+changes; recognition PCM and phrase sample counts stay intact. The adapter selects
+before copying the fixed speaker job buffer, without extra runtime allocations.
+`bench-codex-energy-window.bin` SHA256:
+`474a9c29f0030baeec00bd792bb5fa3d099179310485c3c251326eeae265dd20`.
+HardwareOne source files were restored after the build and tracked checkout is clean.
+
+The P4 controller is running a new paired acoustic screen: center conv2, energy conv2,
+energy conv4, center conv4, using Mac mini speakers at 50%. It owns busy.lock, uses the
+approved app-only flash helper, and restores verified `soak-app.bin` in its finalizer.
+Counterbalancing addresses order in part; these are still single runs per fixture/arm.
+Evidence: `private/resume-20261102/09-p4-status.json` and
+`overnight/09-p4-controller.log`, controller `overnight/run09_p4.py`.
+P4 results are pending: do not count the positive float screen as a device improvement.
+10–24 remain outstanding; scheduling is next after this promising-candidate check.

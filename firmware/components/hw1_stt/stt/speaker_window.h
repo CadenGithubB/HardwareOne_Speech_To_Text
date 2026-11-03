@@ -20,14 +20,46 @@ inline size_t window_workspace_floats(size_t samples) {
     return 2*window_frames(samples)+1;
 }
 
+// Allocation-free selector for a caller that already owns a fixed-size PCM job buffer.
+inline size_t highest_energy_start(const int16_t* pcm,size_t samples,size_t span,size_t hopSamples=160) {
+    if(!pcm || !span || samples<=span || !hopSamples)return 0;
+    const size_t center=(samples-span)/2;
+    size_t chosen=center;
+        auto energyAt=[&](size_t start) {
+            double value=0;
+            for(size_t j=0;j<span;++j)value+=double(pcm[start+j])*pcm[start+j];
+            return value;
+        };
+        double bestEnergy=energyAt(center), rolling=energyAt(0);
+        auto considerEnergy=[&](size_t start,double value) {
+            const size_t distance=start>center ? start-center : center-start;
+            const size_t oldDistance=chosen>center ? chosen-center : center-chosen;
+            if(value>bestEnergy || (value==bestEnergy && distance<oldDistance)) {
+                bestEnergy=value;chosen=start;
+            }
+        };
+        considerEnergy(0,rolling);
+        size_t previous=0;
+        while(previous<samples-span) {
+            const size_t next=std::min(previous+hopSamples,samples-span);
+            for(size_t j=previous;j<next;++j) {
+                rolling-=double(pcm[j])*pcm[j];
+                rolling+=double(pcm[j+span])*pcm[j+span];
+            }
+            considerEnergy(next,rolling);previous=next;
+        }
+    return chosen;
+}
+
 // policy 0: existing center crop; 1: densest energy-active fixed window;
+// 3: highest raw PCM energy fixed window (10 ms candidate grid + exact end).
 // 2: additionally trim inactive ends with 100 ms context. No disjoint splicing.
 // Fixed before evaluation: 20 ms energy frames/10 ms hop, threshold max(32 PCM
 // RMS, 0.1*p90 RMS), 2.99 s maximum. Threshold is utterance-relative; background
 // noise or a second speaker can qualify as activity.
 inline bool select_window(const int16_t* pcm,size_t samples,unsigned policy,
                           float* workspace,size_t workspace_count,WindowSelection& out) {
-    if(!pcm || !samples || policy>2 || !workspace ||
+    if(!pcm || !samples || policy>3 || !workspace ||
        workspace_count<window_workspace_floats(samples))return false;
     constexpr size_t span=299*160, hop=160, frame=320, context=1600;
     const size_t count=window_frames(samples);
@@ -62,6 +94,11 @@ inline bool select_window(const int16_t* pcm,size_t samples,unsigned policy,
         return b>=a ? size_t(scratch[b]-scratch[std::min(a,count)]) : size_t(0);
     };
     out.selected_active_frames=active(center);
+    if(policy==3 && samples>length) {
+        out.start=highest_energy_start(pcm,samples,length);
+        out.selected_active_frames=active(out.start);
+        return true;
+    }
     if(!policy || !out.active_frames || hi-lo<=span)return true;
     size_t best=out.selected_active_frames;
     auto consider=[&](size_t start) {

@@ -45,15 +45,22 @@ int main() {
   auto trimmed=choose(pcm,2);assert(trimmed.start>0 && trimmed.start<8000);
   assert(trimmed.start+trimmed.samples>24000 && trimmed.start+trimmed.samples<32000);
   pcm.assign(80000,1024);assert(choose(pcm,1).start==choose(pcm,0).start);
+  assert(choose(pcm,3).start==choose(pcm,0).start);
+  pcm.assign(120000,1000);
+  for(size_t i=0;i<16000;++i)pcm[i]=16000;
+  auto strongest=choose(pcm,3);assert(strongest.start==0);
+  // Exact non-grid endpoint remains eligible.
+  pcm.assign(90001,0);pcm.back()=30000;
+  strongest=choose(pcm,3);assert(strongest.start==pcm.size()-47840);
   std::mt19937 rng(4);
   for(size_t n: {1,159,320,16000,47840,160000}) {
     pcm.resize(n);for(auto& v:pcm)v=int16_t(rng());
-    for(unsigned mode=0;mode<3;++mode)choose(pcm,mode);
+    for(unsigned mode=0;mode<4;++mode)choose(pcm,mode);
   }
   WindowSelection result;float w[3];int16_t x=0;
   assert(!select_window(nullptr,1,0,w,3,result));
   assert(!select_window(&x,0,0,w,3,result));
-  assert(!select_window(&x,1,3,w,3,result));
+  assert(!select_window(&x,1,4,w,3,result));
   assert(!select_window(&x,1,0,w,2,result));
   // Actual native frontend: guarded workspace and output, including tiny and
   // long inputs. This validates memory bounds, not speaker accuracy.

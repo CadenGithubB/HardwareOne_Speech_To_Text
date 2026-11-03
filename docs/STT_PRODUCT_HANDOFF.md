@@ -360,8 +360,9 @@ The user expanded the required plan to 24. Experiment 04 repeated-history stress
 with no promotion justified: sequential accuracy/coverage or identity errors regress.
 Experiments 07 (capacity) and 08 (fixed-weight float window screen) are now measured.
 Neither warrants promotion: no capacity gain; longer windows improve accuracy but
-increase merges. Quantized/P4 window results remain unchecked. Experiments 09–24
-remain outstanding; the goal stays active.
+increase merges. Quantized/P4 window results remain unchecked. Experiment 09 has a positive fixed-weight float energy-window screen and a new
+counterbalanced conv2/conv4 P4 comparison running. Device results are pending.
+Experiments 10–24 remain outstanding; the goal stays active.
 
 ## Current overnight checkpoint — 1 November 2026
 
