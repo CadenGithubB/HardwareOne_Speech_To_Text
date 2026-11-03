@@ -619,3 +619,25 @@ The natural clip references and estimated playback onset still limit absolute li
 latency and per-phrase identity attribution. The scorer records ±0.5s sensitivity;
 repeat validation with measured playback onset is required before promoting a promising
 candidate. No default changed, no failed/ambiguous reference was silently hidden.
+
+
+### Playback alignment preparation and first x3 result — 3 November 2026
+
+Read-only CoreAudio inspection confirmed Mac mini output volume 50%, 48 kHz output,
+and reported pipeline components totaling 1,100 frames (22.917 ms). Output was already
+running because an authorized live test was playing. No audio or board operation was
+started by this query.
+
+Added a pure playback alignment estimator, with tests for known timing, round-trip
+uncertainty, missing/ambiguous IO transitions, invalid clocks and unavailable latency.
+It retains `snapshot_age_unmeasured` / `acoustic_onset_measured=false`; CoreAudio IO
+start plus nominal pipeline is not acoustic correlation. This helper is prepared for
+future measured repeats, not integrated into the already-running/queued trials, and
+not used to revise past alignments. Do not call existing absolute latency exact.
+
+First x3 pacing conv2 capture: WER 16.43%, actual correct speaker phrases 29/38,
+unknown 1, merges 8, matching the baseline-before point estimates. Median label delay
+1283.0 versus baseline 1286.5 ms; trunk 1158.699 versus 1165.735 ms. Shown-text lag
+worsened 1256 -> 1356 ms. No convincing label advantage from this point; conv4 and
+baseline-after remain pending. Full scheduling report must use both final baselines,
+not pick the favorable individual comparisons. Source: live scheduling metrics JSON.

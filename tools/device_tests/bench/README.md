@@ -108,3 +108,10 @@ target denominator. Pooled raw WER is unchanged; no alias or formatting rewrite 
 spelling/tokenization differences. Treat clip attribution as provisional when audio
 alignment is uncertain, and never interpret zero attributable insertions as proof when
 mixed/unattributed terms are present.
+
+`playback_alignment.py` provides a tested estimator for future instrumented repeats:
+combine a board-status round trip, an observed CoreAudio output-IO start and output
+pipeline estimate. It explicitly rejects already-running output, missing transitions
+and invalid clock data. It does not measure acoustic onset or snapshot age, and is
+not retroactively applied to earlier captures. Existing queued controllers still use
+their recorded sample-offset estimates; keep their timing limitations visible.
