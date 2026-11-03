@@ -1008,18 +1008,18 @@ coverage remain valid for all captures. Both initial and final controls are reta
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | baseline-before | conv2 | 15.83% | 29/38 | 0/38 | 0/9 | 1778/2509 | 1251 | 1285.0 |
 | baseline-before | conv3 | 24.89% | 43/48 | 3/48 | 2/0 | 1303/1943 | 1112 | 1287.5 |
-| 13 | conv2 | 14.03% | 28/38 | 1/38 | 0/9 | 1766/2498 | 1254 | P4 screen complete; controls drift; no promotion |
-| 13 | conv3 | 33.26% | 36/47 | 8/47 | 3/1 | 1581/2569 | 1314 | P4 screen complete; controls drift; no promotion |
-| 14 | conv2 | 19.04% | 28/38 | 2/38 | 0/8 | 2205/3507 | 1758 | P4 screen complete; controls drift; no promotion |
-| 14 | conv3 | 29.61% | 28/44 | 11/44 | 5/1 | 1766/2559 | 1550 | P4 screen complete; controls drift; no promotion |
-| 15 | conv2 | 20.44% | 28/38 | 2/38 | 0/8 | 2329/3502 | 1709 | P4 screen complete; controls drift; no promotion |
-| 15 | conv3 | 31.12% | 22/46 | 19/46 | 5/1 | 1734/2875 | 1480 | P4 screen complete; controls drift; no promotion |
-| 16 | conv2 | 20.04% | 27/38 | 2/38 | 0/9 | 1833/3440 | 1789 | P4 screen complete; one rejected alignment; no promotion |
-| 16 | conv3 | 28.54% | unqualified | 3/45 | unqualified | unqualified | 1510 | P4 screen complete; one rejected alignment; no promotion |
-| 17 | conv2 | 23.85% | 27/37 | 1/37 | 0/9 | 2038/3461 | 1722 | P4 screen complete; controls drift; no promotion |
-| 17 | conv3 | 31.76% | 24/46 | 16/46 | 6/2 | 1664/2566 | 1540 | P4 screen complete; controls drift; no promotion |
-| 18 | conv2 | 21.44% | 27/36 | 2/37 | 0/7 | 2306/4445 | 1712 | P4 screen complete; controls drift; no promotion |
-| 18 | conv3 | 30.26% | 27/45 | 15/45 | 3/0 | 1874/2817 | 1521 | P4 screen complete; controls drift; no promotion |
+| 13 | conv2 | 14.03% | 28/38 | 1/38 | 0/9 | 1766/2498 | 1254 | 1282.0 |
+| 13 | conv3 | 33.26% | 36/47 | 8/47 | 3/1 | 1581/2569 | 1314 | 2901 |
+| 14 | conv2 | 19.04% | 28/38 | 2/38 | 0/8 | 2205/3507 | 1758 | 3042.0 |
+| 14 | conv3 | 29.61% | 28/44 | 11/44 | 5/1 | 1766/2559 | 1550 | 3589.0 |
+| 15 | conv2 | 20.44% | 28/38 | 2/38 | 0/8 | 2329/3502 | 1709 | 3553.5 |
+| 15 | conv3 | 31.12% | 22/46 | 19/46 | 5/1 | 1734/2875 | 1480 | 3256.5 |
+| 16 | conv2 | 20.04% | 27/38 | 2/38 | 0/9 | 1833/3440 | 1789 | 3073.0 |
+| 16 | conv3 | 28.54% | unqualified | 3/45 | unqualified | unqualified | 1510 | 3354 |
+| 17 | conv2 | 23.85% | 27/37 | 1/37 | 0/9 | 2038/3461 | 1722 | 2916 |
+| 17 | conv3 | 31.76% | 24/46 | 16/46 | 6/2 | 1664/2566 | 1540 | 3516.0 |
+| 18 | conv2 | 21.44% | 27/36 | 2/37 | 0/7 | 2306/4445 | 1712 | 3525 |
+| 18 | conv3 | 30.26% | 27/45 | 15/45 | 3/0 | 1874/2817 | 1521 | 3514 |
 | baseline-after | conv2 | 22.85% | 28/39 | 2/39 | 0/9 | 2125/3531 | 1682 | 3001 |
 | baseline-after | conv3 | 30.47% | 32/46 | 11/46 | 3/1 | 1751/2506 | 1524 | 3815.5 |
 
