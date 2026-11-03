@@ -1,12 +1,14 @@
 # STT experiment results — provisional, 3 November 2026
 
 This is a concise ledger for the 24 required experiments. It is **not a completion
-report**: 20 of 24 experiment screens are measured; four physical comparisons remain.
-Approved, verified diagnostic-log cleanup recovered
-757,760 bytes of internal flash space, and the physical queue has resumed. Ring reconnect
-was confirmed off after reboot; setup watchdog warnings remain in the stability record. The detailed protocol, exact
-numbers, raw-artifact locations and limitations are in
-[STT_OVERNIGHT_EXPERIMENTS.md](STT_OVERNIGHT_EXPERIMENTS.md).
+report**: 23 of 24 initial screens are measured. The vocabulary comparison is
+incomplete; watchdog repeats and broader candidate qualification remain. The earlier
+approved cleanup freed 757,760 bytes, but later storage pressure invalidated the two
+failed vocabulary conv3 attempts. A current audit found no filesystem-full messages
+in the other 36 captures checked (13–18, 20 and 21–23 plus vocabulary controls/target).
+Absence of that message does not resolve their other qualification limits.
+See [STT_ACTIONABLE_FINDINGS.md](STT_ACTIONABLE_FINDINGS.md) for ordered next actions
+and [STT_OVERNIGHT_EXPERIMENTS.md](STT_OVERNIGHT_EXPERIMENTS.md) for detailed results.
 
 No experimental production defaults have been adopted. No branches were pushed.
 Hardware tests use the verified P4, fixed models, 64-byte cache lines and 250 MHz
@@ -37,14 +39,15 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 | 19 | Require confidence gap ≥0.08 for profile updates | Independent device-embedding replay regresses identity metrics. Reject. |
 | 20 | Speaker-input RMS normalization | Float gain did not transfer to P4: conv2 unknowns 1/38 → 19/38, correct labels 28/38 → 18/38; conv4 also trails fresh control. No promotion. |
 
-## Implemented; physical results pending
+| 21 | Freeze noise-floor/history adaptation during speech | All captures/controls complete. WER 18.84/26.61% versus final controls 19.04/26.39%; initial apparent gain is not established beyond control drift. No promotion. |
+| 22 | Maximum segment 10 → 8s | All natural/stress captures and controls complete. Stress WER 16.67% versus controls 12.00/13.33%; natural identity mixed. Cut mechanism exercised; no promotion. |
+| 23 | Force completed-phrase re-decode | All captures/controls complete. Label medians 7.363/14.744s versus initial 2.690/3.199s; five audio-pressure rejections and one session watchdog. Conv3 reference alignment rejected. No promotion. |
+
+## Incomplete physical comparison
 
 | ID | Single change | Current scope |
 |---|---|---|
-| 21 | Freeze noise-floor/history adaptation during speech | Both natural fixtures captured: WER improves vs initial controls, but one extra conv2 merge and higher label lag. Trailing controls pending. |
-| 22 | Maximum segment 10 → 8s | Natural/stress captures complete. Cut cap exercised; stress WER worse and natural identity mixed. Trailing controls pending. |
-| 23 | Force completed-phrase re-decode | Both candidates captured; reuse 0/0 while speculation continues. High label lag, five pressure-rejected speaker jobs and one session watchdog. Final controls running. |
-| 24 | Four-term bounded vocabulary bias | Decoder mechanism tested; frozen target/control fixture and independent image queued. Actual effective bonus is existing 1.0 nat under a 1.5 ceiling. |
+| 24 | Four-term bounded vocabulary bias | Baseline target/natural captures and candidate target captured. Candidate natural capture failed with filesystem-full errors. Same-image repeat interrupted under the same storage pressure, with zero captions. Final controls and clean repeat missing; no vocabulary quality/failure claim. |
 
 Rows marked queued/built are not counted as measured device results. Offline identity
 replays cannot establish firmware speed or stability. Host float windows do not prove
@@ -80,7 +83,7 @@ sensitivity, mixed/no-reference exclusions and missing labels; absolute manifest
 latencies and per-phrase attribution remain provisional. No held-out-speaker success,
 raw sample-clock microphone correlation, SD power-loss behavior or battery-life gain is claimed.
 
-Remaining: complete queued physical batches, verify each mechanism was exercised,
+Remaining: resolve storage headroom, finish vocabulary and mandatory watchdog repeats, verify each mechanism was exercised,
 score target corrections versus control insertions, inspect faults and memory, compare
 both bracketing baselines, and produce the final 24-item report. Promising candidates
 need repeat/held-out qualification before production promotion. Verify final production

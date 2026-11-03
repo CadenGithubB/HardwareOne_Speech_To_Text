@@ -44,10 +44,10 @@ confirmation, with rejected candidates retained as measured results.
 | 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | P4 screen complete; controls drift; no promotion |
 | 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Tested offline; reject |
 | 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | P4 complete; no promotion |
-| 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Paired captures complete; trailing controls pending |
-| 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Natural/stress captures complete; controls pending |
-| 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | Paired captures complete; final controls running |
-| 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | Built; target/control P4 queued |
+| 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | P4 screen and controls complete; no promotion |
+| 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | P4 natural/stress screen and controls complete; no promotion |
+| 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | P4 screen and controls complete; no promotion; watchdog repeat pending |
+| 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | P4 incomplete; storage-confounded failure; clean repeat and controls pending |
 
 Implementation feasibility and exact existing defaults must be inspected before each
 change. If an implementation is unsupported, record the concrete obstacle and choose
