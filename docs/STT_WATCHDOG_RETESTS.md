@@ -88,3 +88,16 @@ capture timestamps plus paired Arduino/IDF clock origins, rather than output ord
 to distinguish after-capture events. Original session counters include STT startup and
 remain a separately reported scope. Capture start is not acoustic playback onset.
 Private evidence: `private/resume-20261102/overnight/existing-watchdog-repeats.json`.
+
+The earlier `live-status`, speaker-profile and speaker-int64 groups were audited too:
+eight finalized captures, zero whole-log watchdog and filesystem-full messages. The
+additional unlisted failed conv2 capture at 22:41 on 2 November has 32 whole-log
+watchdog messages (28 in the recorded session counter) and 32 filesystem-full errors.
+A later conv2 capture at 22:54 completed with zero of either message and the same P4
+ELF identifier prefix. This is a changed-condition repeat, not a controlled fix or proof
+of identical historical peer policy. Do not score the failed capture against a full
+reference or recreate its full-filesystem condition. Broader clean-storage x2f testing
+will provide another current-policy conv2 observation.
+
+Private provenance: `overnight/earlier-capture-watchdog-audit.json` and
+`overnight/earlier-storage-failure-repeat.json` under the existing private run root.
