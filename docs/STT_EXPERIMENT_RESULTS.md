@@ -41,7 +41,7 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 
 | ID | Single change | Current scope |
 |---|---|---|
-| 21 | Freeze noise-floor/history adaptation during speech | Opt-in C++ policy and mechanism test pass; independent P4 image queued. |
+| 21 | Freeze noise-floor/history adaptation during speech | Opt-in C++ policy/mechanism check pass; P4 running with fresh controls. |
 | 22 | Maximum segment 10 → 8s | Sample conservation checked; independent image queued, with separate long-speech stress controls. |
 | 23 | Force completed-phrase re-decode | Baseline already guards exact speculative coverage. Counterfactual policy tested and built; P4 queued. |
 | 24 | Four-term bounded vocabulary bias | Decoder mechanism tested; frozen target/control fixture and independent image queued. Actual effective bonus is existing 1.0 nat under a 1.5 ceiling. |

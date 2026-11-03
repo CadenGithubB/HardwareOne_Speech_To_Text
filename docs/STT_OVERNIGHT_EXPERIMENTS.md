@@ -44,7 +44,7 @@ confirmation, with rejected candidates retained as measured results.
 | 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | P4 screen complete; controls drift; no promotion |
 | 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Tested offline; reject |
 | 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | P4 complete; no promotion |
-| 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Built; P4 queued |
+| 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | P4 running; fresh controls captured |
 | 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Built; P4 queued |
 | 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | Built; P4 queued |
 | 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | Built; target/control P4 queued |
@@ -1094,3 +1094,21 @@ reports: `20-final-rms-alignment.json`, `20-final-rms-metrics.json`, and
 `20-level-conditions.json`. Fixed-production restoration is verified in controller state
 and its successful terminal handle. Ring reconnect read back disabled before each setup.
 Experiment20 is measured; 21–24 remain in physical evaluation. No defaults changed.
+
+### 21–23 control checkpoint and updated comparison view
+
+Initial controls on conv2/conv3/long22 completed; arm21 conv2 completed and conv3 is
+running. The long22 control's RMS fit fails the unchanged quality gate (all/even/odd
+correlations 0.532/0.416/0.666). Its sparse wall-clock RMS evidence does not qualify
+reference-end latency; no silent status-onset fallback. Global WER, boundary counts,
+raw label coverage and device-internal intervals remain available. Natural controls
+and arm21 conv2 pass. Partial artifacts: `21-23-progress-rms-alignment.json` and
+`21-23-progress-rms-metrics.json`; one explicit alignment error, not a firmware fault.
+
+An updated numeric recognition comparison view was prepared from the final corrected
+13–18 report: 15 qualified identity points, with arm16 conv3 explicitly omitted rather
+than plotted as zero. Control movement is shown as observed drift, not confidence
+intervals. It was inspected at desktop and 320px widths, and series/run selection was
+verified. Numeric-only source/hash provenance stays in ignored `visual-provenance.json`;
+no raw captions, voiceprints or credentials were included. The temporary loopback preview
+server and browser tab were closed. The board test chain continues independently.
