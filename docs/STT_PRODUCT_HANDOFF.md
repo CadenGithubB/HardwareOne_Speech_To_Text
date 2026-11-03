@@ -951,3 +951,8 @@ failed the fixed RMS alignment gate; its identity accuracy and true lag are with
 not silently replaced by the stale status estimate. Raw unknown coverage is 2/38 and
 3/45 captions. Activation was verified in retained sample counts. Arm17 is decoding
 successfully at measured LM strength 0.900. Trailing controls remain pending.
+
+Arm17 (LM strength 0.9) completed both fixtures with actual 0.900 successful
+decodes. WER is 23.85%/31.76%, worse than initial controls; one-to-one identity
+27/37 and 24/46, raw unknowns 1/37 and 16/46. No adoption is supported from this
+partial group. Arm18 is running; final controls and the shared slowdown audit remain.

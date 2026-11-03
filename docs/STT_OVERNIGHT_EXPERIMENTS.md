@@ -944,3 +944,23 @@ No quality-preserving general win is established versus initial control WER
 
 Arm17 is running; actual `TL lm_decode` telemetry already shows strength 0.900 and
 successful decoding, confirming that the intended LM change is exercised.
+
+### Arm17 completed: LM strength ×0.9
+
+Both captures pass the fixed RMS consistency gates. Successful decoder calls at actual
+strength 0.900 number 99 (conv2) and 108 (conv3), versus baseline strength 1.000.
+Cancellation counts are 1/3, with no other decoder statuses. The fixed recognition
+weights, configured file beam 32, and vocabulary remain unchanged.
+
+| Fixture | WER | Right/scored | Raw unknown/all | Split/merge | Final median/p90 ms | Missed ends | Shown median ms | Label median ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| conv2 | 23.85% | 27/37 | 1/37 | 0/9 | 2038/3461 | 1 | 1722 | 2916 |
+| conv3 | 31.76% | 24/46 | 16/46 | 6/2 | 1664/2566 | 3 | 1540 | 3516 |
+
+Conv3 raw unknown reasons are 15 ambiguous and one short no-match; no missing speaker
+diagnostics. Internal minima are 185,656/185,516 B and PSRAM minima 1,839,052/1,917,772 B.
+Both runs have zero session watchdogs/panics and three boot/setup watchdog warnings.
+No quality-preserving improvement is established against the initial controls; final
+controls remain necessary given the shared post-recovery slowdown. Arm18 is running.
+The corrected report contains 11 qualified captures and one explicit rejected alignment
+(arm16 conv3); original-estimate/raw coverage output contains all 12 completed captures.
