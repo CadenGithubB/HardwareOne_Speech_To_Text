@@ -745,3 +745,28 @@ ignored private storage, fsynced, reread from disk, then independently read agai
 the board and compared byte for byte. SHA256 values and file paths are in the private
 backup report. All original board files remain intact; lock released. No queued
 controller remains live. Cleanup approval is still required.
+
+### Offline recovery preparation while cleanup approval is pending
+
+The private recognition controller now requires `--resume` when a checkpoint exists.
+It validates the previous failed/restored state, keeps completed captures and interruption
+history, rejects duplicate capture keys, skips completed arm/fixture pairs before flashing,
+and requires all 16 unique captures before completion. An isolated checkpoint check
+executed only initialization/selection logic (no serial-helper import or board access):
+three captures retained, 13 remaining, first pending arm13/conv3. The unchanged queued
+13–18, 20, 21–23 and 24 firmware manifests were rehashed successfully. This prepares a
+resume; it does not authorize cleanup or restart any hardware controller.
+
+Partial recognition results (estimated acoustic alignment, no post-control yet):
+
+| Arm | Fixture | WER | One-to-one correct/scored | Unknown | Session watchdog/panic |
+|---|---|---:|---:|---:|---:|
+| baseline-before | conv2 | 15.83% | 29/38 | 0 | 0/0 |
+| baseline-before | conv3 | 24.89% | 42/47 | 3 | 0/0 |
+| 13: recognition gain 1.25x | conv2 | 14.03% | 28/38 | 1 | 0/0 |
+
+The apparent conv2 WER improvement comes with one fewer correctly attributed speaker;
+without conv3 and the post-controls, neither improvement nor a causal regression is
+qualified. The failed conv3 setup's filesystem watchdog is retained separately and
+must not be hidden by the zero session-watchdog figures above. All broader physical
+comparisons remain stopped, pending approved space recovery. No defaults changed.
