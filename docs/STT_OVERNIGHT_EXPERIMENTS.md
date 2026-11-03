@@ -43,7 +43,7 @@ confirmation, with rejected candidates retained as measured results.
 | 17 | Lower language-model influence by 10% | Fixed-audio decoder replay, substitutions and WER | P4 screen complete; controls drift; no promotion |
 | 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | P4 screen complete; controls drift; no promotion |
 | 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Tested offline; reject |
-| 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | Positive float screen; P4 running |
+| 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | P4 complete; no promotion |
 | 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Built; P4 queued |
 | 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Built; P4 queued |
 | 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | Built; P4 queued |
@@ -1059,3 +1059,38 @@ controls on both fixtures. Arm16 has unqualified conv3 identity/true lag; arm18 
 has the active-session watchdog. These are measured screens, not proof the hypotheses
 can never help under another setting. Production defaults remain unchanged.
 Normalization (20) is now running with its own fresh controls; 21–24 remain queued.
+### Arm20 P4 comparison complete: speaker-input RMS normalization
+
+All four captures completed, all RMS alignment fits pass, and the controller restored
+and verified fixed production before the segmentation group took over. This is one
+control and one candidate capture per fixture, counterbalanced in order; not replicated
+qualification. Fresh controls use the same x2f/model/cluster settings and center window.
+
+| Arm | Fixture | WER | Right/scored | Raw unknown/all | Split/merge | Final median/p90 ms | Shown median ms | Label median ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| center control | conv2 | 22.44% | 28/38 | 1/38 | 0/9 | 2341/3533 | 1715 | 3190 |
+| normalized | conv2 | 20.84% | 18/38 | 19/38 | 1/0 | 2184/3530 | 1696 | 3364.5 |
+| normalized | conv4 | 18.94% | 30/33 | 3/33 | 0/0 | 2669/3768 | 2367 | 3769 |
+| center control | conv4 | 16.38% | 33/35 | 2/35 | 0/0 | 2473/3756 | 2130 | 3624 |
+
+All unknowns are ambiguous matches; no missing speaker diagnostics. Conv2 false merges
+fall from nine to zero, but this comes with a large coverage/one-to-one accuracy loss,
+not the requested reduction in unknowns without extra errors. Conv4 also has lower
+measured coverage/accuracy than its fresh control. The small positive fixed-weight
+float screen therefore did **not** transfer into a general P4 gain for this configuration.
+Reject promotion. This does not disprove all possible normalization targets/gain bounds.
+
+The only input mutation is to the already cropped speaker-job PCM, in place; recognition
+PCM is unchanged. Do not credit the conv2 WER difference to recognition-input processing.
+The configured target is RMS 1000 with gain limited to [0.25,4], saturated rounding.
+Actual P4 gain, DC contribution and clipping counts are **not instrumented**. The
+normalization call precedes `speakerLabelAndLog`, so its loop cost is outside the
+reported speaker-job/trunk timer; end-to-end label lag includes it and other contention.
+Do not infer negligible preprocessing cost from trunk timing alone.
+
+Stability: zero session watchdogs, panics or overruns; twelve boot/setup watchdog warning
+occurrences. Minimum internal low-water 180,288 B, PSRAM 1,812,876 B. Private canonical
+reports: `20-final-rms-alignment.json`, `20-final-rms-metrics.json`, and
+`20-level-conditions.json`. Fixed-production restoration is verified in controller state
+and its successful terminal handle. Ring reconnect read back disabled before each setup.
+Experiment20 is measured; 21–24 remain in physical evaluation. No defaults changed.

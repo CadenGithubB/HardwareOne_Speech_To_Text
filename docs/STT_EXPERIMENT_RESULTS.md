@@ -1,7 +1,7 @@
 # STT experiment results — provisional, 3 November 2026
 
 This is a concise ledger for the 24 required experiments. It is **not a completion
-report**: 19 of 24 experiment screens are measured; five physical comparisons remain.
+report**: 20 of 24 experiment screens are measured; four physical comparisons remain.
 Approved, verified diagnostic-log cleanup recovered
 757,760 bytes of internal flash space, and the physical queue has resumed. Ring reconnect
 was confirmed off after reboot; setup watchdog warnings remain in the stability record. The detailed protocol, exact
@@ -35,12 +35,12 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 | 17 | LM strength ×0.9 | Successful 0.900 decodes; WER worse than both controls on both fixtures. No promotion. |
 | 18 | Decoder beam width ×1.25 | No general quality win; one conv3 session watchdog and lower PSRAM headroom. No promotion. |
 | 19 | Require confidence gap ≥0.08 for profile updates | Independent device-embedding replay regresses identity metrics. Reject. |
+| 20 | Speaker-input RMS normalization | Float gain did not transfer to P4: conv2 unknowns 1/38 → 19/38, correct labels 28/38 → 18/38; conv4 also trails fresh control. No promotion. |
 
 ## Implemented; physical results pending
 
 | ID | Single change | Current scope |
 |---|---|---|
-| 20 | Speaker-input RMS normalization | Small positive float screen; P4 comparison is running with fresh controls. |
 | 21 | Freeze noise-floor/history adaptation during speech | Opt-in C++ policy and mechanism test pass; independent P4 image queued. |
 | 22 | Maximum segment 10 → 8s | Sample conservation checked; independent image queued, with separate long-speech stress controls. |
 | 23 | Force completed-phrase re-decode | Baseline already guards exact speculative coverage. Counterfactual policy tested and built; P4 queued. |
@@ -59,9 +59,9 @@ can never help under another setting or domain.
 - Speaker labels remain sensitive to capture/segmentation and phrase order. Identical
   baseline images gave conv4 one-to-one accuracy 32/34 and 26/34. That variability must
   not be mistaken for a candidate's causal effect.
-- Energy-selected windows and loudness normalization are research leads, with positive
-  float results. Energy selection's first P4 result is mixed; normalization is unmeasured
-  on P4. Neither is ready for automatic adoption.
+- Float gains do not establish P4 gains. Energy selection remains mixed; normalization
+  increased unknowns sharply on conv2 and also trailed its conv4 control. Neither is
+  ready for adoption.
 - Recognition controls drifted: identical-image WER changed 15.83 → 22.85% on conv2
   and 24.89 → 30.47% on conv3. Estimated noise floors rose too. Candidate results
   inside that range are not causal regressions or demonstrated wins. One wider-beam

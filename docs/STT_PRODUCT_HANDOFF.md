@@ -978,3 +978,14 @@ inside those ranges solely to their code change. The cause is unresolved. SDKcon
 match and host speaker route/volume were verified. Corrected final tables and source
 hashes are recorded in STT_OVERNIGHT_EXPERIMENTS.md. Nineteen of 24 screens are now
 measured; 20–24 remain in physical evaluation. No defaults changed or branches pushed.
+
+### Speaker normalization screen complete; 20/24 measured
+
+The four-capture normalization comparison completed and fixed production was restored
+and verified. Conv2 correct speaker labels fell 28/38 → 18/38 and unknowns rose
+1/38 → 19/38, despite fewer false merges. Conv4 also trailed its fresh control
+(30/33 versus 33/35 correct). The positive float screen did not transfer into a general
+P4 win. No promotion; actual P4 gain/DC/clipping telemetry was not instrumented.
+Zero session watchdogs/panics/overruns; twelve setup warning occurrences. Detailed
+corrected timings and limitations are in STT_OVERNIGHT_EXPERIMENTS.md. The serialized
+21–23 group is taking over, followed by 24. No production defaults changed.
