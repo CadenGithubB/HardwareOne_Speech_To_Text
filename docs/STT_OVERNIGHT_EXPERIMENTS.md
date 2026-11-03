@@ -797,3 +797,27 @@ at device times ~26.9 and 40.4 s, before ring readback, settings save and `stt s
 (~68.9 s). Keep these setup warnings in total fault reporting; the recovered comparison
 must not be described as watchdog-free. The scorer separately reports session and
 setup-inclusive watchdog counts. Recognition is in progress; no candidate is yet qualified.
+
+### Arm13 paired fixtures completed; trailing controls still pending
+
+The scorer finalized four recognition-group captures without errors (`13-18-progress-metrics.json`).
+The recognition-only 1.25x gain image has now completed both fixtures. These remain
+preliminary comparisons against the initial control, not qualified causal effects:
+
+| Arm | Fixture | WER | One-to-one right/scored | Unknown | Split/merge | Final lag median/p90 ms | Shown median ms | Speaker-label median ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| baseline-before | conv2 | 15.83% | 29/38 | 0 | 0/9 | 3262/4000 | 1251 | 1285 |
+| gain 1.25x | conv2 | 14.03% | 28/38 | 1 | 0/9 | 2683/3415 | 1254 | 1282 |
+| baseline-before | conv3 | 24.89% | 42/47 | 3 | 2/0 | 2255/2963 | 1112 | 1287.5 |
+| gain 1.25x | conv3 | 33.26% | 35/46 | 8 | 3/1 | 3091/4079 | 1314 | 2901 |
+
+Conv3 speaker trunk median increased from 1130.818 to 2249.772 ms, with draft overlap
+on 39/47 jobs versus 30/48. Frontend/head medians stayed near 61/35 ms. The gain patch
+was rechecked: only recognition frontend int16-to-float conversion sites are modified;
+no speaker input or speaker model change is part of this arm. This timing discrepancy
+therefore needs comparison with the trailing baseline; it must not be assigned solely
+to gain. The storage recovery and long interruption between captures are additional
+confounds. Absolute manifest-end lag remains estimated, with four missed conv3 source
+clips versus one in the initial control. The resumed conv3 capture has zero session
+watchdogs/panics, but two earlier boot/setup watchdog warnings; total counts retain both.
+Arm14 is now running. No gain/default recommendation is supported by this partial group.

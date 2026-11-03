@@ -33,7 +33,7 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 
 | ID | Single change | Current scope |
 |---|---|---|
-| 13 | 1.25x recognition-input gain | Exact saturating PCM arithmetic tested; One P4 conv2 capture complete; conv3 resumed after approved storage recovery. |
+| 13 | 1.25x recognition-input gain | Exact PCM arithmetic tested; both P4 fixtures measured. Conv2 WER improves, conv3 WER/identity/latency worsen; trailing baseline pending. |
 | 14 | Adaptive speech floor 45 → 41 | Independent image built; physical recognition batch pending behind arm13. |
 | 15 | Pre-roll 300 → 450ms | Independent image built; physical recognition batch pending behind arm13. |
 | 16 | Retained tail 500 → 600ms | Independent image built; physical recognition batch pending behind arm13. |
