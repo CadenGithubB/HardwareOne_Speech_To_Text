@@ -43,7 +43,7 @@ PSRAM, with app-only flashing and production restoration between serialized grou
 |---|---|---|
 | 21 | Freeze noise-floor/history adaptation during speech | Both natural fixtures captured: WER improves vs initial controls, but one extra conv2 merge and higher label lag. Trailing controls pending. |
 | 22 | Maximum segment 10 → 8s | Natural/stress captures complete. Cut cap exercised; stress WER worse and natural identity mixed. Trailing controls pending. |
-| 23 | Force completed-phrase re-decode | Physical test running; require reuse disabled while speculative work remains enabled. |
+| 23 | Force completed-phrase re-decode | Both candidates captured; reuse 0/0 while speculation continues. High label lag, five pressure-rejected speaker jobs and one session watchdog. Final controls running. |
 | 24 | Four-term bounded vocabulary bias | Decoder mechanism tested; frozen target/control fixture and independent image queued. Actual effective bonus is existing 1.0 nat under a 1.5 ceiling. |
 
 Rows marked queued/built are not counted as measured device results. Offline identity

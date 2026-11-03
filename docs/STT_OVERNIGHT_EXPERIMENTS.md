@@ -46,7 +46,7 @@ confirmation, with rejected candidates retained as measured results.
 | 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | P4 complete; no promotion |
 | 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Paired captures complete; trailing controls pending |
 | 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Natural/stress captures complete; controls pending |
-| 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | P4 running |
+| 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | Paired captures complete; final controls running |
 | 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | Built; target/control P4 queued |
 
 Implementation feasibility and exact existing defaults must be inspected before each
@@ -1193,3 +1193,34 @@ first reference word matches in both; the final word is substituted in both. No 
 benefit is claimed from the rejected acoustic alignment. Trailing long22 control is still
 required. All three candidate captures have zero session watchdogs/panics/overruns;
 setup warning counts are 3/3/4. Arm23 is now running.
+
+### Arm23 paired captures: forced completed-phrase re-decode
+
+Both natural candidates completed; fresh final controls are running. Actual speculative
+promotion counts change from initial control 23/35 (conv2/conv3) to **0/0**, while
+20/32 speculative jobs still finish. This tests bypassing exact-coverage text reuse,
+not disabling speculative work entirely. The baseline already guards IDs and sample
+coverage; this is not evidence of a pre-existing stale-text bug.
+
+| Fixture | WER | Right/scored | Raw unknown/all | Final median/p90 ms | Shown median ms | Label median ms |
+|---|---:|---:|---:|---:|---:|---:|
+| conv2 | 18.64% | 28/38 | 1/38 | 3099/5629 | 1880 | 7362.5 |
+| conv3 | 30.90% | **unqualified** | 19/44 | **unqualified** | 2264 | 14744 |
+
+Conv3 fails the unchanged RMS gate, so its identity accuracy and true-end timing are
+withheld. The raw unknowns are 14 ambiguous and **five non-admitted audio-pressure
+speaker jobs**, not missing diagnostics silently removed from coverage. Conv2 has one
+ambiguous unknown and split/merge 0/9. Initial label medians were 2690/3199ms; the
+counterfactual has a large measured latency/coverage cost. Conv2 WER improves versus
+its initial control, but live input is not identical captured PCM, and trailing controls
+are pending. Do not infer a correctness benefit from that single acoustic comparison.
+
+There is one session watchdog warning on conv3 (~119.5s device time): CPU0 ran
+`cmd_exec_task`, CPU1 `ipc1`, IDLE0 was starved. That differs from arm18's CPU1 `stt`
+warning and does not establish the same cause. Setup warning counts are 3/3; no panics.
+No `TL fault` capture-loss/dropped-phrase/mic-stall events are logged in the completed
+21–23 captures inspected so far. This does not prove every hardware-layer loss counter.
+Internal minima 185,588/185,696 B; PSRAM minima 1,830,732/1,806,412 B. Decoder statuses
+are 110 successful calls (conv2), 98 successful/3 cancelled (conv3), no other fallbacks.
+No promotion of this configuration is supported. Preserve the distinction between
+strict speculative reuse, forcing final re-decode, and turning speculation off.

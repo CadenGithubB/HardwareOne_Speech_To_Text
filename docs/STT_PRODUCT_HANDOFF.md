@@ -1003,3 +1003,10 @@ between observed forced cuts and following emitted extents. Stress WER worsens
 12.00 → 16.67%; both stress alignments fail the fixed gate, so true-end timing
 is withheld. Natural WER improves versus initial controls but conv3 identity/unknowns
 and label lag worsen. Trailing controls remain pending; arm23 is running.
+
+Arm23 paired candidates completed: promotions 0/0 with speculative jobs still
+running. Label medians rise to 7362.5/14744ms; conv3 has 19/44 raw unknowns,
+including five audio-pressure rejections, and one session watchdog (CPU0 cmd_exec_task,
+CPU1 ipc1). Conv3 RMS alignment fails, so identity/true-end timing remain unqualified.
+This counterfactual is not a test of disabling speculation entirely. No promotion;
+final controls are running.
