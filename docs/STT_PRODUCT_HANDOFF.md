@@ -352,7 +352,9 @@ The user authorized at least 15 one-change experiments on speaker uncertainty,
 recognition accuracy, and speaker cost. The 18-item plan and sequential results are
 in `docs/STT_OVERNIGHT_EXPERIMENTS.md`. Experiment 01 is implemented and tested
 offline; coverage improves, but extra identity merges fail the promotion gate.
-The goal remains active with experiments 02–18 outstanding.
+Experiments 02 and 03 now also have independent implementations and replay results:
+shorter admission and longer adaptation both regress broader speaker metrics and are
+rejected. The goal remains active with experiments 04–18 outstanding.
 
 ## Current overnight checkpoint — 1 November 2026
 

@@ -34,6 +34,8 @@ struct CandidateConfig {
     unsigned young=0;        // 0: hold regardless of the closest speaker's size
     unsigned merge_young=0;  // 0: never merge
     float merge_sim=-2.0f;
+    size_t create_min_samples=0; // zero inherits min_new_samples
+    size_t update_min_samples=0; // independently gate centroid adaptation
     float ambiguity_margin=0.0f; // zero disables; label only, never adapt centroid
 };
 
@@ -68,8 +70,9 @@ class CandidateClusters {
             else if(sim>secondSim) { secondSim=sim; second=int(s); }
             if(sim>=config_.threshold)++matches;
         }
-        const bool longEnough=samples>=config_.min_new_samples;
-        if(!matches && longEnough && ids_.size()<config_.max_speakers) {
+        const bool createEnough=samples>=(config_.create_min_samples ? config_.create_min_samples : config_.min_new_samples);
+        const bool updateEnough=samples>=(config_.update_min_samples ? config_.update_min_samples : config_.min_new_samples);
+        if(!matches && createEnough && ids_.size()<config_.max_speakers) {
             const bool hold=best>=0 && bestSim>=config_.new_below &&
                 (!config_.young || phrases_[size_t(best)]<config_.young);
             if(hold) { out.reason="hold"; return out; }
@@ -91,7 +94,7 @@ class CandidateClusters {
                 const int survivor=ids_[keep];
                 erase(drop);
                 const size_t s=index(survivor);
-                if(longEnough) {
+                if(updateEnough) {
                     float* c=&sums_[s*dim_];
                     for(size_t i=0;i<dim_;++i)c[i]+=float(double(embedding[i])*inv);
                     ++phrases_[s];
@@ -106,11 +109,11 @@ class CandidateClusters {
             return out;
         }
         if(matches!=1) {
-            out.reason=matches>1 ? "ambiguous" : !longEnough ? "no_match_short" : "capacity";
+            out.reason=matches>1 ? "ambiguous" : !createEnough ? "no_match_short" : "capacity";
             return out;
         }
         out.speaker=ids_[size_t(best)];
-        if(!longEnough) { out.reason="short_match"; return out; }
+        if(!updateEnough) { out.reason="short_match"; return out; }
         float* c=&sums_[size_t(best)*dim_];
         for(size_t i=0;i<dim_;++i)c[i]+=float(double(embedding[i])*inv);
         ++phrases_[size_t(best)];

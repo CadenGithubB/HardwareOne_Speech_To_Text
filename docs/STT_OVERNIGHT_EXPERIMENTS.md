@@ -22,8 +22,8 @@ confirmation, with rejected candidates retained as measured results.
 | ID | Single change to investigate | First test / decision evidence | State |
 |---|---|---|---|
 | 01 | Resolve ambiguous matches only when best-minus-runner-up cosine >=0.08; do not update centroids | Device-voiceprint replay, identity errors vs unknowns | Tested offline; reject promotion |
-| 02 | Allow new profiles from 1.5 s phrases rather than 2 s | Replay, short-phrase unknowns and false profiles | Planned |
-| 03 | Require 3 s for centroid updates, retaining current admission rules | Replay, centroid contamination vs adaptation | Planned |
+| 02 | Allow new profiles from 1.5 s phrases rather than 2 s | Replay, short-phrase unknowns and false profiles | Tested offline; reject |
+| 03 | Require 3 s for centroid updates, retaining current admission rules | Replay, centroid contamination vs adaptation | Tested offline; reject |
 | 04 | Cap contribution of repeatedly observed speakers to centroid history | Replay shuffled and recorded orders, returning voices | Planned |
 | 05 | Hold uncertain new profiles only during their first four observations | Replay on broader voices; compare earlier hold failure | Planned |
 | 06 | Resolve a held phrase after subsequent agreeing evidence, with bounded delay | Sequential replay, revisions and delay | Planned |
@@ -67,3 +67,29 @@ analysis. No P4 performance or held-out accuracy claim. Evidence:
 `private/resume-20261102/overnight/01-ambiguity-margin.json` (ignored). Excludes the
 failed live run and later memory-arena trials. Next: experiment 02, separating new
 profile admission length from the existing centroid-update length requirement.
+
+
+### 02–03 — Independent admission and adaptation length gates
+
+Implemented separate `create_ms` and `update_ms` settings in the offline C++
+candidate. Zero inherits the production minimum. Experiment 02 changes only admission
+to 1.5 s; experiment 03 changes only adaptation to 3 s. Neither includes experiment 01.
+Threshold-edge tests verify 23,999/24,000 sample admission, 47,999/48,000 sample
+adaptation, unchanged admission under the adaptation experiment, and no centroid
+movement from a short matched phrase. Production equivalence and margin checks pass.
+
+Same six device sets / 194 scored phrases as experiment 01:
+
+| Rule | Recorded coverage | Recorded accuracy | Recorded splits/100 | Recorded merges/100 | All-orders coverage | All-orders accuracy | All-orders splits/100 | All-orders merges/100 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Production | 85.6% | 77.8% | 3.61 | 4.12 | 86.5% | 80.3% | 2.62 | 3.87 |
+| 02: create at 1.5 s | 87.1% | 78.4% | 4.64 | 4.12 | 86.1% | 78.7% | 4.10 | 3.59 |
+| 03: adapt at 3 s | 84.0% | 75.8% | 4.12 | 4.12 | 85.5% | 79.2% | 3.19 | 3.45 |
+
+Decision: reject both for promotion. Experiment 02 creates extra duplicate identities
+and loses accuracy under reordered input. Experiment 03 reduces coverage and accuracy
+in both comparisons. Lower merge counts do not compensate for those regressions.
+All-orders means 200 shuffles plus recorded order per set, not independent samples.
+No new acoustic or device-performance claim. Evidence: ignored
+`private/resume-20261102/overnight/02-short-admission.json` and
+`03-long-update.json`. Next: experiment 04; experiments 04–18 remain outstanding.
