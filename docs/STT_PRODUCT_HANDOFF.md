@@ -996,3 +996,10 @@ for an extra merge and increases label lag. Trailing controls remain pending. Ru
 noise-level traces support activation. Global/clip-boundary word-error diagnostics were
 added without changing captions or firmware; their causal limits are documented.
 Arm22 is now exercising the long-speech fixture.
+
+Arm22 completed its two natural fixtures and long22 stress. The shorter cap is
+exercised (stress max 9670 → 7880ms; forced cuts 3 → 4), with zero sample gaps
+between observed forced cuts and following emitted extents. Stress WER worsens
+12.00 → 16.67%; both stress alignments fail the fixed gate, so true-end timing
+is withheld. Natural WER improves versus initial controls but conv3 identity/unknowns
+and label lag worsen. Trailing controls remain pending; arm23 is running.

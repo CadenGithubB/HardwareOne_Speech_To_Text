@@ -44,9 +44,9 @@ confirmation, with rejected candidates retained as measured results.
 | 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | P4 screen complete; controls drift; no promotion |
 | 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Tested offline; reject |
 | 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | P4 complete; no promotion |
-| 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | P4 running; fresh controls captured |
-| 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Built; P4 queued |
-| 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | Built; P4 queued |
+| 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Paired captures complete; trailing controls pending |
+| 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Natural/stress captures complete; controls pending |
+| 23 | Force completed-phrase decode instead of reusing exact-coverage speculative text | Baseline already checks exact coverage; counterfactual accuracy/latency test | P4 running |
 | 24 | Apply bounded vocabulary bias for names and technical terms | Target-word corrections versus false insertions on control phrases | Built; target/control P4 queued |
 
 Implementation feasibility and exact existing defaults must be inspected before each
@@ -1149,3 +1149,47 @@ has six deleted final reference words on conv3 versus controls seven/nine, but l
 matches 28 versus 29/26 and total deletions 70 versus 59/67. These are text-alignment
 proxies with possible repeated-word ambiguity, not proof of acoustic recovery. They
 remain valid sequence diagnostics even where arm16 conv3 acoustic alignment is rejected.
+
+### Arm22 completed: maximum segment 10 → 8s
+
+Both natural fixtures and the frozen long-speech stress fixture completed. Natural
+RMS fits pass; **both initial and candidate long22 fits fail** the unchanged gate.
+Long22 reference-end latency and time-attributed identity are withheld. Global WER,
+word-error counts, raw coverage, device intervals and sample-boundary telemetry remain
+available. The stress reference has 150 words and is artificial compressed-pause speech,
+not a natural long-form accuracy qualification.
+
+| Arm | Fixture | WER | Right/scored | Raw unknown/all | Split/merge | Final median/p90 ms | Shown median ms | Label median ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| max8 | conv2 | 19.24% | 30/41 | 2/41 | 0/9 | 1901/3351 | 1791 | 3197 |
+| max8 | conv3 | 26.18% | 36/47 | 8/48 | 3/0 | 1794/2938 | 1428 | 4264.5 |
+
+Versus the fresh initial controls (21.24%/29.40% WER), natural WER improves, but conv3
+identity and unknowns worsen; its final and label delays rise. Conv2 has more captions
+and one more merge, so the higher raw correct-label count is not a higher accuracy rate.
+Trailing controls remain pending. No general quality-preserving improvement is established.
+
+Activation and emitted-extent checks (`22-boundary-activation.json`):
+
+| Arm | Fixture | Decoded segments | Forced cuts | Maximum segment ms | Following emitted sample gaps after forced cuts |
+|---|---|---:|---:|---:|---|
+| initial max10 | conv2 | 38 | 0 | 9320 | not applicable |
+| initial max10 | conv3 | 49 | 0 | 7580 | not applicable |
+| initial max10 | long22 | 6 | 3 | 9670 | 3 × 0 |
+| max8 | conv2 | 41 | 3 | 7910 | 3 × 0 |
+| max8 | conv3 | 49 | 1 | 7920 | 1 × 0 |
+| max8 | long22 | 7 | 4 | 7880 | 4 × 0 |
+
+Every observed forced cut has a following emitted extent starting at its end sample.
+All logged overlap fields are zero: these use the configured least-energy search path,
+not repeated overlap. The search picks a minimum-energy frame; it does not guarantee
+silence. This validates the measured cut mechanism and adjacent extents, not semantic
+word preservation or every possible fallback. Portable sample-conservation stress checks
+provide separate host evidence.
+
+Long22 WER changes 12.00 → 16.67%: substitutions/deletions/insertions 11/3/4 → 15/5/5.
+Those are global minimum-edit counts, not errors proven to occur at a forced cut. The
+first reference word matches in both; the final word is substituted in both. No timing
+benefit is claimed from the rejected acoustic alignment. Trailing long22 control is still
+required. All three candidate captures have zero session watchdogs/panics/overruns;
+setup warning counts are 3/3/4. Arm23 is now running.
