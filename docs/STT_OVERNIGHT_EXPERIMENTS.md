@@ -33,9 +33,9 @@ confirmation, with rejected candidates retained as measured results.
 | 07 | Raise speaker capacity from 8 to 10 | Capacity-triggered unknowns, false-profile count and memory | Tested offline; reject |
 | 08 | Extend speaker input window from 3 s to 4 s | Re-export fixed weights/shape if supported; embedding and device cost | Float screen tested; no promotion |
 | 09 | Select the highest-energy contiguous speaker window instead of the center | Offline acoustic embeddings, identity errors | Positive float screen; P4 A/B running |
-| 10 | Defer draft admission while a speaker job is executing | P4 paired runs, labels versus draft freshness and WER | Planned |
-| 11 | Bound draft deferral to 100 ms | Independent P4 scheduling arm, same endpoints | Planned |
-| 12 | Increase draft pacing multiplier from 2 to 3 | P4 paired runs, contention versus shown-text lag | Planned |
+| 10 | Defer draft admission while a speaker job is executing | P4 paired runs, labels versus draft freshness and WER | Built; P4 queued |
+| 11 | Bound draft deferral to 100 ms | Independent P4 scheduling arm, same endpoints | Built; P4 queued |
+| 12 | Increase draft pacing multiplier from 2 to 3 | P4 paired runs, contention versus shown-text lag | Built; P4 queued |
 | 13 | Apply 1.25x saturating PCM gain only to recognition input | Offline error screen then P4, clipping and WER | Planned |
 | 14 | Reduce the segmenter's minimum energy threshold by 10% | Quiet-word recall versus false speech and WER | Planned |
 | 15 | Increase recognition pre-roll by 150 ms | Initial-phoneme errors versus extra noise and latency | Planned |
@@ -274,3 +274,42 @@ Evidence: `private/resume-20261102/09-p4-status.json` and
 `overnight/09-p4-controller.log`, controller `overnight/run09_p4.py`.
 P4 results are pending: do not count the positive float screen as a device improvement.
 10–24 remain outstanding; scheduling is next after this promising-candidate check.
+
+
+### 10–12 — Independent scheduling arms built, P4 measurements queued
+
+Added opt-in benchmark draft gate (`speaker_draft_gate.h`), tested as actual C++ under
+ASan/UBSan for unbounded deferral, exact 100 ms deadline, clearing/rearming and uint32
+clock rollover. This header is not wired into production defaults.
+
+The HardwareOne benchmark adapter samples whether any speaker job slot is occupied
+before draft admission. This includes queued and executing work, deliberately avoiding
+an active-only race where the speaker worker starts immediately after a snapshot. The
+same STT worker submits jobs, so no new speaker job is submitted concurrently by a
+separate capture owner. A successful label may be posted before its slot is returned;
+the gate conservatively includes the remaining diagnostic/yield tail. It gates only
+new drafts in the no-final-slot branch; capture and final recognition remain eligible.
+The no-draft loop retains its existing 10 ms tick; no spin-wait was introduced.
+
+- 10: unbounded draft deferral until no speaker job is pending.
+- 11: same admission policy, but release a ready draft after at most 100 ms waiting;
+  start a new interval for each subsequent admission. Cap is tick-granularity, not a
+  hard realtime guarantee; task scheduling can add delay.
+- 12: independent x3 draft pacing arm; scheduling source/API restored before building.
+
+All retain fixed weights, production speaker rules, centered windows, 600/1000 ms
+closing pauses, diagnostics on, 64-byte cache lines and 250 MHz PSRAM. Energy-window
+selection is not stacked. Built through `build_arms.sh`; HardwareOne tracked sources
+were restored in a finalizer. Artifacts and exact source diffs are in ignored arms:
+- `codex-spk-gate`: SHA256 `a2ab1fa495569014ffc8c23089fd23be874d89ff4aba08c4c4605a0ae4cf88dc`.
+- `codex-spk-gate100`: SHA256 `aa84a4d48f203f710460a5d95f6906b07129ee5c9f6b535b6e18c5278528fa38`.
+- `codex-pace3`: SHA256 `a26ba5c11b389b61ddb58735752ff9a45f0cd0673b58e851f390b348fda3f605`.
+
+The queued P4 controller requires experiment 09 to finish successfully and restore
+production before taking the lock. It then runs conv2/conv4 on a fresh x2 baseline,
+each independent arm, and an x2 baseline afterward, using Mac mini Speakers at 50%.
+It writes `10-12-p4-status.json` and restores fixed production in its finalizer. A
+preceding failure stops admission of new tests for inspection. Build success and
+policy unit checks are not performance/accuracy results; 10–12 remain unmeasured.
+Controller: `private/resume-20261102/overnight/run10_12_p4.py`;
+log: `overnight/10-12-p4-controller.log`. The active energy comparison retains the port.

@@ -362,7 +362,9 @@ Experiments 07 (capacity) and 08 (fixed-weight float window screen) are now meas
 Neither warrants promotion: no capacity gain; longer windows improve accuracy but
 increase merges. Quantized/P4 window results remain unchecked. Experiment 09 has a positive fixed-weight float energy-window screen and a new
 counterbalanced conv2/conv4 P4 comparison running. Device results are pending.
-Experiments 10–24 remain outstanding; the goal stays active.
+Experiments 10–12 have independent built scheduling/pacing arms and a P4 controller
+queued behind 09; no measurements yet. Experiments 10–24 remain outstanding;
+the goal stays active.
 
 ## Current overnight checkpoint — 1 November 2026
 
