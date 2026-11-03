@@ -3,7 +3,8 @@
 This is a concise ledger for the 24 required experiments. It is **not a completion
 report**: physical measurements are incomplete. The recognition queue stopped during setup
 because internal LittleFS has only 4 KB free; fixed production firmware was restored.
-Verified log backup preparation is underway; board log removal awaits user approval. The detailed protocol, exact
+Three logs totaling 771,291 bytes have complete, double-read-verified private backups;
+all board copies remain intact. Board log removal awaits user approval. The detailed protocol, exact
 numbers, raw-artifact locations and limitations are in
 [STT_OVERNIGHT_EXPERIMENTS.md](STT_OVERNIGHT_EXPERIMENTS.md).
 

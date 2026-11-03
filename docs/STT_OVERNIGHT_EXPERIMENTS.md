@@ -739,3 +739,9 @@ is pending; no board log deletion or flash erase has occurred. Backup preparatio
 the approved helper and owns the board lock. Resume must preserve the three completed
 recognition captures, rerun the failed setup/capture, and retain both bracketing controls.
 No recognition candidate is qualified from this partial comparison.
+
+Backup preparation completed: all three logs total 771,291 bytes. Each was saved in
+ignored private storage, fsynced, reread from disk, then independently read again from
+the board and compared byte for byte. SHA256 values and file paths are in the private
+backup report. All original board files remain intact; lock released. No queued
+controller remains live. Cleanup approval is still required.
