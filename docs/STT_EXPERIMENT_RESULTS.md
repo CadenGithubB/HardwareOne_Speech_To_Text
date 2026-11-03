@@ -6,7 +6,11 @@ incomplete; watchdog repeats and broader candidate qualification remain. The ear
 approved cleanup freed 757,760 bytes, but later storage pressure invalidated the two
 failed vocabulary conv3 attempts. A current audit found no filesystem-full messages
 in the other 36 captures checked (13–18, 20 and 21–23 plus vocabulary controls/target).
-Absence of that message does not resolve their other qualification limits.
+Absence of that message does not resolve their other qualification limits. The subsequent user-approved
+889-directory cleanup is independently verified complete: all target directories are
+absent, 7,618,560 bytes are free (up from 331,776), and ring reconnect remains disabled.
+All 889 archived files were header-only. The clean-storage eight-capture qualification
+batch has started; its results are not yet counted here.
 See [STT_ACTIONABLE_FINDINGS.md](STT_ACTIONABLE_FINDINGS.md) for ordered next actions
 and [STT_OVERNIGHT_EXPERIMENTS.md](STT_OVERNIGHT_EXPERIMENTS.md) for detailed results.
 

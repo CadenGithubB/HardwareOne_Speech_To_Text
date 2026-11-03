@@ -41,12 +41,13 @@ claim a clean watchdog reproduction while storage errors persist.
 
 ## Ordered next actions and acceptance criteria
 
-1. **Make storage safe for testing.** Inspect log growth/rotation and preserve private
-   backups before the already-authorized three-log cleanup. Establish headroom from
-   actual rotation/write requirements, rather than choosing another arbitrary byte
-   threshold. Setup and a complete baseline must finish without filesystem-full
-   errors; record free space before and after. Do not delete other files without
-   authorization or change production logging defaults.
+1. **Storage headroom recovered; realtime effect pending.** The explicitly approved
+   889-file/directory cleanup is independently verified: none of the approved target
+   directories remains, and free space is 7,618,560 bytes versus 331,776 before cleanup.
+   Every archived file is the same 88-byte header, with zero data rows. Fixed production
+   was restored and ring reconnect off was read back before starting qualification.
+   Continue recording capacity before/after captures and reject filesystem-full errors;
+   this does not establish a production retention policy or prove realtime safety.
 2. **Repeat the failed case under usable storage conditions.** Keep the vocabulary
    image, conv3 input and test settings identical. Record the changed storage condition.
    Compare watchdog task, input position and failure stage with the original; do not

@@ -1110,3 +1110,33 @@ The broader pacing control also built: production pacing with the same speaker d
 byte-identical to the archived x2f diagnostic control; tracked HardwareOne source is clean.
 A balanced twelve-capture production/x2f/x2f/production comparison across conv2–4 is
 prepared, but has not run. Do not count it as measured qualification.
+
+### Storage recovery independently verified; qualification resumed — 3 November, 12:05
+
+All 889 approved target directories are now absent, verified against a complete,
+non-paginated admin-visible listing of `/logging_captures/sensors` and the exact
+approved folder manifest. The listing has 22 remaining entries. Free LittleFS capacity
+is **7,618,560 bytes**, up from **331,776** before cleanup: a net recovery of
+7,286,784 bytes during cleanup/normal device logging. Logical archived payload was only
+78,232 bytes; all 889 files exactly matched the public sealed R1 CSV header, with zero
+sample rows. Do not infer a precise allocation-per-directory from the net change.
+
+The second native batch's final reply was lost because the device's synchronous dispatch
+caller times out at 60 seconds while command execution may continue. A later `[CMD] ...
+-> OK` entry established that execution had returned. The host observer was then stopped,
+fixed production was restored and verified, and a fresh read-only console independently
+verified target-directory absence, capacity, and persisted ring reconnect disabled.
+No native final-result counters were fabricated. This successful independent readback is
+the completion evidence; the former 875-target checkpoint was not treated as completion.
+Private proof is in `sensor-cleanup-verification-20261103-120508/report.json` and its
+listing/raw log under the existing private run root. The complete before-cleanup snapshot
+and extracted backups are retained. No filesystem partition image was written.
+
+The eight-capture frozen-image batch has now actually started, using the recorded
+770,048-byte preflight gate, filesystem-error rejection, fresh vocabulary before/after
+controls and prioritized conv3 watchdog reruns. It owns the board through the approved
+helper/lock and restores fixed production in its finally path. Broader pacing comparison,
+remaining watchdog matrix and the final 24-item qualification report are still incomplete.
+The one-time maintenance command has been removed from the running app by production
+rollback; tracked HardwareOne source remains restored. No production-default or model
+change, push, main merge, or outward-facing report has been made.
