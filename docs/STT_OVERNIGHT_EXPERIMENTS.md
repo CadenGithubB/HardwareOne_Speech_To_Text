@@ -30,8 +30,8 @@ confirmation, with rejected candidates retained as measured results.
 | 04 | Cap contribution of repeatedly observed speakers to centroid history | Replay shuffled and recorded orders, returning voices | Tested offline; reject promotion |
 | 05 | Hold uncertain new profiles only during their first four observations | Replay on broader voices; compare earlier hold failure | Tested offline; reject promotion |
 | 06 | Resolve a held phrase after subsequent agreeing evidence, with bounded delay | Sequential replay, revisions and delay | Tested offline; reject promotion |
-| 07 | Raise speaker capacity from 8 to 10 | Capacity-triggered unknowns, false-profile count and memory | Planned |
-| 08 | Extend speaker input window from 3 s to 4 s | Re-export fixed weights/shape if supported; embedding and device cost | Planned |
+| 07 | Raise speaker capacity from 8 to 10 | Capacity-triggered unknowns, false-profile count and memory | Tested offline; reject |
+| 08 | Extend speaker input window from 3 s to 4 s | Re-export fixed weights/shape if supported; embedding and device cost | Float screen tested; no promotion |
 | 09 | Select the highest-energy contiguous speaker window instead of the center | Offline acoustic embeddings, identity errors | Planned |
 | 10 | Defer draft admission while a speaker job is executing | P4 paired runs, labels versus draft freshness and WER | Planned |
 | 11 | Bound draft deferral to 100 ms | Independent P4 scheduling arm, same endpoints | Planned |
@@ -180,3 +180,54 @@ Current checkpoint supersedes earlier progress notes: experiments 01–06 have o
 implementations and measured rejection outcomes (04 includes repeated-history stress).
 Experiments 07–24 remain outstanding. Next: capacity change (07), then acoustic-window
 and scheduling experiments. Full goal remains active.
+
+
+### 07 — Ten-speaker capacity
+
+Implemented a per-rule replay capacity setting, preserving the eight-profile default.
+A deterministic 11-orthogonal-voice test exercises admission of speakers nine and ten,
+refusal of eleven, and default equivalence. Production equivalence tests pass.
+The six device recordings show identical recorded-order scores. Across 200 shuffles
+plus original order per set, coverage stays 86.5%, accuracy falls 80.3% -> 80.2%,
+splits rise 2.62 -> 2.63/100 and merges stay 3.87/100. The five capacity refusals are
+replaced by extra profiles and ambiguity rather than improved identity accuracy.
+Reject promotion. No extra P4 memory allocation was deployed. Evidence:
+`private/resume-20261102/overnight/07-capacity-ten.json`.
+
+### 08 — Four-second window, fixed-weight float screening
+
+Made `export_speaker.feats_for` accept an explicit frame count; its default stays
+300. Tests check unchanged deployed default, exact center crop, short-input repetition,
+finite features and invalid frame counts. Compared 300 vs 400 frames (actual spans
+2.99 vs 3.99 seconds) with the same pretrained weights and production clustering.
+Re-exporting the quantized ESP-DL trunk and P4 timing are not performed at this stage.
+
+Fresh embeddings were computed from all six prepared source playlists using per-clip
+reference boundaries with 300 ms pre-roll / 500 ms tail. These are clean source audio
+and idealized segment boundaries, not the live microphone captures used in 01–07.
+175 scored source phrases per order. Each arm uses the identical 200 shuffled orders
+plus recorded order per fixture, 1,206 replays / 35,175 scored instances. No new held-out
+speaker audio was accessed. Model weights hash is preserved in the private result.
+
+| Window | Recorded coverage / accuracy | Recorded splits / merges per 100 | All-orders coverage / accuracy | All-orders splits / merges per 100 |
+|---|---:|---:|---:|---:|
+| 300 frames | 89.1% / 82.9% | 6.29 / 0.00 | 89.8% / 83.2% | 6.50 / 0.16 |
+| 400 frames | 89.1% / 83.4% | 5.71 / 0.00 | 91.7% / 86.8% | 4.46 / 0.69 |
+
+Decision: promising accuracy/split improvement but fails the no-increased-merges gate;
+no production promotion. Retain as a research lead if later identity safeguards improve.
+Host embedding times are not P4 inference estimates. Unchecked: quantization effects,
+P4 RAM/CPU cost, real segmentation, acoustic robustness and long-session stability.
+
+The existing Torch environment lacked scipy; the initial attempt terminated before
+completing embeddings. The retry uses macOS `afconvert` once per fixture to produce
+identical 16 kHz mono PCM inputs for both arms; source and converted hashes/manifests
+are private. An initial combined-group score used different shuffle seeds between
+windows and is superseded by `08-window400-paired.json`, which compares the same
+fixture index and seed separately per arm. Evidence under ignored overnight folder:
+`08-input/`, `08-embeddings.json`, `08-window400-paired.json`, `08-controller*.log`,
+`run08.py`. All values above come from the paired result.
+
+Current checkpoint: 01–08 have measured screens, with explicitly limited scope for 08.
+09–24 remain outstanding. Next: energy-selected speaker windows (09), then P4 draft /
+speaker scheduling (10–12). No production defaults or fixed model weights changed.

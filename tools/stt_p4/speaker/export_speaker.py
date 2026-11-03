@@ -45,17 +45,18 @@ class Trunk(torch.nn.Module):
         return self.m.trunk(x)
 
 
-def feats_for(x):
-    """PCM float [N] -> [1, 1, 40, FRAMES] exactly as the device front end."""
-    span = (FRAMES - 1) * HOP
+def feats_for(x, frames=FRAMES):
+    """PCM float [N] -> fixed window; default preserves the deployed 300 frames."""
+    if frames<4 or frames%4: raise ValueError("frames must be a positive multiple of four")
+    span = (frames - 1) * HOP
     if len(x) > span:
         s = (len(x) - span) // 2
         x = x[s:s + span]
     f = proto.features(x)
     t = f.shape[-1]
-    if t < FRAMES:
-        f = f[..., torch.arange(FRAMES) % t]
-    return f[..., :FRAMES]
+    if t < frames:
+        f = f[..., torch.arange(frames) % t]
+    return f[..., :frames]
 
 
 def device_labels(embs, durs, threshold, max_speakers=8):

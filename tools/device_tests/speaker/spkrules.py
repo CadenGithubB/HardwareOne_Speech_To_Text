@@ -20,7 +20,7 @@ firmware/components/hw1_stt/stt/speaker_cluster.h itself; candidates are cluster
          (young=N: only while the closest speaker holds fewer than N phrases)
   merge  a phrase matching exactly two speakers merges them when the smaller holds fewer than merge_young
          phrases and their centroids are at least merge_sim alike
-A rule is NAME or NAME:key=value,... (threshold, new_below, young, merge_young, merge_sim, ambiguity_margin, create_ms, update_ms, history_cap, defer_steps); --rules default
+A rule is NAME or NAME:key=value,... (threshold, new_below, young, merge_young, merge_sim, ambiguity_margin, create_ms, update_ms, history_cap, defer_steps, capacity); --rules default
 is the built-in list. Rules without candidate keys run the production class.
 
 Per group (and pooled corpus and all) and rule, over all orders and over the recorded order alone:
@@ -50,7 +50,7 @@ DEFAULT_RULES = ['production', 'production_0.55:threshold=0.55', 'production_0.6
                  'hold_0.50:new_below=0.5', 'hold_0.45:new_below=0.45', 'hold_0.50_young4:new_below=0.5,young=4',
                  'merge_young3:merge_young=3', 'merge_young3_sim0.45:merge_young=3,merge_sim=0.45',
                  'hold_0.50+merge_young3:new_below=0.5,merge_young=3']
-CANDIDATE_KEYS = ('defer_steps', 'history_cap', 'create_ms', 'update_ms', 'ambiguity_margin', 'new_below', 'young', 'merge_young', 'merge_sim')
+CANDIDATE_KEYS = ('capacity', 'defer_steps', 'history_cap', 'create_ms', 'update_ms', 'ambiguity_margin', 'new_below', 'young', 'merge_young', 'merge_sim')
 
 
 # ---- embed
@@ -128,12 +128,12 @@ def load_store(name):
 def parse_rule(text, threshold):
     name, _, spec = text.partition(':')
     rule = {'name': name, 'threshold': threshold, 'new_below': 2.0, 'young': 0, 'merge_young': 0,
-            'merge_sim': -2.0, 'ambiguity_margin': 0.0, 'create_ms': 0, 'update_ms': 0, 'history_cap': 0, 'defer_steps': 0}
+            'merge_sim': -2.0, 'ambiguity_margin': 0.0, 'create_ms': 0, 'update_ms': 0, 'history_cap': 0, 'defer_steps': 0, 'capacity': 0}
     for item in filter(None, spec.split(',')):
         key, value = item.split('=')
         if key not in rule or key == 'name':
             raise SystemExit(f'unknown rule key {key!r} in {text!r}')
-        rule[key] = int(value) if key in ('defer_steps', 'history_cap', 'young', 'merge_young', 'create_ms', 'update_ms') else float(value)
+        rule[key] = int(value) if key in ('capacity', 'defer_steps', 'history_cap', 'young', 'merge_young', 'create_ms', 'update_ms') else float(value)
     rule['kind'] = 'candidate' if any(k in spec for k in CANDIDATE_KEYS) else 'production'
     return rule
 
@@ -148,7 +148,7 @@ class Runner:
         lines += ['load %d %s' % (p['samples'], ' '.join('%.7g' % v for v in p['e'])) for p in phrases]
         for r, order in jobs:
             lines.append(' '.join(str(x) for x in (
-                'run', r['kind'], repr(r['threshold']), min_new, max_speakers, repr(r['new_below']), r['young'],
+                'run', r['kind'], repr(r['threshold']), min_new, r['capacity'] or max_speakers, repr(r['new_below']), r['young'],
                 r['merge_young'], repr(r['merge_sim']), repr(r['ambiguity_margin']), r['create_ms'] * 16, r['update_ms'] * 16, r['history_cap'], r['defer_steps'], len(order), *order)))
         out = subprocess.run([str(self.exe)], input='\n'.join(lines) + '\n', capture_output=True, text=True,
                              check=True).stdout.splitlines()

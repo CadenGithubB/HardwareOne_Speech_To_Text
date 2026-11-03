@@ -358,7 +358,10 @@ rejected. Experiments 04–05 have now been screened: history capping shows no m
 gain (long-history check pending), and young-profile hold increases shuffled-order merges.
 The user expanded the required plan to 24. Experiment 04 repeated-history stress and 06 deferred revisions are now measured,
 with no promotion justified: sequential accuracy/coverage or identity errors regress.
-Experiments 07–24 remain outstanding; the goal stays active.
+Experiments 07 (capacity) and 08 (fixed-weight float window screen) are now measured.
+Neither warrants promotion: no capacity gain; longer windows improve accuracy but
+increase merges. Quantized/P4 window results remain unchecked. Experiments 09–24
+remain outstanding; the goal stays active.
 
 ## Current overnight checkpoint — 1 November 2026
 
