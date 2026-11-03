@@ -1,5 +1,10 @@
 # P4 heap-header write-watch diagnostic
 
+**Resolved, 2 November 2026:** there is no software writer. 128-byte L2 cache lines under heavy
+PSRAM load corrupt PSRAM. The fix is HardwareOne `027eef22` (64-byte lines). See
+[STT_PRODUCT_HANDOFF.md](STT_PRODUCT_HANDOFF.md#psram-fault-root-cause-and-fix--2-november-2026-claude).
+The notes below are the history of the watchpoint search.
+
 Status: readback, individual-core and dual-armed RTC positive controls complete.
 Ten fresh-boot heap-field watch trials completed without catching a write or
 reproducing a fault. Original app restored/full-slot-verified after each block.

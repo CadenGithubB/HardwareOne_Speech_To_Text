@@ -1,0 +1,53 @@
+# PCM-file bench for the P4X-EYE
+
+These tools measure STT speed, accuracy and stability on the board with deterministic input. The
+firmware reads a 16 kHz PCM file from the SD card at real-time pace instead of the microphone
+(`sttperf pcmsrc PATH`). Identical audio then gives identical word error rate (WER) and speaker
+labels on every run. Model speed varies about ±0.5% and close latency about ±3%.
+
+## Firmware
+
+HardwareOne branch `claude/stt-bench` adds `sttperf pcmsrc`, tuning knobs and off-by-default crash
+diagnostics. It builds on `claude/p4-l2-64` (64-byte L2 cache lines). Every knob defaults to
+production behaviour.
+
+`build_arms.sh "NAME X FIRST_FAST END_SILENCE_MS SHORT_CLOSE_MS" …` builds one image per arm. Its
+first line explains the macros it sets and where the output goes. Other knobs in `System_STT.cpp`
+and `System_STTLocal.cpp` (speaker core, cluster rules, diagnostics) are set the same way, by
+editing their `#define` defaults.
+
+## Running (on the machine with the P4 attached)
+
+`heaptw_remote.py` works in `~/claude-heaptw`, which holds the following:
+- `device-login`: mode 600; the tool never prints it, and logs scrub it.
+- `find_p4_port.py`: a copy of `../find_p4_port.py`.
+- The bench images.
+- `conv1/` (`playlist.wav` and `manifest.json`).
+
+| Command | What it does |
+|---|---|
+| `heaptw_remote.py flash bench-NAME.bin` | Checks the board MAC and partition-table hash, then writes and verifies the app slot at 0x10000 only. |
+| `heaptw_remote.py bench LABEL /sd/recordings/bench_conv1.pcm N` | N runs, about 4.5 minutes each, with a fresh boot per run. Writes `bench-LABEL-<time>/serial-K.log` and `bench.json`, and ends each run with `sttperf stages` (per-layer model time). |
+| `heaptw_remote.py startloop LABEL PCM\|mic N` | Session starts only, about 40 s each. This is the crash reproducer for the session-start class. |
+| `heaptw_remote.py soak LABEL CLIP PCM\|none N SECONDS` | Production soak: live sessions with the clip played on the speaker. It never stops on a failure. |
+| `heaptw_remote.py upload WAV DEST` | Converts a WAV to PCM on the SD card. |
+
+The console sets `TIOCEXCL` on the serial port. Another program's open, such as an esptool probe
+whose connect sequence resets the P4 into download mode, fails with EBUSY instead. Chains such as
+`arms1-chain.sh` hold `~/claude-heaptw/busy.lock` while they use the board; leave the board alone
+while that file exists.
+
+## Scoring
+
+| Tool | Reports |
+|---|---|
+| `benchscore.py MANIFEST DIR…` | WER, speaker accuracy and unknowns, close latency, speaker-label lag, model ms per audio ms and drafts. Writes `score.json`. |
+| `truelag.py MANIFEST DIR…` | Time from each clip's true speech end (from the manifest) to its final caption. It does not depend on segmentation, so it compares arms with different phrase-closing rules. |
+| `latsplit.py DIR…` | Each phrase split into pause, queue, model and decode time, by phrase length and by whether a speculative final was used. |
+| `draftlag.py DIR…` | First-draft delay and the time-averaged lag of the shown text. |
+| `benchsets.py` | Device voiceprints (`TL spke2`, with speaker diagnostics on) as `../speaker/spkrules.py` sets. `check` replays the production clusterer decision for decision. |
+| `crashsum.py DIR…` | One line per serial log, with the crash signature. |
+| `mmanalyze.py` and `mmstate.py` | Decode the memmove and SDMMC DMA logs of the diagnostic arms. |
+
+Host results do not prove model accuracy, realtime performance or SD power-loss behaviour on the
+board; only board runs do.

@@ -1,5 +1,105 @@
 # Standalone STT readability and recording handoff
 
+## PSRAM fault root cause and fix — 2 November 2026 (Claude)
+
+This supersedes the "corrupting writer is unknown" status below and in
+[P4_HEAP_WATCH_PLAN.md](P4_HEAP_WATCH_PLAN.md).
+
+**There is no software writer.** The cause is the combination of HardwareOne 755edfa0 (10 Oct)
+and 5143de9b (13 Oct):
+- 755edfa0 set 128-byte L2 cache lines, which made each phrase 344 ms faster.
+- 5143de9b raised PSRAM to 250 MHz. That commit contributes, but is not required for the fault.
+
+Under heavy CPU and DMA load, PSRAM contents end up as if a cache line had been written 8 or 32
+bytes off. That damages:
+- **The heap header:** `heap_data` takes the `minimum_free_bytes` value. The invalid `0x002960c4`
+  in the plan above is this signature.
+- **SDIO receive buffers.**
+- **Spinlocks and function pointers.**
+
+There are two crash classes: at session start (during the 20 MB model read into PSRAM) and at
+session end.
+
+PCM-file bench (conv1 read from SD; deterministic):
+
+| PSRAM / L2 line | Start crashes | End crashes | Close ms | Model ms per audio ms |
+|---|---|---|---|---|
+| 250 MHz / 128 B (production) | ~11% | up to 31% | 1250 | 0.272 |
+| 200 MHz / 128 B | 17% (4 crashes + 1 hang of 30) | 0/14 | 1303 | 0.282 |
+| 80 MHz / 128 B | 0/30 | not run | — | — |
+| 250 MHz / 64 B | 0/30 | 0/10 | 1360 | 0.299 |
+| 200 MHz / 64 B | 0/30 | 0/10 | 1424 | 0.310 |
+
+**Software writers ruled out.** The loggers were layout-neutral (RTC-memory rings and flash code,
+with the DRAM and PSRAM layout unchanged), because instrumentation that used extra RAM masked the
+fault. Ruled out:
+- Upward overlapping memmoves into PSRAM: none.
+- SDMMC DMA misdirection: 0 anomalies in 76,902 transactions, logged with controller state.
+- PSRAM stack overflow.
+- Model inflate: the model is stored uncompressed.
+- A warm-loader race.
+
+**Fix:** HardwareOne `027eef22` "Use 64-byte L2 cache lines on the ESP32-P4", branch
+`claude/p4-l2-64` on `aa6508fd`, keeping PSRAM at 250 MHz.
+- **Cost:** about 110 ms of caption close latency. Model time rises from 0.272 to 0.299 ms per
+  audio ms. WER (3.8%) and speaker accuracy are unchanged.
+- **Build folders:** existing ones keep 128 B lines until their sdkconfig is recreated.
+
+**Production soak** (aa6508fd plus only the fix, 2 Nov):
+- 30 of 30 starts, and 39 of 40 live sessions with the conv1 clip played at 50%.
+- The 40th was reset into download mode by an `esptool chip_id` from a Codex session on the mini
+  (18:13:26–32). It was not a firmware fault: there was no panic.
+- In total, 0 firmware faults in 70 starts and 39 complete sessions. With 128 B lines, about 8
+  start failures and about 6 session faults would be expected.
+- Since then, `heaptw_remote.py` sets `TIOCEXCL` on the port, so such a probe fails instead of
+  resetting the board.
+
+**HardwareOne branches.** All three are local to a MacBook clone (origin: the MacBook's
+`~/esp/hardwareone-idf`). They are not pushed. They are copied to the mini as a git bundle; see
+`~/claude-heaptw/pickup/README.txt`.
+
+| Branch | Commit | Contents |
+|---|---|---|
+| `claude/p4-l2-64` | `027eef22` | The fix only. |
+| `claude/stt-bench` | `9520a5b1` (on `027eef22`) | `sttperf pcmsrc`; pacing, pause and speaker-rule knobs; off-by-default diagnostics (`System_HeapTripwire`, `System_MemmoveLog`, `tools/p4/idf-sdmmc-bench-hooks.patch`). |
+| `claude/heap-tripwire` | `2fc6b6f5` | The earlier v6 tripwire, superseded by the bench port. |
+
+**Bench tools:** [tools/device_tests/bench/](../tools/device_tests/bench/README.md).
+
+**Speed findings (64 B, x2f pacing).**
+- **Final caption timing:** the final caption arrives a median 1.87 s after the true speech end
+  (p90 2.85 s):
+  - ~0.49 s waiting for the pause to close the phrase.
+  - ~1.37 s of final decode over the whole phrase, at 0.30 ms per audio ms.
+- **Speculative finals:** they almost never apply to phrases of 4 s or more. Closing uses the
+  peak-relative stop-silence, while the trim and speculation use the trim-voiced test, whose
+  voiced end lands ~125 ms after the true end.
+- **The model already runs on both cores** (resident graph).
+- **Draft pacing x2f** (2× pacing; a phrase's first draft paced only by the 600 ms minimum and
+  1 s floor) cuts the median speaker-label lag from ~7.3 s to ~2.3 s, at no WER cost. With 128 B
+  lines at 250 MHz it crashed in 23 of 54 runs; with 64 B lines it is stable.
+
+**Running at handoff:** `~/claude-heaptw/arms1-chain.sh` holds `busy.lock` until about 21:35 on
+2 Nov. It runs four arms × 3:
+- `prodl64`: production pacing.
+- `x2fes400`: 400 ms pause at 4 s or more.
+- `x2fsc700`: 700 ms pause below 4 s.
+- `x2fes4sc7`: both.
+
+Results go to `~/claude-heaptw/arms1-summary.txt`. The board is left on the last arm image.
+`original-slot.bin` there is the 128 B production rollback, and `soak-app.bin` is production with
+64 B lines.
+
+**Next:**
+- Score arms1, then adopt x2f pacing and any pause change that keeps WER and speaker accuracy.
+- Accuracy work needs conv2–4 and the corpus stores in the bench. conv1's speakers are far
+  apart, so it cannot test the speaker hold/merge rules. Upload them to SD with
+  `heaptw_remote.py upload`.
+- Report the cache-line fault to Espressif. This needs the user's approval.
+
+The full working notes are in `~/claude-heaptw/pickup/2026-11-01-combined-stt-handoff.md` on the
+mini (private, not in git).
+
 ## Current overnight checkpoint — 1 November 2026
 
 - Stable-PCM candidate b7598680 retains bit parity in host/target tests; its
