@@ -67,7 +67,9 @@ beside the local remote script when that script imports it.
 The mini's local uploader also supports `upload WAV DEST START_OFFSET [quiet-ble]`. Resume only an
 owned partial file from the same converted PCM, using its recorded committed offset. `quiet-ble`
 is an explicit bench upload mode for the configured Bluetooth-enabled boot state: it temporarily
-closes the Bluetooth runtime and restores it afterward, without changing saved settings. It avoids
-unavailable-ring reconnect attempts stalling console transfers. Sensor polling is paused only for
+attempts to close the Bluetooth runtime and restores it afterward, without changing saved settings.
+The first physical attempt failed to stop the ring owner; this mode is not yet qualified.
+The normal upload path needs authentication only and allows 90 seconds for startup replies;
+it does not require STT live logging. Sensor polling is paused only for
 the transfer and resumed if this upload acquired the pause. Bench runs use their normal fresh boot;
 upload quieting is not a change to the measured STT configuration.

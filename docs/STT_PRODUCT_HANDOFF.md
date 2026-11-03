@@ -229,10 +229,65 @@ On explicit user request, ring auto-reconnect was then disabled with
 `bleautoreconnect r1-ring off`, `closering` confirmed the link closed, and a query
 confirmed auto-reconnect disabled. Flash was preserved as requested; no full erase
 was performed. Evidence is in private `stop-ring-result.json` and its serial log.
-The next upload attempt omits the unsuccessful full-Bluetooth quieting option.
+The normal-mode retry failed at STT logging setup before PCM transfer. Upload setup
+now requires authentication only, with 90-second startup allowance. Ring reconnection
+was still seen after the first reopen; an explicit `savesettings` then returned success
+and a fresh console boot confirmed auto-reconnect disabled. The saved-off state is
+verified in `stop-ring-persist-result.json`. Temporary upload-only Bluetooth shutdown
+is being retried after this durable ring-policy change; it remains unqualified.
 The original helper and patch are private. Physical transfer recovery and conv2–4/corpus
 bench results are still pending. The user explicitly chose to continue the broader tests
 rather than stop because of the upload duration.
+
+## Broader live accuracy completed — 2 November 2026
+
+At the user's direction, bulk PCM uploads were stopped and the six prepared playlists
+were played through the verified Mac mini Speakers at 50%, into the board microphone.
+No broader PCM-file benchmark completed. These results are acoustic live tests of the
+x2f diagnostic arm, with unchanged production speaker rules and closing pauses.
+
+| Fixture | Captions | WER | Speaker accuracy (majority mapping) | Unknowns |
+|---|---:|---:|---:|---:|
+| conv2 | 38 | 18.44% | 73.68% | 2 |
+| conv3 | 47 | 27.90% | 78.72% | 10 |
+| conv4 | 33 | 20.21% | 93.94% | 2 |
+| corpus1 | 26 | 8.76% | 96.15% | 1 |
+| corpus2 | 24 | 28.64% | 70.83% | 7 |
+| corpus3 | 28 | 25.00% | 78.57% | 6 |
+
+All six runs ended `done`: 196 captions, zero audio overruns, zero in-session watchdog
+warnings and zero panics. Speaker diagnostics replayed with the production rule are
+recorded beside each run. Artifacts: ignored `private/resume-20261102/live-*`,
+`live-metrics-summary.json`, `live-rule-comparison.json`, and `live-status.json`.
+The controller verified restoration of `soak-app.bin` after the six tests; a subsequent
+speaker-cost profiling run was then authorized by the user and owns the board separately.
+
+A prior conv2 live attempt failed after 12 segments/11 retrieved captions, with an audio
+overrun and watchdog warnings while console replies were delayed by reconnect activity.
+It is preserved as `live-conv2-20261102-224129` and excluded from completed-run rule
+comparisons. Other setup attempts and controller interruptions are retained privately.
+Closing the ring and glasses runtimes before playback cleared the observed console
+stalls; this observation does not reopen the closed cache-line fault investigation.
+Ring auto-reconnect was explicitly disabled and saved; glasses closure was runtime-only.
+The experimental full `closeble` setup was abandoned after teardown failures.
+
+**Limits:** one live run per fixture, diagnostic overhead enabled, no paired production
+pacing baseline on these six recordings, no held-out-speaker qualification, and no SD
+power-loss testing. Playback alignment uses the board sample count immediately before
+`afplay`, not measured acoustic onset. Per-run +/-0.5 s speaker-score sensitivity is
+saved in `alignment-sensitivity.json`; speaker/reference metrics and true end-to-end
+latencies remain provisional. Majority speaker mapping can conceal splits; the separate
+one-to-one rule replay is the decision metric. No acoustic results are pooled with
+conv1 SD-file timing results.
+
+Across the six captured device voiceprint sets, 200 shuffled orders per set plus the
+recorded order were evaluated. Relative to production:
+- `hold_0.50`: split phrases/100 -2.11, merge phrases/100 +1.95; criterion passed: False.
+- `hold_0.45`: split phrases/100 -2.22, merge phrases/100 +2.82; criterion passed: False.
+- `merge_young3`: split phrases/100 +1.74, merge phrases/100 +4.53; criterion passed: False.
+
+Retain production speaker rules: the conv1-only gains do not justify increased merges
+on broader voices. No production STT defaults were changed.
 
 ## Current overnight checkpoint — 1 November 2026
 
