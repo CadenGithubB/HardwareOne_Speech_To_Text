@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/device_tests/bench'))
-from score_experiments import activation,speaker_cost,caption_speaker_metrics,vocabulary_metrics,raw_speaker_coverage
+from score_experiments import activation,speaker_cost,caption_speaker_metrics,vocabulary_metrics,raw_speaker_coverage,word_error_details
 log='''Language model fixture: beam 32, 0 custom words
 TL lm_decode call=1 frames=10 strength=0.900 status=ok
 TL lm_decode call=2 frames=10 strength=0.900 status=unavailable
@@ -34,6 +34,13 @@ assert metric['scored']==2 and metric['labelled']==1 and metric['right']==1 and 
 metric,missing=caption_speaker_metrics(clips,caps,'TL spk seq=1 spk=0\nTL spk_submit seq=2 admitted=0 spk=-1 reason=audio_pressure')
 assert metric['scored']==2 and metric['labelled']==1 and missing==0
 
+extra=[{'sequence':3,'startSample':16000,'endSample':48000},
+       {'sequence':4,'startSample':80000,'endSample':96000}]
+metric,_=caption_speaker_metrics(clips,caps+extra,'TL spk seq=1 spk=0')
+assert metric['published_captions']==4 and metric['scored']==2
+assert metric['excluded_mixed']==1 and metric['excluded_no_reference']==1
+assert metric['scored']+metric['excluded_mixed']+metric['excluded_no_reference']==4
+
 coverage=raw_speaker_coverage([{'sequence':1},{'sequence':2},{'sequence':3}],
     'TL spk seq=1 spk=0\nTL spk_submit seq=2 admitted=0 reason=audio_pressure')
 assert coverage=={'captions':3,'labelled':1,'unknown_or_missing':2,'missing_diagnostic':1,
@@ -51,3 +58,16 @@ x=vocabulary_metrics(clips,caps,['foo'])
 assert x['mixed_caption_term_occurrences']==1 and x['attributable_target_hits']==0
 x=vocabulary_metrics(clips,[{'startSample':80000,'endSample':96000,'sttText':'foo'}],['foo'])
 assert x['unattributed_term_occurrences']==1 and x['attributable_target_hits']==0
+
+references=[{'text_norm':'start middle end'},{'text_norm':'alpha beta omega'}]
+detail=word_error_details(references,[{'sequence':1,'sttText':'middle end alpha beta'}])
+assert (detail['substitutions'],detail['deletions'],detail['insertions'],detail['edits'])==(0,2,0,2)
+assert detail['first_words']=={'words':2,'matched':1,'substituted':0,'deleted':1}
+assert detail['last_words']=={'words':2,'matched':1,'substituted':0,'deleted':1}
+detail=word_error_details(references,[{'sequence':1,'sttText':'start middle changed extra alpha beta omega'}])
+assert detail['substitutions']==1 and detail['insertions']==1 and detail['deletions']==0
+assert detail['last_words']['substituted']==1
+detail=word_error_details(references,[])
+assert detail['deletions']==6 and detail['first_words']['deleted']==2 and detail['last_words']['deleted']==2
+detail=word_error_details([],[{'sequence':1,'sttText':'extra'}])
+assert detail['insertions']==1 and detail['first_words']['words']==0

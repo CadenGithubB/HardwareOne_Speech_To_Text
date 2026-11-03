@@ -158,3 +158,11 @@ attribution: missing and rejected jobs remain unknown. This coverage metric, glo
 sequence WER and device-internal shown/label timings can still be described when a
 reference-alignment fit is rejected. They do not substitute for identity accuracy or
 manifest-end latency, which must remain unqualified in that case.
+
+Scoring also reports reference-missing and mixed-speaker exclusions explicitly, including
+inside the offset-sensitivity sweep. Counts reconcile to all published captions.
+`word_errors` reports substitutions/deletions/insertions and first/last reference-word
+outcomes from one deterministic minimum-edit path across the complete word sequences.
+It agrees with global WER and does not use acoustic alignment. Repeated words can have
+ambiguous attribution; boundary-word errors are diagnostic proxies, not proof of clipped
+phonemes, quiet-word recall or a particular segment-boundary failure.

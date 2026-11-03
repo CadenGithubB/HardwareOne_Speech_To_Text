@@ -1112,3 +1112,40 @@ intervals. It was inspected at desktop and 320px widths, and series/run selectio
 verified. Numeric-only source/hash provenance stays in ignored `visual-provenance.json`;
 no raw captions, voiceprints or credentials were included. The temporary loopback preview
 server and browser tab were closed. The board test chain continues independently.
+
+### Arm21 paired captures: provisional noise-freeze lead
+
+Both natural-fixture candidates pass RMS alignment, with fresh initial controls.
+Trailing controls remain pending; no production recommendation is made.
+
+| Arm | Fixture | WER | Right/scored | Raw unknown/all | Split/merge | Final median/p90 ms | Shown median ms | Label median ms |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| initial control | conv2 | 21.24% | 28/38 | 2/38 | 0/8 | 2162/3589 | 1861 | 2690 |
+| freeze noise | conv2 | 18.84% | 28/38 | 1/38 | 0/9 | 1927/3552 | 1714 | 3178.5 |
+| initial control | conv3 | 29.40% | 38/46 | 5/46 | 3/0 | 1691/2701 | 1497 | 3199 |
+| freeze noise | conv3 | 26.61% | 40/46 | 4/47 | 2/0 | 1812/2901 | 1377 | 3280 |
+
+WER improves versus the initial control on both fixtures, but conv2 exchanges one
+unknown for one extra merge error. Final lag worsens on conv3 and label lag rises on
+both. This is a lead for further comparison, not a general quality-preserving win.
+Each candidate has zero session watchdogs/panics/overruns and three boot/setup warnings.
+Internal minima 185,636/185,624 B; PSRAM minima 1,829,768/1,848,652 B.
+
+Activation evidence (`21-noise-activation.json`): among segments with at least two
+logged active-level samples, initial controls show noise-floor changes in 3/36 conv2
+and 7/43 conv3 segments. Frozen candidates show 0/36 and 0/46. Sparse 1Hz observations
+support the expected behavior, not exhaustive frame-level proof; compiled policy and
+host mechanism checks provide the implementation evidence. No-reference caption counts
+under the existing midpoint rule are zero in all four captures; one mixed caption is
+excluded from candidate conv3 identity scoring. This is not a complete false-speech or
+quiet-word-recall annotation. Global WER remains the recognition outcome measured here.
+
+The scorer now exposes mixed/no-reference exclusions and their sensitivity explicitly.
+Boundary-word diagnostics add S/D/I counts and first/last reference-word outcomes from
+one minimum-edit path, with a consistency check against global WER. Focused scoring and
+alignment checks pass. Private `13-18-word-analysis.json` shows that pre-roll450 has no
+clear initial-word deletion win (conv2 1 vs controls 0/0; conv3 12 vs 12/13). Tail600
+has six deleted final reference words on conv3 versus controls seven/nine, but last-word
+matches 28 versus 29/26 and total deletions 70 versus 59/67. These are text-alignment
+proxies with possible repeated-word ambiguity, not proof of acoustic recovery. They
+remain valid sequence diagnostics even where arm16 conv3 acoustic alignment is rejected.

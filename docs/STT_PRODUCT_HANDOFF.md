@@ -989,3 +989,10 @@ P4 win. No promotion; actual P4 gain/DC/clipping telemetry was not instrumented.
 Zero session watchdogs/panics/overruns; twelve setup warning occurrences. Detailed
 corrected timings and limitations are in STT_OVERNIGHT_EXPERIMENTS.md. The serialized
 21–23 group is taking over, followed by 24. No production defaults changed.
+
+Arm21 paired natural captures are complete. Noise freezing improves WER versus the
+initial controls (21.24 → 18.84%, 29.40 → 26.61%) but exchanges one conv2 unknown
+for an extra merge and increases label lag. Trailing controls remain pending. Runtime
+noise-level traces support activation. Global/clip-boundary word-error diagnostics were
+added without changing captions or firmware; their causal limits are documented.
+Arm22 is now exercising the long-speech fixture.

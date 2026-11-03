@@ -88,6 +88,9 @@ def caption_speaker_metrics(clips,captions,log):
         q=cap['sequence'];phrases.append({'id':q,'ref':ref['speaker'] if ref else None,'mixed':len(heard)>1})
         assigned.append((labels.get(q,-1),reasons.get(q,'unknown_or_missing')))
     metric=spkrules.run_metrics(phrases,list(range(len(phrases))),assigned)
+    metric['published_captions']=len(phrases)
+    metric['excluded_no_reference']=sum(p['ref'] is None for p in phrases)
+    metric['excluded_mixed']=sum(p['ref'] is not None and p['mixed'] for p in phrases)
     return metric,sum(c['sequence'] not in labels for c in captions)
 
 def vocabulary_metrics(clips,captions,terms):
@@ -115,6 +118,36 @@ def vocabulary_metrics(clips,captions,terms):
         elif c.get('kind')=='control':
             result['control_clips']+=1;result['control_term_insertions']+=sum(max(0,observed[w]-expected[w]) for w in terms)
     return result
+
+def word_error_details(clips,captions):
+    """One deterministic minimum-edit path; boundary words are diagnostic proxies."""
+    reference=[];first=[];last=[]
+    for clip in clips:
+        words=clip.get('text_norm','').split()
+        if words:
+            first.append(len(reference));reference.extend(words);last.append(len(reference)-1)
+    hypothesis=[w for c in sorted(captions,key=lambda c:c['sequence']) for w in benchscore.norm(c.get('sttText',''))]
+    n,m=len(reference),len(hypothesis)
+    costs=[list(range(m+1))]+[[i]+[0]*m for i in range(1,n+1)]
+    for i in range(1,n+1):
+        for j in range(1,m+1):
+            costs[i][j]=min(costs[i-1][j-1]+(reference[i-1]!=hypothesis[j-1]),costs[i-1][j]+1,costs[i][j-1]+1)
+    kinds={};counts=Counter();i,j=n,m
+    while i or j:
+        if i and j and reference[i-1]==hypothesis[j-1] and costs[i][j]==costs[i-1][j-1]:
+            i-=1;j-=1;kinds[i]='matched'
+        elif i and j and costs[i][j]==costs[i-1][j-1]+1:
+            i-=1;j-=1;kinds[i]='substituted';counts['substitutions']+=1
+        elif i and costs[i][j]==costs[i-1][j]+1:
+            i-=1;kinds[i]='deleted';counts['deletions']+=1
+        else:
+            j-=1;counts['insertions']+=1
+    boundary=lambda positions:{'words':len(positions),**{k:sum(kinds[p]==k for p in positions) for k in ['matched','substituted','deleted']}}
+    return {'reference_words':n,'edits':costs[n][m],
+            **{k:counts[k] for k in ['substitutions','deletions','insertions']},
+            'first_words':boundary(first),'last_words':boundary(last),
+            'limitation':'One minimum-edit path; repeated-word attribution can be ambiguous. '
+                         'Boundary-word errors do not prove acoustic clipping or quiet-word recall.'}
 
 def live_reference_clips(directory,fixture,original_manifest,original_onset,onset):
     """Rebuild all time fields from the immutable playlist reference.
@@ -172,6 +205,9 @@ def score_capture(entry,terms=None,alignment=None):
     row['memory_minima']={key:min(map(int,values)) if values else None for key in ['int_min','psram_min'] for values in [re.findall(r'\b'+key+r'=(\d+)',log)]}
     if terms:row['vocabulary']=vocabulary_metrics(clips,caps,terms)
     row['majority_metrics']=benchscore.score_run(clips,caps,log.splitlines())
+    row['word_errors']=word_error_details(clips,caps)
+    if round(row['word_errors']['edits']/row['word_errors']['reference_words'],4)!=row['majority_metrics']['wer']:
+        raise ValueError('word-error breakdown does not agree with WER')
     sets=benchsets.run_set(clips,d.name,caps,log.splitlines())
     phrases=sets['phrases']
     labels=[(p['dev_spk'] if p.get('dev_spk') is not None else -1,p.get('dev_reason','missing')) for p in phrases]
@@ -183,7 +219,7 @@ def score_capture(entry,terms=None,alignment=None):
     for delta in [-.5,-.25,0,.25,.5]:
         shifted=[{**c,'start_s':float(c['start_s'])+delta,'end_s':float(c['end_s'])+delta} for c in clips]
         metric,_=caption_speaker_metrics(shifted,caps,log)
-        row['alignment_sensitivity'].append({'delta_s':delta,**{k:metric[k] for k in ['scored','labelled','right','split','merge']}})
+        row['alignment_sensitivity'].append({'delta_s':delta,**{k:metric[k] for k in ['scored','labelled','right','split','merge','excluded_no_reference','excluded_mixed']}})
     row['timing_tools']={}
     with tempfile.TemporaryDirectory(prefix='stt-score-') as temporary:
         timing_manifest=manifest
