@@ -346,6 +346,14 @@ After the final restore, a fresh console boot confirmed ring auto-reconnect disa
 Remaining: controlled draft/speaker scheduling A/B, reliable layer/operator mapping,
 targeted kernel work if warranted, and longer stress/accuracy qualification.
 
+## Overnight follow-on investigation
+
+The user authorized at least 15 one-change experiments on speaker uncertainty,
+recognition accuracy, and speaker cost. The 18-item plan and sequential results are
+in `docs/STT_OVERNIGHT_EXPERIMENTS.md`. Experiment 01 is implemented and tested
+offline; coverage improves, but extra identity merges fail the promotion gate.
+The goal remains active with experiments 02–18 outstanding.
+
 ## Current overnight checkpoint — 1 November 2026
 
 - Stable-PCM candidate b7598680 retains bit parity in host/target tests; its

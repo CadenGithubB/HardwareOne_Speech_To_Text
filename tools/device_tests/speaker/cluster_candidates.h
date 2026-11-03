@@ -34,6 +34,7 @@ struct CandidateConfig {
     unsigned young=0;        // 0: hold regardless of the closest speaker's size
     unsigned merge_young=0;  // 0: never merge
     float merge_sim=-2.0f;
+    float ambiguity_margin=0.0f; // zero disables; label only, never adapt centroid
 };
 
 struct CandidateResult {
@@ -98,6 +99,11 @@ class CandidateClusters {
                 out.speaker=survivor; out.reason="merge";
                 return out;
             }
+        }
+        if(matches>1 && config_.ambiguity_margin>0 &&
+           bestSim-secondSim>=config_.ambiguity_margin) {
+            out.speaker=ids_[size_t(best)]; out.reason="ambiguous_margin";
+            return out;
         }
         if(matches!=1) {
             out.reason=matches>1 ? "ambiguous" : !longEnough ? "no_match_short" : "capacity";

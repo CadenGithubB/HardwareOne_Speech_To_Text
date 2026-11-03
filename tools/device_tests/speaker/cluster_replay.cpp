@@ -9,7 +9,7 @@
 //   reset                                              (new session, same config; echoed)
 //   clear DIM                                          (empties the stored phrase set)
 //   load SAMPLES V1 ... VDIM                           (stores one phrase)
-//   run KIND THRESHOLD MIN_NEW MAX_SPEAKERS NEW_BELOW YOUNG MERGE_YOUNG MERGE_SIM N I1 ... IN
+//   run KIND THRESHOLD MIN_NEW MAX_SPEAKERS NEW_BELOW YOUNG MERGE_YOUNG MERGE_SIM AMBIGUITY_MARGIN N I1 ... IN
 //                                                      (a session over stored phrases in that order;
 //                                                       KIND production or candidate)
 // stdout: per phrase command
@@ -32,7 +32,7 @@ static bool run(std::istringstream& in, size_t dim, const std::vector<float>& st
     unsigned maxSpeakers = 0;
     size_t n = 0;
     in >> kind >> c.threshold >> c.min_new_samples >> maxSpeakers >> c.new_below >> c.young >> c.merge_young
-       >> c.merge_sim >> n;
+       >> c.merge_sim >> c.ambiguity_margin >> n;
     c.max_speakers = uint8_t(maxSpeakers);
     std::vector<size_t> order(n);
     for (auto& i : order) in >> i;
