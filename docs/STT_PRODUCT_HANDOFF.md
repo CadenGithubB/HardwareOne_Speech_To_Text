@@ -385,6 +385,12 @@ arms/mechanism checks; this does not mean all 24 are complete. The serialized P4
 chain (10–12, 13–18, 20, 21–23, 24) is still running/waiting. Final scoring, activation
 checks, candidate repeat validation, restoration verification and reporting remain.
 
+First scheduling conv2 pair confirms zero draft/speaker overlap and faster median
+labels (1286.5 -> 883.0 ms), but shown-text lag and single-run WER regress. Full
+scheduling chain/final baseline are still pending; no production recommendation.
+Live scoring now includes missing speaker labels in coverage and runtime activation
+checks; details and provisional counts are in the overnight plan.
+
 ## Current overnight checkpoint — 1 November 2026
 
 - Stable-PCM candidate b7598680 retains bit parity in host/target tests; its

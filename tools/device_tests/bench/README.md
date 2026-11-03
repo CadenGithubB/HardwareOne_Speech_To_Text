@@ -73,3 +73,28 @@ The normal upload path needs authentication only and allows 90 seconds for start
 it does not require STT live logging. Sensor polling is paused only for
 the transfer and resumed if this upload acquired the pause. Bench runs use their normal fresh boot;
 upload quieting is not a change to the measured STT configuration.
+
+## Live experiment scoring
+
+`score_experiments.py STATUS.json [...] --out private/report.json` reads finalized
+captures from the experiment controllers. It never opens a device port. Outputs are
+numeric metrics and provenance, without caption text. Incomplete entries and scoring
+errors remain visible; successful builds or queued controllers are not results.
+
+The report includes pooled WER, both majority and actual one-to-one speaker metrics,
+unknown/missing-label coverage, ±0.5 s reference-alignment sensitivity, speaker wall
+cost and draft overlap, memory low-water observations, decoder status/strength and
+file beam, hard boundaries, speculative promotions and vocabulary activation. Captions
+without embeddings or speaker labels stay in the applicable speaker denominator as
+unknowns; diagnostic-only metrics are reported separately. Mixed/no-reference phrases
+are still excluded explicitly, so compare counts as well as percentages.
+
+`truelag.py`, `latsplit.py` and `draftlag.py` outputs are retained per capture. Live
+manifest-end latency depends on estimated playback onset and reference clip endpoints;
+it is provisional. The printed LM beam is the file beam: a requested override requires
+checking its compiled source and successful decoding; do not read it as the effective
+beam. Cancellation/preemption and decoder unavailability are separate status counts.
+A positive `vocab_test` flag proves term presence, not transcription improvement.
+
+Run `python3 tests/test_experiment_scoring.py` for clock, activation, and missing-label
+coverage checks. A report is evidence for review, not an automatic promotion decision.

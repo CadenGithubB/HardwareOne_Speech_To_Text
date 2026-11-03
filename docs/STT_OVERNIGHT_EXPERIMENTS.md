@@ -535,3 +535,45 @@ returned live session handles. The active chain has not been restarted due to st
 state or an observation timeout. Scheduling is on its baseline conv4; later queues
 are waiting and do not own the board. Goal remains active until measurements and
 requirement-by-requirement report are complete.
+
+
+### Scoring and first scheduling evidence — 3 November 2026
+
+Added `score_experiments.py` to score finalized captures while later tests run. It
+preserves incomplete/error entries and derives provenance hashes, actual one-to-one
+speaker counts across all captions (including absent labels/embeddings as unknown),
+diagnostic-only counts, memory observations, alignment sensitivity, draft/network
+wall cost, and runtime activation evidence. Tests cover cancellation versus successful
+decode counts, true/false vocabulary flags, timing-clock overlap and missing-label
+coverage. It invokes the existing three timing tools; all acoustic onset/manifest-end
+reference limitations remain. Private snapshot: `overnight/live-chain-metrics.json`.
+
+Runtime baseline confirms file LM beam 32, strength 1.0, configured hotword bonus 1.0,
+and active speculation. Thus 18 requests 40, not a cap-induced no-op; the decoder log
+prints file beam, not the requested override, so inspect compiled source plus successful
+decoding. For 24, the 1.5 ceiling is non-binding on the existing 1.0 bonus: this is four
+extra terms at effective 1.0, not an increase to 1.5. Activation and control errors still
+need to be checked on the actual vocabulary arm. Baseline has zero custom words.
+
+First completed 10 conv2 capture versus its fresh baseline-before (single runs):
+
+| Metric | Baseline | Defer drafts while speaker pending |
+|---|---:|---:|
+| Median speaker-network ms | 1165.735 | 767.080 |
+| Median speaker-job wall ms | 1269.555 | 868.794 |
+| Median label delay ms | 1286.5 | 883.0 |
+| Speaker jobs with draft overlap | 24/38 | 0/38 |
+| WER | 16.43% | 19.04% |
+| One-to-one correct speaker phrases | 29/38 | 29/38 |
+| Merge phrases / unknowns | 8 / 1 | 8 / 1 |
+| Median shown-text lag ms | 1256 | 1365 |
+| Phrases without drafts | 0 | 3 |
+| Manifest-end final median / p90 ms | 3159 / 3944 | 3137 / 3950 |
+
+This is direct evidence that draft contention costs speaker time, but not a safe
+production change: shown-text freshness and single-run WER regress. Capture offsets,
+acoustic variation and final baseline-after remain important. Do not attribute the WER
+change solely to scheduling from one pair. The remaining scheduling captures and final
+baseline are still pending. Counterbalancing/single-pair screens are not replication.
+The scorer distinguishes in-session watchdogs from total setup warnings and keeps raw
+counts rather than silently excluding skipped speaker jobs. No defaults changed.
