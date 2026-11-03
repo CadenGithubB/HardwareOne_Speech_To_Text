@@ -919,3 +919,12 @@ The proposed three-log backup/cleanup requires explicit user approval following 
 automatic approval-review rejection; no full flash erase or log deletion occurred.
 Runtime ring reconnect was disabled again, but persistence must be reverified after
 storage recovery. See the detailed interruption entry in STT_OVERNIGHT_EXPERIMENTS.md.
+
+### Approved storage recovery completed; tests resumed
+
+After explicit user approval, only the three named diagnostic logs were backed up,
+verified and removed. LittleFS recovered to 757,760 B free and settings saved. Recognition
+resumed from its checkpoint; later physical groups are queued. Ring reconnect was confirmed
+disabled after the arm13 reboot, before applying any setup command. Two watchdog warnings
+occurred during that boot/setup before STT started and remain part of the stability record.
+The full 24-item investigation and final restoration audit remain incomplete.

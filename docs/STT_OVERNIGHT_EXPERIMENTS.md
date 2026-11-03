@@ -770,3 +770,30 @@ without conv3 and the post-controls, neither improvement nor a causal regression
 qualified. The failed conv3 setup's filesystem watchdog is retained separately and
 must not be hidden by the zero session-watchdog figures above. All broader physical
 comparisons remain stopped, pending approved space recovery. No defaults changed.
+
+### Approved recovery and physical-test resume
+
+The user explicitly approved backed-up cleanup of the three named diagnostic logs.
+Only `/system/sys_logs/errors.log` (256,252 B), `events.log` (261,598 B), and
+`system-events.log` (253,937 B at cleanup) were removed. Current contents were saved
+and verified privately before removal; errors and system-events had matching independent
+full reads, and events matched its previously double-read-verified backup byte for byte.
+Private reports retain hashes and paths. No accounts, settings, models, partitions,
+or other files were deleted. The diagnostic logs can be recreated by normal firmware
+logging. Larger serial read replies stalled twice; terminal failures were inspected,
+fixed production was app-only flashed and verified through the approved helper, and
+1024-byte reads with bounded read-only retries completed recovery. No audio was uploaded.
+
+LittleFS measured 757,760 B free after cleanup and `savesettings` succeeded. Recognition
+resumed with the existing three captures retained. Normalization, segmentation/speculation
+and vocabulary controllers were restarted in serial predecessor-gated order. They now
+match explicit settings errors immediately, require at least 128 KiB free before capture,
+and query ring reconnect before setting it off. These are setup guards, not recognition
+algorithm changes. Arm13 conv3's first reboot readback confirmed ring auto-reconnect
+**disabled before setup**; its later capacity query measured 831,488 B free.
+
+The resumed boot nevertheless emitted two IDLE0 watchdog warnings with CPU0 `main`,
+at device times ~26.9 and 40.4 s, before ring readback, settings save and `stt start`
+(~68.9 s). Keep these setup warnings in total fault reporting; the recovered comparison
+must not be described as watchdog-free. The scorer separately reports session and
+setup-inclusive watchdog counts. Recognition is in progress; no candidate is yet qualified.
