@@ -36,6 +36,7 @@ struct CandidateConfig {
     float merge_sim=-2.0f;
     size_t create_min_samples=0; // zero inherits min_new_samples
     size_t update_min_samples=0; // independently gate centroid adaptation
+    float update_margin=0.0f; // require winning gap before adapting an existing profile
     unsigned defer_steps=0; // replay-only revision window in subsequent phrases
     unsigned history_cap=0; // zero: unbounded; otherwise exponentially forget after cap
     float ambiguity_margin=0.0f; // zero disables; label only, never adapt centroid
@@ -116,6 +117,9 @@ class CandidateClusters {
         }
         out.speaker=ids_[size_t(best)];
         if(!updateEnough) { out.reason="short_match"; return out; }
+        if(config_.update_margin>0 && second>=0 && bestSim-secondSim<config_.update_margin) {
+            out.reason="match_no_update"; return out;
+        }
         float* c=&sums_[size_t(best)*dim_];
         if(config_.history_cap && phrases_[size_t(best)]>=config_.history_cap) {
             const float retain=float(config_.history_cap-1)/float(config_.history_cap);

@@ -42,7 +42,7 @@ confirmation, with rejected candidates retained as measured results.
 | 16 | Increase recognition trailing audio retention by 100 ms | Final-word deletions versus latency | Build pipeline active; P4 queued |
 | 17 | Lower language-model influence by 10% | Fixed-audio decoder replay, substitutions and WER | Build pipeline active; P4 queued |
 | 18 | Increase decoder beam width by 25% | Fixed-audio decoder replay, WER, runtime and memory | Build pipeline active; P4 queued |
-| 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Planned |
+| 19 | Require a clear best-versus-runner-up similarity margin before adapting a centroid | Replay, identity contamination versus adaptation; creation unchanged | Tested offline; reject |
 | 20 | Normalize loudness only for speaker embedding input | Quiet-voice accuracy, clipping and speaker cost | Planned |
 | 21 | Freeze background-noise adaptation during active speech | Quiet-word recall, false segments, WER and threshold traces | Planned |
 | 22 | Shorten maximum recognition segment duration for very long utterances | Long-form WER, boundary errors, latency and memory | Planned |
@@ -357,3 +357,19 @@ Recognition controller: `overnight/run13_18_p4.py`, state `13-18-p4-status.json`
 `overnight/13-18-p4-controller-queued.log`. A three-hour predecessor wait is bounded;
 expiry leaves the board untouched. These are queued tests, not measured improvements.
 The energy comparison and scheduling work retain priority. Full goal remains active.
+
+
+### 19 — Confidence margin for profile adaptation
+
+Implemented an independent `update_margin=0.08` C++ candidate. A uniquely matched
+phrase retains its label but does not adapt the profile if its best-versus-runner-up
+gap is <0.08. New-profile admission, unknown handling and thresholds stay production.
+A deterministic neighbouring-speaker test verifies retained labels, protected future
+centroids, default equivalence and normal learning when there is no competitor.
+Production-rule equivalence checks pass. This is independent of ambiguity labeling (01).
+
+On six device sets, recorded coverage/accuracy 85.6%/77.8% -> 87.6%/78.4%, but splits
+3.61 -> 4.64/100 and merges 4.12 -> 5.15/100. Nine updates were withheld. Across matched
+200 shuffles plus original order per set, coverage 86.5% -> 86.6%, accuracy 80.3% ->
+80.2%, splits 2.62 -> 2.85/100, merges 3.87 -> 3.91/100. Reject promotion under the
+identity-error gate. Evidence: `overnight/19-update-margin.json` (ignored).
