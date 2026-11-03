@@ -1010,3 +1010,18 @@ including five audio-pressure rejections, and one session watchdog (CPU0 cmd_exe
 CPU1 ipc1). Conv3 RMS alignment fails, so identity/true-end timing remain unqualified.
 This counterfactual is not a test of disabling speculation entirely. No promotion;
 final controls are running.
+
+### Actionable checkpoint and new watchdog requirement
+
+The user requires matched watchdog reruns, including checking whether the warning recurs
+at the same spot. The requirement is recorded in STT_WATCHDOG_RETESTS.md; qualification
+is not complete merely because the initial 24 screens have been attempted. The 21–23
+13-capture group completed and restored fixed production. Final controls erase a clear
+noise-freeze WER win: candidate 18.84/26.61% versus final controls 19.04/26.39%.
+
+Vocabulary's natural conv3 run failed with `STT audio queue full; backend cannot keep up`
+and 21 in-session watchdog warnings, without panic. Fixed production was restored;
+final controls remain missing. An exact-image/fixture reproduction is now running.
+See STT_ACTIONABLE_FINDINGS.md for decisions: qualify earlier x2f pacing, preserve strict
+speculative reuse, reject the tested normalization and pause changes, and prioritize
+reproducing/profiling the vocabulary failure rather than adding tuning arms.
