@@ -15,7 +15,7 @@ python3 tests/test_stt_stream.py --metrics --thread-sanitize
 ```
 
 The replay compiles the actual scheduler/frontend with address/undefined
-sanitizers. Each output directory contains twelve traces, raw PCM/frontend payloads
+sanitizers. Each output directory contains fourteen traces, raw PCM/frontend payloads
 and a digest manifest. Compare the JSON and payload digests for corresponding
 cadence/scenario pairs. This does not execute the acoustic model or LM.
 `--component` can select an independently frozen older component. Do not request

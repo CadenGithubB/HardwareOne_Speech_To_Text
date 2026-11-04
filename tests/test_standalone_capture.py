@@ -13,6 +13,10 @@ assert sum(runner.watchdog_counts('rst:0x7 (TG0WDT_SYS_RST),boot:0x8\n').values(
 assert sum(runner.watchdog_counts('reset reason: ESP_RST_TASK_WDT\n').values())==1
 assert sum(runner.watchdog_counts('watchdogs=0; normal boot\n').values())==0
 assert sum(runner.watchdog_counts('STT_EVENT '+json.dumps({'text':'Task watchdog got triggered. rst: WDT'})).values())==0
+fault_remote=SimpleNamespace(PANIC=re.compile('Guru Meditation Error'))
+for failure in ['assert failed: actual_test.cpp:9','abort() was called','Stack protection fault','stack overflow in task']:
+ assert runner.device_panic(fault_remote,failure)
+assert not runner.device_panic(fault_remote,'STT_EVENT '+json.dumps({'text':'assert failed: sample caption'}))
 with tempfile.TemporaryDirectory(prefix='standalone-fixture-') as folder:
  p=Path(folder)/'fixture.wav'
  for rate in [16000,44100,48000]:

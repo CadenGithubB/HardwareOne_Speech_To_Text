@@ -1,0 +1,5 @@
+# Isolated diagnostic only. Existing sdkconfig values still take precedence.
+CONFIG_CACHE_L2_CACHE_LINE_64B=y
+CONFIG_HEAP_USE_HOOKS=n
+CONFIG_CAPTIONS_STREAM_METRICS=y
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_ENABLE=y

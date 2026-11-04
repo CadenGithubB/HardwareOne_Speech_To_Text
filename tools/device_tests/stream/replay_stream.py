@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='stt-trace-') as folder:
  subprocess.run(command,check=True)
  report={'scope':'Deterministic scheduler/frontend only; synthetic PCM, no acoustic model/LM inference','component':str(a.component.resolve()),'metrics':a.metrics,'clear_committed':a.clear_committed,'traces':[]}
  for pacing in ['legacy','x2f']:
-  for scenario in range(6):
+  for scenario in range(7):
    payload=a.out/f'{pacing}-{scenario}.bin'
    output=subprocess.check_output([str(exe),pacing,str(scenario),str(payload.resolve())],text=True,timeout=60)
    rows=[json.loads(line) for line in output.splitlines()];assert rows[-1]['type']=='summary'

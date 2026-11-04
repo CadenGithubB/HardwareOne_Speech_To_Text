@@ -7,6 +7,10 @@ from pathlib import Path
 from telemetry import parse_lines
 HARNESS_SHA256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
+def device_panic(remote,text):
+    text='\n'.join(line for line in text.splitlines() if not re.search(r'\bSTT_EVENT\s+\{',line))
+    return bool(remote.PANIC.search(text) or re.search(r'assert failed:|abort\(\) was called|Stack protection fault|stack overflow',text,re.I))
+
 def watchdog_counts(text):
     # Warning and reset observations can describe the same incident. Their sum
     # is a repeat trigger, not a deduplicated count of independent failures.
@@ -81,7 +85,7 @@ def capture(remote,wav,directory,fixture,metrics=True,speakers=True):
         save();deadline=time.monotonic()+duration+150
         while play.poll() is None:
             if time.monotonic()>deadline:raise RuntimeError('Audio playback deadline exceeded')
-            if any(remote.PANIC.search(x) for x in con.since(0)):raise RuntimeError('Device panic during playback')
+            if any(device_panic(remote,x) for x in con.since(0)):raise RuntimeError('Device panic during playback')
             time.sleep(1)
         assert play.returncode==0
         status['phase']='draining';save();drain=time.monotonic()
@@ -97,7 +101,7 @@ def capture(remote,wav,directory,fixture,metrics=True,speakers=True):
         else:assert not perf['events'],'Metrics-off control unexpectedly emits probes'
         rows=product_events(lines);text='\n'.join(lines);final=perf['reports'][-1] if metrics else None
         watchdogs=watchdog_counts(text)
-        status.update(phase='complete',events=rows,telemetry=perf,watchdog_counts=watchdogs,watchdogs=sum(watchdogs.values()),panic=bool(remote.PANIC.search(text)),final_report=final,captions=sum(e['type']=='final' for e in rows),alignment='Estimated report-sample offset only; require sample-index RMS fit before timed/identity scoring.')
+        status.update(phase='complete',events=rows,telemetry=perf,watchdog_counts=watchdogs,watchdogs=sum(watchdogs.values()),panic=device_panic(remote,text),final_report=final,captions=sum(e['type']=='final' for e in rows),alignment='Estimated report-sample offset only; require sample-index RMS fit before timed/identity scoring.')
         save();return status
     except BaseException as error:status.update(phase='failed',error=type(error).__name__+': '+str(error));save();raise
     finally:

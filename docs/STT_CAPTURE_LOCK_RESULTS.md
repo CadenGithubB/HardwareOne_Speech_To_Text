@@ -235,9 +235,10 @@ The primary controller restored/readback-verified the selected x2f-only app with
 ring reconnect/perf logging off and released its lock before the follow-up took
 exclusive ownership. No default was promoted.
 
-The remaining controls/soak are prepared but have not run. An isolated P4 harness
-for six real neural input/output/text hash comparisons is also prepared but not
-built or run. It reuses the card/model/LM adapters, generates synthetic PCM and
+The remaining controls/soak are prepared but have not run. At the first-cohort
+checkpoint an isolated P4 harness for six real neural input/output/text hash
+comparisons was prepared; its subsequent results are recorded below.
+It reuses the card/model/LM adapters, generates synthetic PCM and
 does not start the microphone or the production speaker worker. It will establish exact-input
 neural equality, not acoustic quality, realtime behavior or production RAM fit.
 A requirement audit also found that the previous streaming traces fixed pre-roll
@@ -245,7 +246,7 @@ to zero. A nonzero-pre-roll/ring-wrap case is added in the working tree and awai
 compilation after acoustic testing. Prior reported 12/24-trace evidence remains
 retained and is not being relabeled as coverage of that new case.
 
-### Separate execution-state hazard under investigation
+### Execution-state isolation defect reproduced on P4
 
 Source inspection found a process-global `hw1_dl_prepare_mode` and generation
 set by recognition's resident-model preparation pass. SDK Conv/Add/LUT/Relu
@@ -254,15 +255,64 @@ speaker task calls those same operators. `Model::run` provides no enclosing
 cross-model exclusion. This is a concrete isolation hazard in the source, not
 proof that it caused the acoustic speaker-score difference.
 
-The isolated P4 harness now includes a forced-exposure control: repeated A and
+The isolated P4 harness includes a forced-exposure control: repeated A and
 distinct B speaker inputs, normal B on the separate worker as a negative control,
 then B on that worker while the parent holds the global preparation flag, followed
 by exact normal-B recovery. It validates the installed speaker identity and its
-embedded trunk fixture first. This probe is unbuilt/unrun. No SDK fix has been
-applied, and a forced reproduction alone will not establish live incidence.
+embedded trunk fixture first. The corrected diagnostic completed with the
+following independent outcomes; no SDK fix has been applied yet.
+
+- Six real recognition input/output/text hash pairs match across clearing modes,
+  cold construction and warm reuse, with actual cached features and verified
+  speech weights. This closes the equal-input recognition check for these cases.
+- The fixed speaker blob's embedded trunk fixture fails: its first reported
+  expected value is 770, actual 717, tolerance approximately 1.00001. This is a
+  failed baseline contract, not missing fixture data or a passed accuracy check.
+  The cause may involve the model/export/runtime contract and is not established.
+- Repeated A and different A/B inputs behave as required. B on the independent
+  worker with the flag off matches normal B exactly. Holding the global flag
+  from the parent changes B's embedding: cosine against normal B is -0.003156489.
+  Restoring the flag recovers normal B byte for byte. Thus the shared-state
+  mechanism is reproduced, independently of the fixture's numerical mismatch.
+- This forced exposure does not establish live incidence or causation of the
+  acoustic speaker-score differences. It does establish that an unrelated
+  task's preparation state can alter normal speaker inference.
+
+The diagnostic reports `complete_with_findings` and `all_checks_passed=false`.
+It makes no production RAM-fit/accuracy claim. The selected app was restored and
+verified, ring reconnect/perf logging off, and the lock released. No watchdog or
+panic occurred in the completed diagnostic run.
+
+The first diagnostic instead asserted on the fixture failure before other checks
+could run. Its controller inherited a matcher that missed plain assertions,
+allowing repeated reboots before being stopped. That failed log/source/image
+remain preserved. First-failure detection now includes assertions, aborts and
+stack faults, has an archived-log regression check, and finds no assertions in
+the sixteen acoustic captures. The corrected diagnostic retains the failed
+fixture explicitly, reloads a fresh model, and runs the independent checks; it
+does not loosen the fixture tolerance or declare an overall pass.
+
 Existing conv3 wall-time logs show no gross whole-trunk skipping anomaly.
 This concerns model execution isolation, not the closed 128-byte L2 fault or a
 new claim about a software writer.
+
+### Bounded quality follow-up and remaining work
+
+The frozen-source conv3 follow-up has controls 31/48 and 27/47 speaker correct,
+versus candidates 28/47 and 27/47. Unknown counts are 12/10 in both arms. Word
+errors are controls 113/113 versus candidates 111/109, each over 466 words.
+All four alignment fits qualify and all runs have zero driver/phrase loss,
+watchdogs, panics or application errors. Clearing time again falls 73%.
+The original separated speaker pattern does not repeat, but that does not erase
+the original concern or establish noninferiority. Hold adoption while execution
+isolation and the independent speaker fixture contract remain unresolved.
+
+The new pre-roll/ring-wrap replay passes: 28 exact trace/payload comparisons match
+the old component with probes enabled/disabled. The original twelve traces stay
+unchanged; segmenter boundary tests also pass. Remaining work includes isolating
+prepared-argument ownership without changing weights/rules, required secondary
+controls and continuous soak, final gate audit and the separate mixed-precision
+RAM request. No production default or HardwareOne checkout has changed.
 
 ## Separately queued user request
 

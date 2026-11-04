@@ -1482,3 +1482,32 @@ is prepared but unbuilt/unrun. It is not proof of live incidence or the cause of
 these quality scores. No SDK patch has changed. Exact neural hashes, added
 pre-roll replay, secondary controls and soak remain incomplete; keep the goal
 active and preserve training-agent changes.
+
+
+### P4 execution-isolation defect reproduced; adoption held — 3 November
+
+The bounded conv3 follow-up has baseline speaker correctness 31/48 and 27/47
+versus candidate 28/47 and 27/47, with unknowns 12/10 in both arms. All four
+fits qualify and no reliability/application faults occur. This does not erase
+the primary concern; no noninferiority or production promotion is claimed.
+
+The isolated P4 diagnostic completes six byte-identical recognition input/output/
+text pairs across clearing modes. It independently reproduces the shared SDK
+preparation-state defect: fixed input B matches normally on the same separate
+worker, changes to cosine -0.003156489 when the parent holds the global flag,
+and recovers exactly after clearing it. This proves the mechanism, not live
+incidence or causation of the acoustic score differences. No SDK fix is applied yet.
+
+The fixed speaker blob's embedded trunk fixture separately fails (first reported
+770 expected, 717 actual; roughly one-unit tolerance). Its cause is unresolved.
+The diagnostic explicitly reports complete_with_findings/all_checks_passed=false
+and makes no RAM-fit claim. An initial assertion/reboot loop and the controller
+matcher oversight are preserved; first-fault detection is fixed/tested. No
+assertions were found in the sixteen acoustic captures. The completed diagnostic
+restored/readback-verified the selected app and released the lock.
+
+Twenty-eight host replay comparisons now include real nonzero pre-roll/ring wrap
+and match the old engine. Secondary controls, continuous soak, final audit and
+the separately queued block-14 fixture/RAM test remain incomplete. Next isolate
+preparation ownership with fixed models and speaker rules; keep defaults unchanged
+and preserve training-agent edits. See docs/STT_CAPTURE_LOCK_RESULTS.md.

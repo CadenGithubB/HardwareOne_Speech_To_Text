@@ -1,0 +1,10 @@
+# Build-size layout only. Flash only the app through the approved helper; preserve the actual board table.
+# Standalone new-board layout, 16 MB flash. App starts at 0x10000. Existing
+# HardwareOne devices can have a smaller app and a different LittleFS offset.
+# Inspect and preserve their actual table; never flash this table over existing storage.
+# Name,   Type, SubType,  Offset,   Size,     Flags
+nvs,      data, nvs,      0xA000,   0x4000,
+nvs_key,  data, nvs_keys, 0xE000,   0x1000,   encrypted
+phy_init, data, phy,      0xf000,   0x1000,
+factory,  app,  factory,  0x10000,  0x715000,
+littlefs, data, littlefs, 0x725000, 0x8DB000, encrypted

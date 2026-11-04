@@ -23,10 +23,10 @@ struct Replay {
   uint64_t accepted=0,last_final=0;uint32_t work_count=0;bool features_enabled=true;FILE* payload=nullptr;
   static void lock(void* c){static_cast<Replay*>(c)->mutex.lock();}
   static void unlock(void* c){static_cast<Replay*>(c)->mutex.unlock();}
-  Replay(bool x2,bool features,bool trim):features_enabled(features){
+  Replay(bool x2,bool features,bool trim,size_t preRoll=0):features_enabled(features){
     StreamConfig c;c.segmentation.adaptive=false;c.segmentation.rms_threshold=100;
     c.segmentation.min_voice_samples=features?320:160;c.segmentation.min_segment_samples=320;
-    c.segmentation.max_segment_samples=capacity;c.segmentation.pre_roll_samples=0;
+    c.segmentation.max_segment_samples=capacity;c.segmentation.pre_roll_samples=preRoll;
     c.segmentation.hard_cut_search_samples=32000;
     c.tail_samples=trim?8000:0;c.draft_pacing=x2?DraftPacing::X2FastFirst:DraftPacing::Legacy;
     c.draft_interval_ms=x2?0:1000;
@@ -90,13 +90,14 @@ struct Replay {
 }
 int main(int argc,char** argv){
   assert(argc==4);const bool x2=std::strcmp(argv[1],"x2f")==0;const int scenario=std::atoi(argv[2]);
-  Replay r(x2,scenario!=4,scenario==2);r.payload=std::fopen(argv[3],"wb");assert(r.payload);
+  Replay r(x2,scenario!=4,scenario==2,scenario==6?4800:0);r.payload=std::fopen(argv[3],"wb");assert(r.payload);
   if(scenario==0){r.feed(16000,false,71);r.feed(32000,true,1024);r.feed(9600,false,127);r.feed(1600,true,29);r.feed(9600,false,1024);r.feed(330000,true,1024);r.feed(9600,false,160);r.finish();}
   else if(scenario==1){for(int i=0;i<5;++i){r.feed(16000,true,1024,false);r.feed(9600,false,127,false);}r.drain();r.finish();assert(r.pipeline.counters().dropped==2);}
   else if(scenario==2){r.feed(16000,true,160,false);r.feed(8000,false,160,false);r.drain();r.feed(1600,false,160);r.feed(16000,true,160,false);r.feed(8000,false,160,false);StreamWork w;assert(r.pipeline.take(w,r.now()));r.feed(320,true,160,false);r.record(w);r.pipeline.complete(w,false,"",{},400);r.feed(9600,false,160);r.finish();}
   else if(scenario==3){r.feed(16000,true,160,false);StreamWork w;assert(r.pipeline.take(w,r.now()));r.feed(9600,false,160,false);r.pipeline.cancel();r.record(w);r.pipeline.complete(w,false,"",{},400);assert(!r.pipeline.take(w,r.now()));}
   else if(scenario==4){r.feed(16000,true,31);r.feed(9600,false,79);r.feed(160,true,37);r.finish();}
   else if(scenario==5){r.feed(80000,true,1024,false,false);r.features();r.drain();r.feed(9600,false,79);r.finish();assert(r.pipeline.counters().feature_overruns>0);}
+  else if(scenario==6){r.feed(48000,false,71);r.feed(16000,true,1024);r.feed(9600,false,127);r.feed(32000,false,79);r.feed(24000,true,1024);r.feed(9600,false,160);r.finish();}
   else std::abort();
   r.result();assert(std::fclose(r.payload)==0);return 0;
 }
