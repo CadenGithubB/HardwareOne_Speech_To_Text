@@ -106,7 +106,8 @@ void verifyBase(FILE* file) {
     uint8_t hash[32];assert(mbedtls_sha256_finish(&sha,hash)==0);mbedtls_sha256_free(&sha);
     heap_caps_free(chunk);assert(!std::memcmp(hash,identity::kRawSha,32));
 }
-bool fixture(dl::Model* model,const char* name,unsigned iteration) {
+bool fixture(dl::Model* model,const char* name,unsigned iteration, bool prepare,
+             dl::runtime_mode_t mode) {
     auto* graph=model->get_fbs_model();assert(graph);graph->load_map();
     auto& inputs=model->get_inputs();auto& outputs=model->get_outputs();
     assert(inputs.size()==1&&outputs.size()==1);
@@ -125,9 +126,28 @@ bool fixture(dl::Model* model,const char* name,unsigned iteration) {
     assert(expected->exponent.is_valid()&&!expected->exponent.is_per_channel()&&int(expected->exponent)==-1);
     uint8_t inputHash[32];digest(input->data,input->get_bytes(),inputHash);
     HeapWindow window(name,"prepare_and_infer",iteration);
-    setPhase(100);model->prepare_args(dl::RUNTIME_MODE_MULTI_CORE);
+#ifdef HW1_PRECISION_TRACE
+    const auto names=graph->topological_sort();
+    assert(names.size()==size_t(model->module_count()));
+#endif
+    setPhase(100);
+    if(prepare)model->prepare_args(mode);
     for(int stage=0;stage<model->module_count();++stage) {
-        setPhase(1000+unsigned(stage));model->run(model->module_count(),stage,dl::RUNTIME_MODE_MULTI_CORE);yield();
+        setPhase(1000+unsigned(stage));model->run(model->module_count(),stage,mode);
+#ifdef HW1_PRECISION_TRACE
+        if(iteration==0) {
+            std::vector<std::string> sources,targets;
+            assert(graph->get_operation_inputs_and_outputs(names[stage],sources,targets)==ESP_OK);
+            for(const auto& target:targets) {
+                auto* tensor=model->get_intermediate(target);
+                assert(tensor&&tensor->data);
+                uint8_t bytes[32];char sha[65];
+                digest(tensor->data,tensor->get_bytes(),bytes);hex(bytes,sha);
+                printf("STT_TENSOR %s %d %d %d %s %s\n",name,int(prepare),int(mode),stage,target.c_str(),sha);
+            }
+        }
+#endif
+        yield();
     }
     // Exact own-fixture comparison, no tolerance expansion to obtain a pass.
     const bool equal=!std::memcmp(output->data,expected->data,output->get_bytes());
@@ -139,7 +159,8 @@ bool fixture(dl::Model* model,const char* name,unsigned iteration) {
     printf("STT_PRECISION {\"type\":\"fixture\",\"model\":\"%s\",\"iteration\":%u,\"frames\":663,\"modules\":%u,\"input_sha256\":\"%s\",\"output_sha256\":\"%s\",\"expected_sha256\":\"%s\",\"unequal\":%u,\"max_abs_error\":%d,\"passed\":%s}\n",name,iteration,unsigned(model->module_count()),in,out,ref,unsigned(unequal),maximum,equal?"true":"false");
     delete testInput;delete expected;graph->clear_map();return equal;
 }
-bool oneModel(FILE* file,const char* name,bool candidate,bool workloads=false) {
+bool oneModel(FILE* file,const char* name,bool candidate,bool workloads=false,
+              bool prepare=true,dl::runtime_mode_t mode=dl::RUNTIME_MODE_MULTI_CORE) {
     const size_t bytes=candidate?kCandidateBytes:identity::kRawBytes;
     printf("STT_PRECISION {\"type\":\"model_begin\",\"model\":\"%s\",\"bytes\":%u}\n",name,unsigned(bytes));
     setPhase(candidate?20:10);HeapWindow load(name,workloads?"workload_raw_load":"raw_load",0,workloads?0:663);
@@ -189,9 +210,11 @@ bool oneModel(FILE* file,const char* name,bool candidate,bool workloads=false) {
     }
     setPhase(candidate?21:11);HeapWindow build(name,"model_construct",0);
     auto* model=new(std::nothrow) dl::Model(reinterpret_cast<const char*>(raw),fbs::MODEL_LOCATION_IN_FLASH_RODATA,0,dl::MEMORY_MANAGER_GREEDY,nullptr,false);assert(model);
-    build.finish(-1);bool passed=true;
-    for(unsigned iteration=0;iteration<3;++iteration)passed=fixture(model,name,iteration)&&passed;
-    delete model;heap_caps_free(raw);setPhase(0);return passed;
+    build.finish(-1);
+    bool passed=true;
+    for(unsigned iteration=0;iteration<3;++iteration)passed=fixture(model,name,iteration,prepare,mode)&&passed;
+    delete model;
+    heap_caps_free(raw);setPhase(0);return passed;
 }
 }
 extern "C" void app_main() {
@@ -203,10 +226,24 @@ extern "C" void app_main() {
     assert(!internalRegions.overflow&&!externalRegions.overflow&&internalRegions.count&&externalRegions.count);
     printf("STT_PRECISION {\"type\":\"heap_regions\",\"internal\":%u,\"psram\":%u,\"internal_caps\":%u,\"psram_caps\":%u,\"embedded_delta_bytes\":%u,\"aggregate_peak_rule\":\"exact only for a single verified physical heap; otherwise sum-of-minima upper bound\"}\n",unsigned(internalRegions.count),unsigned(externalRegions.count),unsigned(kInternal),unsigned(kExternal),unsigned(deltaLength()));
     FILE* file=fopen(kModelPath,"rb");assert(file);verifyBase(file);
-    const bool control=oneModel(file,"control",false),candidate=oneModel(file,"block14",true);
-    bool stable=false;
-    if(control&&candidate) {stable=oneModel(file,"control",false,true);stable=oneModel(file,"block14",true,true)&&stable;}
+    bool control=true,candidate=true,stable=false;
+#ifdef HW1_PRECISION_TRACE
+    // A constructor may rewrite private bias storage. Reconstruct model bytes
+    // for each arm so ordinary and prepared calls have independent cold starts.
+    for(bool mixed:{false,true})for(bool prepare:{false,true})for(auto mode:{dl::RUNTIME_MODE_SINGLE_CORE,dl::RUNTIME_MODE_MULTI_CORE}) {
+        const char* name=mixed?"block14":"control";
+        printf("STT_MODE %s %d %d\n",name,int(prepare),int(mode));
+        const bool passed=oneModel(file,name,mixed,false,prepare,mode);
+        if(mixed)candidate=candidate&&passed;else control=control&&passed;
+    }
+    constexpr bool workloads=false;
+#else
+    control=oneModel(file,"control",false);
+    candidate=oneModel(file,"block14",true);
+    const bool workloads=control&&candidate;
+    if(workloads) {stable=oneModel(file,"control",false,true);stable=oneModel(file,"block14",true,true)&&stable;}
+#endif
     fclose(file);
-    printf("STT_PRECISION {\"type\":\"complete\",\"control_fixture_passed\":%s,\"candidate_fixture_passed\":%s,\"workloads_ran\":%s,\"workloads_cold_warm_stable\":%s,\"production_ram_fit_qualified\":false}\n",control?"true":"false",candidate?"true":"false",control&&candidate?"true":"false",stable?"true":"false");
+    printf("STT_PRECISION {\"type\":\"complete\",\"control_fixture_passed\":%s,\"candidate_fixture_passed\":%s,\"workloads_ran\":%s,\"workloads_cold_warm_stable\":%s,\"production_ram_fit_qualified\":false}\n",control?"true":"false",candidate?"true":"false",workloads?"true":"false",stable?"true":"false");
     for(;;)vTaskDelay(pdMS_TO_TICKS(1000));
 }

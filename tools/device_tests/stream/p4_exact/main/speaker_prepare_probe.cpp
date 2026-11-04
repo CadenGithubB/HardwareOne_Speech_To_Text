@@ -50,7 +50,7 @@ float cosine(const float* a,const float* b,size_t n){
  double dot=0,aa=0,bb=0;for(size_t i=0;i<n;++i){if(!std::isfinite(a[i])||!std::isfinite(b[i]))return NAN;dot+=double(a[i])*b[i];aa+=double(a[i])*a[i];bb+=double(b[i])*b[i];}
  return aa>0&&bb>0?float(dot/std::sqrt(aa*bb)):NAN;
 }
-void traceFixtureStage(dl::Model* model,int stage,const char* moduleName){
+void traceFixtureStage(dl::Model* model,int stage,const char* moduleName,bool exactRelu){
 #ifdef HW1_SPEAKER_TRACE_REFERENCE
  assert(moduleName);
  for(const auto& point:kSpeakerTracePoints){
@@ -60,10 +60,10 @@ void traceFixtureStage(dl::Model* model,int stage,const char* moduleName){
   const auto* actual=static_cast<const int16_t*>(tensor->data);unsigned over=0;int maxError=0;
   for(unsigned k=0;k<point.count;++k){assert(point.indices[k]<point.elements);int e=std::abs(int(actual[point.indices[k]])-int(point.values[k]));over+=e>1;maxError=std::max(maxError,e);}
   char digest[65];hexSha(tensor->data,tensor->get_bytes(),digest);
-  printf("STT_EXACT {\"type\":\"speaker_trace\",\"stage\":%d,\"module\":\"%s\",\"tensor\":\"%s\",\"samples\":%u,\"sample_over_tolerance\":%u,\"sample_max_abs_error\":%d,\"actual_sha256\":\"%s\",\"reference_validated\":false}\n",stage,point.module,point.tensor,point.count,over,maxError,digest);
+  printf("STT_EXACT {\"type\":\"speaker_trace\",\"exact_relu\":%s,\"stage\":%d,\"module\":\"%s\",\"tensor\":\"%s\",\"samples\":%u,\"sample_over_tolerance\":%u,\"sample_max_abs_error\":%d,\"actual_sha256\":\"%s\",\"reference_validated\":false}\n",exactRelu?"true":"false",stage,point.module,point.tensor,point.count,over,maxError,digest);
  }
 #else
- (void)model;(void)stage;(void)moduleName;
+ (void)model;(void)stage;(void)moduleName;(void)exactRelu;
 #endif
 }
 // Exercise the file's embedded quantized fixture directly, without frontend,
@@ -103,7 +103,7 @@ void fixtureMatrix(const char* path,size_t bytes){
   char inputHash[65];hexSha(input->data,input->get_bytes(),inputHash);
   for(int i=0;i<model->module_count();++i){
    model->run(model->module_count(),i,multi?dl::RUNTIME_MODE_MULTI_CORE:dl::RUNTIME_MODE_SINGLE_CORE);
-   if(block==0&&!multi&&!exactRelu)traceFixtureStage(model,i,moduleNames[i].c_str());
+   if(block==0&&!multi)traceFixtureStage(model,i,moduleNames[i].c_str(),exactRelu);
    vTaskDelay(1);
   }
   const auto* actual=static_cast<const int16_t*>(output->data);const auto* reference=static_cast<const int16_t*>(expected->data);

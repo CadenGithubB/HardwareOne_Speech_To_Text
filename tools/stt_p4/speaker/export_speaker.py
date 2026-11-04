@@ -112,6 +112,7 @@ def main():
     ap.add_argument('--calib', type=int, default=128)
     ap.add_argument('--out', default=str(proto.STT / 'hw1-work/speaker/export_final'))
     ap.add_argument('--convs', type=int, default=21)
+    ap.add_argument('--save-native', action='store_true', help='Keep a private PPQ graph for numerical qualification')
     a = ap.parse_args()
     torch.set_num_threads(2)
     out = Path(a.out); out.mkdir(exist_ok=True)
@@ -126,6 +127,10 @@ def main():
                                  calib_steps=len(calib), input_shape=[1, 1, 40, FRAMES], inputs=[calib[0]],
                                  target='esp32p4', quant_type=a.quant_type, device='cpu', error_report=False,
                                  export_test_values=True, verbose=0)
+    if a.save_native:
+        from esp_ppq import TargetPlatform
+        from esp_ppq.api import export_ppq_graph
+        export_ppq_graph(graph=graph, platform=TargetPlatform.NATIVE, graph_save_to=str(out / 'speaker.native'))
     info = metadata(export)
     ex = TorchExecutor(graph=graph, device='cpu')
 

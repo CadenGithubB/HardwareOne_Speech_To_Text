@@ -1,6 +1,11 @@
 get_filename_component(STT_REPO "${CMAKE_CURRENT_LIST_DIR}/../../../../.." ABSOLUTE)
 set(CAPTIONS_MAIN "${STT_REPO}/firmware/examples/p4_eye_captions/main")
-idf_component_register(SRCS "replay.cpp" "speaker_prepare_probe.cpp" "${CAPTIONS_MAIN}/product.cpp"
+if(HW1_SPEAKER_CONTRACT)
+    set(exact_sources "speaker_contract.cpp")
+else()
+    set(exact_sources "replay.cpp" "speaker_prepare_probe.cpp")
+endif()
+idf_component_register(SRCS ${exact_sources} "${CAPTIONS_MAIN}/product.cpp"
     "${CAPTIONS_MAIN}/speaker_adapter.cpp" "${CAPTIONS_MAIN}/capture_diagnostics.cpp"
     INCLUDE_DIRS "${CAPTIONS_MAIN}"
     PRIV_REQUIRES hw1_stt hw1_transcript nvs_flash json fatfs sdmmc esp_driver_sdmmc
@@ -20,4 +25,8 @@ if(HW1_SPEAKER_EXACT_RELU_PROBE)
 endif()
 if(HW1_SPEAKER_PREPARE_FAILURE_PROBE)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE HW1_SPEAKER_PREPARE_FAILURE_PROBE=1)
+endif()
+if(HW1_SPEAKER_CONTRACT)
+    target_add_binary_data(${COMPONENT_LIB} "${HW1_SPEAKER_CONTRACT}" BINARY RENAME_TO "speaker_candidate")
+    target_add_binary_data(${COMPONENT_LIB} "${HW1_SPEAKER_SECOND_REFERENCE}" BINARY RENAME_TO "speaker_reference")
 endif()

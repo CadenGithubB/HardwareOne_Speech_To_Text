@@ -1,0 +1,7 @@
+# Block 14 main.6 is a bias-free, per-channel S16 depthwise convolution.
+# The speaker model's bias-bearing depthwise kernel has a different dispatch key.
+kernel_abi: 1
+ops:
+  - Conv
+kernels:
+  - dl_esp32p4_s16_depthwise_conv2d_per_channel_hwc1
