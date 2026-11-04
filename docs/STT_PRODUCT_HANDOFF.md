@@ -1708,3 +1708,7 @@ Keep checkpoint 25397 and the current P4 app. On 48 matched meeting spans (635 w
 ## Matched acoustic capture and firmware replay, 4 November 2026
 
 Four playback runs compared eight fixed phrases at two placements and two source-level settings. The host and P4 matched on every raw transcript from 32 actual microphone captures. Original-source playback made 31 errors on the Mac chassis and 34 at one foot, versus 24 and 23 when the four quiet meeting clips were played louder. No new model or production firmware setting was selected. One feature rounding boundary explains the only integer output mismatch and did not change a decoded word. The separate simultaneous microphone was unavailable, so the user repositioned the same P4 for the placement comparison. See the [acoustic path report](STT_ACOUSTIC_PATH_REPORT.md) for all counts, controls and scope.
+
+## Microphone orientation at one foot
+
+The [orientation A/B](STT_ORIENTATION_AB.md) retained the starting position with the P4 mic facing the Mac speaker. Turning it away increased quiet errors from 45 to 58 on 73 words. Ordinary errors tied at 28 on 73 words with offsets across phrases. The candidate failed screening. Loud, overlap, noise and live qualification were not run for this rejected placement.
