@@ -1712,3 +1712,7 @@ Four playback runs compared eight fixed phrases at two placements and two source
 ## Microphone orientation at one foot
 
 The [orientation A/B](STT_ORIENTATION_AB.md) retained the starting position with the P4 mic facing the Mac speaker. Turning it away increased quiet errors from 45 to 58 on 73 words. Ordinary errors tied at 28 on 73 words with offsets across phrases. The candidate failed screening. Loud, overlap, noise and live qualification were not run for this rejected placement.
+
+## Quiet-speech threshold screening
+
+Retain adaptive speech floor 45. A matched 83-case, four-floor replay found release speech gains at floors 32, 24 and 16, but no quiet aggregate gain on the facing-speaker microphone recordings and extra background words (4 to 8 across six minutes). Ordinary captions also had per-phrase regressions. No board flash was needed for these rejected candidates. The [admission threshold report](STT_ADMISSION_THRESHOLD_AB.md) records the full results, controls and live-test limitations. The [microphone endpoint replay](STT_MICROPHONE_ENDPOINT_REPLAY.md) describes the initial admission failure.
