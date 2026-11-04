@@ -48,6 +48,12 @@ Optional diagnostic CMake settings:
   deserialization before the self-test, embedding and recognition checks.
   It is a numerical causal probe, not a production configuration or an accuracy
   claim. Model bytes and the original tolerance stay unchanged.
+- `-DHW1_SPEAKER_PREPARE_FAILURE_PROBE=ON` requires model-local preparation.
+  With the independent worker blocked, it temporarily delegates the installed
+  metadata allocator while refusing the fixed speaker model's optional prepared
+  blocks. It compares activation bytes, fallback output and normal recovery
+  against an ordinary run. This tests allocator-policy rejection, not physical
+  heap exhaustion or RAM fit. Build/run this separately; it is off by default.
 
 Keep reference headers, model fixture values and generated artifacts private.
 Retain a failed fixture explicitly even when another comparison improves it.

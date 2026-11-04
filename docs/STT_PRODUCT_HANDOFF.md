@@ -1601,3 +1601,34 @@ It uses the same fixed model math and recorded monotonic receive clock. Secondar
 controls, continuous soak, unbuilt optional allocation-refusal check, final audit
 and separate model/RAM benchmark remain incomplete. See STT_CAPTURE_LOCK_RESULTS.md
 and private/stt-capture-lock/next-actions.json. Production defaults remain unchanged.
+
+### Secondary controls and preparation-failure check complete; soak active — 4 November
+
+All twelve secondary captures completed. Their controller restored/readback-verified
+the selected app, reconnect/logging off, and released the lock. The x2f clearing
+bracket raises a label-after-caption p90 flag (controls 2.020/1.817 s, candidates
+2.231/2.443 s), despite a 61.1% reduction in clearing work. No caption-speed gain
+or promotion is established. The speaker-load controls show capture-wait p99 in
+(1,10] us throughout; speaker-off does not establish better final-caption p90.
+No secondary watchdog/panic/phrase drop was observed; probe-off DMA loss is
+unmeasured. Primary conv4 quality and speaker numerical-fixture holds remain.
+
+The isolated P4 preparation-refusal check passed: 104 optional requests rejected,
+activation bytes unchanged, fallback/recovery exactly matching the ordinary
+fixture-matrix output. Six recognition pairs match pre-fix hashes; independent
+model output remains unchanged during 82 preparations. This does not simulate
+physical heap exhaustion or warmed-block growth failure. The embedded speaker
+fixture remains failed, so overall status is complete_with_findings. That
+controller also restored/readback-verified the selected app and released its lock.
+
+The >=1h single-boot mixed-session diagnostic reliability soak is now running
+with explicit quality/fixture holds retained. Its results and final restoration
+are pending. No default change or HardwareOne synchronization occurred.
+
+The separate block-14 benchmark now has a bounded diagnostic delta decoder,
+ASan/UBSan bounds/failure checks, and exact actual-candidate host reconstruction.
+Prior actual-device logs and the pinned envelope show a stored control model,
+allowing immutable payload reads without a 20 MB scratch card write. Device
+header/base/target hash checks remain mandatory; no candidate model has been
+loaded or numerically/RAM-qualified on the device. See STT_CAPTURE_LOCK_RESULTS.md
+and private/stt-capture-lock/next-actions.json for continuation evidence.

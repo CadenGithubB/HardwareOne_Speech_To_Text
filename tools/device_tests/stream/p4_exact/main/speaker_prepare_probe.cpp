@@ -4,6 +4,8 @@
 #include "dl_model_base.hpp"
 #include "dl_module_creator.hpp"
 #include "dl_module_relu.hpp"
+#include "dl_tool_metadata.hpp"
+#include "dl_base_conv_args.hpp"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -116,6 +118,46 @@ void fixtureMatrix(const char* path,size_t bytes){
 #endif
  dl::base::hw1_dl_conv_block_bytes=savedBlock;
 }
+#if HW1_SPEAKER_PREPARE_FAILURE_PROBE
+#if !CONFIG_HW1_STT_MODEL_LOCAL_PREPARE
+#error "Prepare failure probe requires model-local preparation"
+#endif
+// Quiescent diagnostic only: preserve the installed allocator's placement and
+// free contract, rejecting only large Module requests during prepare_args().
+// The fixed speaker graph's temporary args/factors are below this threshold;
+// its optional Prepared blocks include two args plus a 16-byte header.
+const dl::tool::MetadataAllocator* failureDelegate=nullptr;
+static_assert(sizeof(void*)==4,"Prepared-block threshold is for the P4 ABI");
+constexpr size_t kPreparedMinimum=(16+2*sizeof(dl::base::ConvArgsType)+15)&~size_t(15);
+unsigned prepareRejections=0;
+void* refusePrepared(size_t size,size_t align,dl::tool::MetadataKind kind){
+ if(kind==dl::tool::MetadataKind::Module&&size>=kPreparedMinimum){++prepareRejections;return nullptr;}
+ return failureDelegate->alloc(size,align,kind);
+}
+void delegateFree(void* ptr){failureDelegate->free(ptr);}
+const dl::tool::MetadataAllocator failureAllocator{refusePrepared,delegateFree};
+void prepareFailureProbe(dl::Model* model,const char* modelSha){
+ auto* graph=model->get_fbs_model();assert(graph);graph->load_map();auto& inputs=model->get_inputs();auto& outputs=model->get_outputs();assert(inputs.size()==1&&outputs.size()==1);
+ auto* fixture=graph->get_test_input_tensor(inputs.begin()->first);assert(fixture);
+ auto* input=inputs.begin()->second;auto* output=outputs.begin()->second;assert(input&&output&&input->data&&output->data&&input->assign(fixture));
+ // Greedy arenas may reuse the input's storage after its last reader. Restore
+ // the fixture before EVERY inference rather than assuming run preserves it.
+ auto run=[&](){assert(input->assign(fixture));for(int i=0;i<model->module_count();++i){model->run(model->module_count(),i,dl::RUNTIME_MODE_MULTI_CORE);vTaskDelay(1);}};
+ run();char baseline[65],inputBefore[65],outputBefore[65],after[65];hexSha(output->data,output->get_bytes(),baseline);
+ assert(input->assign(fixture));hexSha(input->data,input->get_bytes(),inputBefore);hexSha(output->data,output->get_bytes(),outputBefore);
+ failureDelegate=dl::tool::get_metadata_allocator();assert(failureDelegate&&failureDelegate!=&failureAllocator);prepareRejections=0;
+ dl::tool::set_metadata_allocator(&failureAllocator);
+ model->prepare_args(dl::RUNTIME_MODE_MULTI_CORE);
+ dl::tool::set_metadata_allocator(failureDelegate);
+ assert(prepareRejections>0);
+ hexSha(input->data,input->get_bytes(),after);assert(!std::strcmp(inputBefore,after));
+ hexSha(output->data,output->get_bytes(),after);assert(!std::strcmp(outputBefore,after));
+ run();hexSha(output->data,output->get_bytes(),after);assert(!std::strcmp(baseline,after));
+ model->prepare_args(dl::RUNTIME_MODE_MULTI_CORE);run();hexSha(output->data,output->get_bytes(),after);assert(!std::strcmp(baseline,after));
+ printf("STT_EXACT {\"type\":\"prepare_failure_fallback\",\"model_sha256\":\"%s\",\"rejected_optional_allocations\":%u,\"threshold_bytes\":%u,\"failed_prepare_activation_unchanged\":true,\"fallback_output_equal\":true,\"normal_prepare_recovery_equal\":true,\"output_sha256\":\"%s\",\"scope\":\"Quiescent allocator-policy rejection; not real heap exhaustion or RAM-fit qualification\"}\n",modelSha,prepareRejections,unsigned(kPreparedMinimum),baseline);
+ delete fixture;graph->clear_map();
+}
+#endif
 }
 void speaker_prepare_probe(){
  assert(hw1_dl_prepare_mode==0&&hw1::stt::installDlMetadataAllocator());
@@ -161,6 +203,11 @@ void speaker_prepare_probe(){
  char otherRaw[65];hexSha(otherBlob,bytes,otherRaw);assert(!std::strcmp(raw,otherRaw));
  uint32_t trunkOffset=0;std::memcpy(&trunkOffset,otherBlob+60,sizeof(trunkOffset));assert(trunkOffset%16==0&&trunkOffset<bytes-32);
  auto* otherModel=new(std::nothrow) dl::Model(reinterpret_cast<const char*>(otherBlob+trunkOffset),fbs::MODEL_LOCATION_IN_FLASH_RODATA,0,dl::MEMORY_MANAGER_GREEDY,nullptr,false);assert(otherModel);
+#if HW1_SPEAKER_PREPARE_FAILURE_PROBE
+ // The independent speaker worker is blocked on work.start here; no other
+ // model uses metadata while this temporary diagnostic allocator is installed.
+ prepareFailureProbe(otherModel,raw);
+#endif
  auto inputs=otherModel->get_inputs(),outputs=otherModel->get_outputs();assert(inputs.size()==1&&outputs.size()==1);
  auto* input=inputs.begin()->second;auto* output=outputs.begin()->second;assert(input&&output&&input->data&&output->data);
  std::memset(input->data,0x37,input->get_bytes());std::memset(output->data,0x51,output->get_bytes());

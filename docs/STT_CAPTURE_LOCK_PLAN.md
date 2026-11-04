@@ -5,7 +5,7 @@ original and model-local SDK primary cohorts, and their bounded follow-ups are
 complete. Prefix clearing reduces clearing cost; a caption-latency gain remains
 unproven. The default-off execution-isolation repair passed controlled P4 tests.
 An independent speaker fixture still fails, and the new conv4 quality hold remains.
-Secondary controls are running; soak, final evidence review and adoption decisions
+All twelve secondary controls are complete; soak, final evidence review and adoption decisions
 are incomplete. Section 14 is the current remaining-work plan; Sections 1–13 retain
 the design contracts and experimental history. See `STT_CAPTURE_LOCK_RESULTS.md`
 for actual outcomes. Starting runtime: `9a0f14e`. This is standalone STT engine

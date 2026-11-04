@@ -614,3 +614,72 @@ recognition equality and independent-model isolation have separate diagnostic
 artifacts; the failed speaker numerical fixture stays failed. The optional
 allocation-refusal device probe has not run and must not be counted as coverage
 of actual device failure recovery yet.
+
+### All twelve secondary controls completed — 4 November
+
+The controller terminated successfully with all twelve captures scored, selected
+app restoration/readback verified, reconnect/perf logging off and lock released.
+A subsequent separately locked preparation-refusal diagnostic is now running;
+that later controller's restoration remains pending.
+
+The probe on/off/off/on bracket has WER edits 81/86/71/90 over 499 words and one
+unknown/missing label in each capture. This small acoustic sample cannot establish
+zero instrumentation overhead or an accuracy benefit. Probe-off DMA loss and
+sample-aligned publication/identity metrics remain unmeasured. Worker duration
+buckets are descriptive; their inputs are not controlled equal-input kernel pairs.
+
+The speaker on/off/off/on bracket is:
+
+| Run | Word edits / words | Speaker correct / eligible | Unknown or missing | Final publication median / p90 (s) | Capture wait max (ms) |
+|---|---:|---:|---:|---:|---:|
+| On 0 | 78/499 | 29/38 | 1 | 1.969 / 2.664 | 2.631 |
+| Off 1 | 81/499 | Not applicable | 38 intentional | 1.931 / 2.734 | 4.983 |
+| Off 2 | 77/499 | Not applicable | 38 intentional | 1.896 / 2.792 | 2.290 |
+| On 3 | 74/499 | 28/38 | 2 | 1.945 / 2.699 | 1.309 |
+
+All four sample fits/publication clocks qualify. Capture-wait p99 stays in the
+(1,10] microsecond histogram bucket throughout. Disabling the worker does not
+establish better capture contention or final-caption p90. This is a load control,
+not a speaker-algorithm recommendation or exact paired inference benchmark.
+The 4.983 ms maximum is retained; the earlier below-4-ms statement describes its
+earlier cohort and is not a bound on all subsequent runs.
+
+Across all twelve secondary captures there were no observed phrase drops,
+watchdogs or panics; instrumented captures report zero DMA overflow. The two
+probe-off captures have no DMA-loss claim. The x2f label-delay flag above remains,
+as do the primary conv4 quality hold and independent numerical-fixture failure.
+The secondary controls do not authorize promotion. A continuous soak and final
+review remain outstanding; so does the separate block-14 device fixture/RAM test.
+Evidence: secondary-local-score-12-final.json, secondary-local-status.json and
+per-run private captures/clock sidecars under private/stt-capture-lock/.
+
+### P4 preparation-refusal recovery passed; diagnostic soak active — 4 November
+
+The optional isolated probe built at 699,472 bytes and completed on the P4.
+It refused 104 optional prepared-storage requests at a 528-byte threshold while
+the other model worker was blocked. Input/output activation snapshots were
+unchanged by preparation; ordinary fallback and restored normal preparation
+produced the exact same output hash as the unchanged four-mode fixture matrix.
+This is allocator-policy refusal, not physical heap exhaustion, a warmed-block
+growth-failure test, or production RAM-fit qualification.
+
+The independent worker also remained unchanged during 82 real preparations of
+another model. Six recognition input/output/text pairs passed and matched the
+pre-fix control hashes. There were no observed watchdogs or panics. The original
+speaker embedded fixture still fails; therefore the controller explicitly reports
+complete_with_findings and all_checks_passed=false. It restored/readback-verified
+the selected app, reconnect/logging off, and released its lock.
+
+Evidence: exact-prepare-refusal-status.json, exact-prepare-refusal-ready.json,
+private image/source snapshots and serial logs under private/stt-capture-lock/.
+The diagnostic remains optional and off by default.
+
+The planned continuous mixed-length reliability sequence has now started under
+its own exclusive controller, following that verified restoration. It uses the
+frozen model-local prefix image on one boot, with five cycles of conv2/3/4/long22.
+Its prerequisite records retain both the numerical-fixture failure and acoustic
+adoption holds. The question is sustained sample continuity, session drainage,
+reset/reload/fault behavior and observed memory trends. It is diagnostic reliability
+evidence, not a qualified-finalist or accuracy claim. At least one continuous hour
+is required; any watchdog triggers the unchanged sequence from boot once more.
+The soak is running, not passed, and its final selected-app restoration is pending.
