@@ -1460,3 +1460,25 @@ speaker threshold, recognition model or production default changes are authorize
 by these measurements. Secondary controls/soak and exact-input P4 neural hashes
 remain incomplete. A newly added nonzero-pre-roll/ring-wrap host replay also awaits
 compilation. See docs/STT_CAPTURE_LOCK_RESULTS.md for actual counts and limitations.
+
+
+### Capture-lock twelve-run cohort complete — 3 November
+
+All twelve primary captures completed without DMA loss, dropped phrases, watchdog
+observations, panics or application errors; all timing fits qualify. Median total
+cache-clear time falls 71%/73%/67% on conv2/3/4. The conv3 speaker/unknown concern
+still blocks adoption. Conv4 fallback counts are controls 1/1 versus candidates
+2/0: equal totals, a higher candidate maximum, with earlier baseline 2/2 retained.
+No unconditional quality/reliability pass or caption speedup is claimed.
+
+The selected x2f-only app was restored/readback-verified and the primary lock
+released. One bounded conv3 four-run follow-up now owns the board, using the exact
+original capture snapshot and unchanged images/settings. No defaults changed.
+
+Source review additionally identified a global SDK preparation flag consulted by
+both recognition and speaker model operators without model/task ownership. An
+isolated forced-exposure P4 probe with same-worker negative and recovery controls
+is prepared but unbuilt/unrun. It is not proof of live incidence or the cause of
+these quality scores. No SDK patch has changed. Exact neural hashes, added
+pre-roll replay, secondary controls and soak remain incomplete; keep the goal
+active and preserve training-agent changes.

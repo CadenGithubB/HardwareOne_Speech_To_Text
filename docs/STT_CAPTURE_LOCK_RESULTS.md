@@ -201,38 +201,68 @@ byte for byte (24 comparisons). The probes-off capture branch has a host control
 that requires probe rejection and Console cleanup, but a device probes-off run
 is still pending. ABBA, secondary controls and the one-hour soak remain open.
 
-### Primary ABBA in progress: conv2 complete; conv3 quality concern
+### Primary ABBA complete: conv3 quality concern; bounded follow-up active
 
-The first two four-run blocks completed with zero DMA loss, phrase drops,
-watchdog observations, panics or application errors. All eight timing fits
+All twelve captures completed with zero DMA loss, phrase drops,
+watchdog observations, panics or application errors. All twelve timing fits
 qualify. The original source/config/model/harness identities remain fixed.
 
 | Fixture | Baseline word errors | Candidate word errors | Baseline speaker correct | Candidate speaker correct | Baseline unknown labels | Candidate unknown labels |
 |---|---|---|---|---|---|---|
 | conv2 | 85, 77 / 499 words | 76, 77 / 499 | 15, 25 / 38 | 21, 17 / 38 | 14, 3 | 3, 13 |
 | conv3 | 113, 116 / 466 words | 110, 107 / 466 | 33, 30 / 47 | 28, 26 / 47 | 9, 8 | 11, 11 |
+| conv4 | 88, 80 / 470 words | 79, 78 / 470 | 11/34, 19/34 | 15/33, 15/35 | 15, 10 | 10, 13 |
 
-Median total cache-clear time falls 71% on conv2 and 73% on conv3. These are
+Median total cache-clear time falls 71% on conv2, 73% on conv3 and 67% on conv4. These are
 operation-cost reductions, not evidence of a comparable caption speedup. Conv2
 quality spans overlap the controls; its closing baseline erases a simple claim
 that the candidate necessarily improves WER.
 
 Conv3 triggers the predefined repeatable-quality concern: both candidate speaker
 scores fall below both controls, and both unknown counts exceed both controls.
-This blocks adoption. Complete conv4, then perform one bounded four-run conv3
-follow-up using the identical frozen capture source, images, playback and settings.
+This blocks adoption. The bounded four-run conv3
+follow-up is running with the identical frozen capture source, images, playback and settings.
 Keep that cohort separate from the original result; do not average away the
 concern or change speaker thresholds. Hold the candidate if uncertainty remains.
+
+Conv4 feature-overrun counts are 1/1 in controls and 2/0 in candidates. The
+candidate maximum exceeds this immediate control range, so the report retains
+that flag. Totals are equal and the earlier unchanged baseline twice recorded
+two overruns. Do not call this new microphone loss, a proven repeatable increase
+or an unconditional reliability pass. Compare all individual counts.
+
+The primary controller restored/readback-verified the selected x2f-only app with
+ring reconnect/perf logging off and released its lock before the follow-up took
+exclusive ownership. No default was promoted.
 
 The remaining controls/soak are prepared but have not run. An isolated P4 harness
 for six real neural input/output/text hash comparisons is also prepared but not
 built or run. It reuses the card/model/LM adapters, generates synthetic PCM and
-does not start the microphone or speaker task. It will establish exact-input
+does not start the microphone or the production speaker worker. It will establish exact-input
 neural equality, not acoustic quality, realtime behavior or production RAM fit.
 A requirement audit also found that the previous streaming traces fixed pre-roll
 to zero. A nonzero-pre-roll/ring-wrap case is added in the working tree and awaits
 compilation after acoustic testing. Prior reported 12/24-trace evidence remains
 retained and is not being relabeled as coverage of that new case.
+
+### Separate execution-state hazard under investigation
+
+Source inspection found a process-global `hw1_dl_prepare_mode` and generation
+set by recognition's resident-model preparation pass. SDK Conv/Add/LUT/Relu
+operators consult this flag without checking the model or calling task; the
+speaker task calls those same operators. `Model::run` provides no enclosing
+cross-model exclusion. This is a concrete isolation hazard in the source, not
+proof that it caused the acoustic speaker-score difference.
+
+The isolated P4 harness now includes a forced-exposure control: repeated A and
+distinct B speaker inputs, normal B on the separate worker as a negative control,
+then B on that worker while the parent holds the global preparation flag, followed
+by exact normal-B recovery. It validates the installed speaker identity and its
+embedded trunk fixture first. This probe is unbuilt/unrun. No SDK fix has been
+applied, and a forced reproduction alone will not establish live incidence.
+Existing conv3 wall-time logs show no gross whole-trunk skipping anomaly.
+This concerns model execution isolation, not the closed 128-byte L2 fault or a
+new claim about a software writer.
 
 ## Separately queued user request
 
