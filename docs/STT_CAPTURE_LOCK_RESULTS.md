@@ -156,6 +156,51 @@ enabling the prefix option. No candidate device performance result is available
 at this checkpoint. Matched runs, instrumentation controls and soak remain
 required; no production default or board model changed.
 
+### First candidate device screen
+
+The unchanged conv4 repeat reproduced two feature overruns, with no driver loss,
+drops, watchdogs or panics. Its WER is 74/470 and speaker correctness 22/34;
+the first run was 80/470 and 19/33. Both pass the frozen alignment checks. This
+within-baseline variation is a reason to run the bracketed comparison, not to
+claim a candidate quality change from one microphone pass.
+
+The candidate then completed conv2 and the long-input fixture with zero driver
+loss, phrase drops, watchdogs or panics. Each controller restored and verified
+the selected app, ring reconnect/perf logging off and lock released.
+
+| Screen | Baseline | Prefix candidate |
+|---|---|---|
+| conv2 cache-clear bytes | 10,240,000 | 3,422,464 |
+| conv2 total cache-clear time | 92.773 ms | 28.644 ms |
+| conv2 maximum cache-clear time | 2,583 us | 1,453 us |
+| conv2 capture wait p99 | (1,10] us | (1,10] us |
+| conv2 maximum capture wait | 3,969 us | 1,173 us |
+| conv2 WER edits / words | 91 / 499 | 78 / 499 |
+| conv2 speaker correct / eligible | 24 / 38 | 23 / 38 |
+| conv2 final publication median / p90 | 1.969 / 2.765 s | 1.942 / 2.768 s |
+| long-input cache-clear bytes | 1,536,000 | 423,680 |
+| long-input total cache-clear time | 14.029 ms | 3.489 ms |
+| long-input feature overruns | 4 | 4 |
+
+Conv2 clearing traffic falls 67% and total clearing time 69% in this screen;
+the long-input reductions are 72% and 75%. These are small absolute costs over
+the full recordings. Maximum-wait differences are descriptive; a one-run pair
+cannot prove a general tail improvement. Conv2 timing alignment qualifies; there
+is no material final-text latency gain in this pair. Lower WER and one fewer
+correct speaker phrase do not establish either a quality win or noninferiority.
+Proceed to the twelve-capture ABBA comparison before deciding on adoption.
+
+Additional host checks exercise the null-lock lifecycle with prefix/features/
+snapshots independently enabled/disabled and count C++ allocation calls. No such
+calls occur; source inspection finds no explicit allocator calls in the touched
+scheduler/segmenter/frontend. Six serialization orders of finish, cancel and
+feature completion preserve a pinned reader and eventually clear both caches,
+with the prefix option off/on. Updated address/undefined and thread sanitizer
+runs pass. Both probes-on and probes-off prefix replays match the old baseline
+byte for byte (24 comparisons). The probes-off capture branch has a host control
+that requires probe rejection and Console cleanup, but a device probes-off run
+is still pending. ABBA, secondary controls and the one-hour soak remain open.
+
 ## Separately queued user request
 
 The training chat's explicit user request for the block-14 RAM benchmark was

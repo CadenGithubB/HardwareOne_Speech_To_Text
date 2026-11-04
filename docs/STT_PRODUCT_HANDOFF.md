@@ -1422,3 +1422,23 @@ See docs/STT_CAPTURE_LOCK_RESULTS.md for actual per-fixture counts and limitatio
 The full ABBA comparison, instrumentation controls, remaining stress checks and
 one-hour soak are incomplete. Models, speaker rules and production defaults remain
 unchanged; training files belong to the other session.
+
+
+### Prefix-clearing screen complete; balanced qualification next — 3 November
+
+The unchanged conv4 repeat again has two feature overruns but no DMA loss, phrase
+drops, watchdogs or panics. The long-input baseline has four feature overruns,
+zero driver/phrase loss and a 230 us maximum capture wait. The candidate completed
+conv2 and the same long input cleanly, retaining four long-input feature overruns.
+Conv2 clearing falls from 10,240,000 to 3,422,464 bytes and 92.773 to 28.644 ms;
+final-text lag is essentially unchanged. WER is 91/499 versus 78/499 and speaker
+correctness 24/38 versus 23/38. One pair establishes neither quality improvement
+nor noninferiority. The small clearing improvement merits the balanced comparison;
+the tiny baseline wait does not justify a larger ownership redesign.
+
+All controllers completed selected-app restoration/readback with ring reconnect
+and perf logging off, and released the lock. Additional null-lock, zero-C++-
+allocation, disabled-feature/snapshot, terminal-order and probes-off capture host
+checks pass; 24 prefix replay comparisons match the old scheduler/frontend bytes.
+The twelve-capture ABBA, device instrumentation controls, secondary pacing/speaker
+checks and at least one-hour soak remain incomplete. No defaults were promoted.

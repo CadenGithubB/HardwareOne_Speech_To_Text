@@ -1,4 +1,5 @@
 #include "stt/stt_stream.h"
+#include <algorithm>
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -6,7 +7,21 @@
 #include <vector>
 #include <thread>
 #include <atomic>
+#include <cstdlib>
+#include <new>
 using namespace hw1::stt;
+namespace {
+thread_local bool watch_allocations=false;
+thread_local size_t watched_allocations=0;
+}
+void* operator new(size_t bytes){
+    if(watch_allocations)++watched_allocations;
+    if(void* p=std::malloc(bytes?bytes:1))return p;
+    throw std::bad_alloc();
+}
+void* operator new[](size_t bytes){return ::operator new(bytes);}
+void operator delete(void* p) noexcept {std::free(p);}
+void operator delete[](void* p) noexcept {std::free(p);}
 struct Fixture {
     std::vector<int16_t> capture=std::vector<int16_t>(32000),snapshot=capture;
     std::vector<int16_t> pcm[3]={capture,capture,capture},ring=std::vector<int16_t>(65536);
@@ -53,7 +68,34 @@ void cache_zero_and_guards(const Fixture& f){
         for(size_t i=8;i<8+200*64;++i)assert(rows[i]==0);
     }
 }
+void no_hot_allocations_and_null_lock(bool prefix,bool features,bool snapshot){
+    Fixture storage(false,false);StreamPipeline p;StreamConfig c;
+    c.segmentation.adaptive=false;c.segmentation.rms_threshold=100;
+    c.segmentation.max_segment_samples=32000;c.segmentation.min_segment_samples=320;
+    c.segmentation.min_voice_samples=320;c.segmentation.pre_roll_samples=0;
+    c.clear_committed_features=prefix;
+    StreamBuffers b;b.capacity=32000;b.capture=storage.capture.data();b.snapshot=snapshot?storage.snapshot.data():nullptr;
+    for(int i=0;i<3;++i)b.slots[i]=storage.pcm[i].data();
+    watched_allocations=0;watch_allocations=true;
+    assert(p.begin(c,b));
+    if(features)assert(p.enableFeatures(storage.ring.data(),storage.ring.size(),storage.rows[0].data(),storage.rows[1].data()));
+    int16_t block[160];float row[64];StreamFeatureWork f;StreamWork w;unsigned finals=0;
+    for(unsigned step=0;step<165;++step){
+        for(unsigned i=0;i<160;++i)block[i]=step<100?(i&1?1000:-1000):0;
+        assert(p.push(block,160,step*10));
+        while(p.featureTake(f)){
+            assert(log_mel_frame_ring(f.ring,511,f.start,f.samples,f.frame,row,&storage.workspace)==Status::Ok);
+            p.featureComplete(f,row,true);
+        }
+        if(p.take(w,step*10)){finals+=w.kind==StreamWorkKind::Final;p.complete(w,true,"fixed",{},100);}
+    }
+    assert(p.finish(1650));while(p.take(w,1650)){finals+=w.kind==StreamWorkKind::Final;p.complete(w,true,"fixed",{},100);}
+    p.cancel();watch_allocations=false;assert(watched_allocations==0&&finals==1);
+    for(const auto& rows:storage.rows)for(float value:rows)assert(value==0);
+}
 void committed_prefix_clearing(){
+    for(bool prefix:{false,true})for(bool features:{false,true})for(bool snapshot:{false,true})
+        no_hot_allocations_and_null_lock(prefix,features,snapshot);
     Fixture f(false,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(f);cache_zero_and_guards(f);
     f.feed(320,true,false);f.pipeline.cancel();cache_zero_and_guards(f);
 #if HW1_STT_STREAM_METRICS
@@ -67,14 +109,15 @@ void committed_prefix_clearing(){
     assert(one.pipeline.memoryDiagnostics(StreamMemoryOperation::CacheClear).metric.bytes==64*sizeof(float));
 #endif
     Fixture overrun(false,false,512,DraftPacing::Legacy,1000,false,true);guarded_features(overrun,512);
-    overrun.feed(16000,true,false);overrun.features();assert(overrun.pipeline.counters().feature_overruns==1);
+    overrun.feed(640,true);overrun.feed(16000,true,false);overrun.features();assert(overrun.pipeline.counters().feature_overruns==1);
     overrun.feed(9600,false);StreamWork fallback;assert(overrun.pipeline.take(fallback,overrun.now));
-    assert(!fallback.features.count);overrun.done(fallback);cache_zero_and_guards(overrun);
+    assert(fallback.features.count==4);overrun.done(fallback);cache_zero_and_guards(overrun);
     Fixture repeated(false,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(repeated);
     for(int pass=0;pass<6;++pass){
         const size_t voice=pass%2?32000:16000;repeated.feed(voice,true);
         if(voice<32000)repeated.feed(9600,false);
         StreamWork w;assert(repeated.pipeline.take(w,repeated.now)&&w.kind==StreamWorkKind::Final);
+        if(voice==32000)assert(w.features.count==199); // maximum committed prefix before hard close
         assert(w.features.count>0);bool dirty=false;
         for(size_t i=8;i<8+200*64;++i)dirty|=repeated.rows[0][i]!=0||repeated.rows[1][i]!=0;
         assert(dirty);repeated.done(w);cache_zero_and_guards(repeated);
@@ -95,7 +138,7 @@ void committed_prefix_clearing(){
     Fixture pinned(false,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(pinned);
     pinned.feed(16000,true);assert(pinned.pipeline.take(spec,pinned.now));
     const auto retained=std::vector<float>(spec.features.rows,spec.features.rows+spec.features.count*64);
-    pinned.feed(9600,false);pinned.pipeline.cancel();assert(pinned.pipeline.cancelled(spec));
+    pinned.feed(9600,false);pinned.pipeline.cancel();pinned.pipeline.cancel();assert(pinned.pipeline.cancelled(spec));
     assert(!std::memcmp(retained.data(),spec.features.rows,retained.size()*sizeof(float)));
     pinned.done(spec,false);cache_zero_and_guards(pinned);
     Fixture stale(false,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(stale);
@@ -104,6 +147,27 @@ void committed_prefix_clearing(){
     stale.feed(320,true,false);float foreign[64];std::fill(foreign,foreign+64,99.f);
     stale.pipeline.featureComplete(old,foreign,true);cache_zero_and_guards(stale);
     stale.features();assert(stale.pipeline.take(final,stale.now)==false);stale.pipeline.cancel();cache_zero_and_guards(stale);
+    // With a reader pinned and one feature row in flight, exercise all mutex
+    // serialization orders of finish, cancel and late feature publication.
+    for(bool prefix:{false,true}){
+        int order[3]={0,1,2};
+        do{
+            Fixture terminal(false,false,65536,DraftPacing::Legacy,1000,false,prefix);guarded_features(terminal);
+            terminal.feed(16000,true);StreamWork reader;assert(terminal.pipeline.take(reader,terminal.now));
+            std::vector<float> kept(reader.features.rows,reader.features.rows+reader.features.count*64);
+            terminal.feed(320,true,false);StreamFeatureWork pending;assert(terminal.pipeline.featureTake(pending));
+            float value[64];assert(log_mel_frame_ring(pending.ring,511,pending.start,pending.samples,pending.frame,value,&terminal.workspace)==Status::Ok);
+            for(int action:order){
+                if(action==0)(void)terminal.pipeline.finish(terminal.now);
+                else if(action==1)terminal.pipeline.cancel();
+                else terminal.pipeline.featureComplete(pending,value,true);
+            }
+            assert(terminal.pipeline.cancelled(reader));
+            assert(!std::memcmp(kept.data(),reader.features.rows,kept.size()*sizeof(float)));
+            terminal.done(reader,false);cache_zero_and_guards(terminal);
+            assert(!terminal.pipeline.take(reader,terminal.now));
+        }while(std::next_permutation(order,order+3));
+    }
 }
 void tagged_lock_contract(){
     Fixture f(false,false,65536,DraftPacing::Legacy,1000,true);
