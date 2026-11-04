@@ -1442,3 +1442,21 @@ allocation, disabled-feature/snapshot, terminal-order and probes-off capture hos
 checks pass; 24 prefix replay comparisons match the old scheduler/frontend bytes.
 The twelve-capture ABBA, device instrumentation controls, secondary pacing/speaker
 checks and at least one-hour soak remain incomplete. No defaults were promoted.
+
+
+### Capture-lock primary ABBA: speaker-quality gate raised — 3 November
+
+Conv2 and conv3 four-run blocks are complete, with zero driver loss, dropped
+phrases, watchdogs, panics or application errors; all timing fits qualify. Median
+cache-clearing time is 71%/73% lower, but no corresponding caption speedup is
+established. Conv2 quality spans overlap the controls. Conv3 speaker correctness
+is 33/47 and 30/47 for baseline versus 28/47 and 26/47 for the candidate, with
+unknown counts 9/8 versus 11/11. This blocks an adoption recommendation.
+
+Conv4 is still running. One bounded conv3 follow-up is prepared using the exact
+original capture snapshot and unchanged images/settings; preserve the original
+cohort separately and hold the candidate if the concern remains unresolved. No
+speaker threshold, recognition model or production default changes are authorized
+by these measurements. Secondary controls/soak and exact-input P4 neural hashes
+remain incomplete. A newly added nonzero-pre-roll/ring-wrap host replay also awaits
+compilation. See docs/STT_CAPTURE_LOCK_RESULTS.md for actual counts and limitations.
