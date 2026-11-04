@@ -1720,3 +1720,7 @@ Retain adaptive speech floor 45. A matched 83-case, four-floor replay found rele
 ## Dual-source microphone quality A/B
 
 The [P4/G2 quality report](STT_DUAL_MIC_QUALITY.md) pins the installed source and verifies both sources reach STT as raw 16 kHz mono PCM. Recorder gain/filtering is separate. On actual recordings, the full recorder chain reduced 73 to 65 errors on each source’s 146-word set, but some phrases regressed and the fixed gain clipped louder LC3 compatibility inputs. Retain the current shared path. Two owned-recording G2 rearm attempts stalled; a continuous 56.55-second G2 recording completed and the original source preference and disabled/idle recorder state were verified. See the report for all arms, alignment, evidence and qualification limits.
+
+## Shared STT conditioning A/B, 4 November 2026
+
+The [conditioning report](STT_SHARED_CONDITIONING_AB.md) audits 1,815 arm records across 11 policies, physical P4/G2 audio, 131 regression/confirmation cases and two continuous-sequence replays. Conditioning only detection while preserving raw model input reduced continuous G2 edits 97→74 and concatenated P4 edits 88→65 on 146 words each. No candidate passed all speech, quiet-recovery and background gates. The strongest detection policy worsened noisy read speech 33→35 errors and background output 4→7 words across six minutes, with incidental-voice caveats. Preserve the default. No candidate was flashed; the G2 rearm fix was excluded.
