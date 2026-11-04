@@ -54,8 +54,8 @@ size_t deltaLength() {
     assert(last>=first);return size_t(last-first);
 }
 struct HeapWindow {
-    const char* model;const char* operation;unsigned iteration;int64_t start;
-    HeapWindow(const char* m,const char* op,unsigned it):model(m),operation(op),iteration(it) {
+    const char* model;const char* operation;unsigned iteration,frames;int64_t start;
+    HeapWindow(const char* m,const char* op,unsigned it,unsigned f=663):model(m),operation(op),iteration(it),frames(f) {
         assert(heap_caps_monitor_local_minimum_free_size_start()==ESP_OK);
         start=esp_timer_get_time();
     }
@@ -70,8 +70,8 @@ struct HeapWindow {
         const size_t internalLargest=heap_caps_get_largest_free_block(kInternal);
         const size_t externalLargest=heap_caps_get_largest_free_block(kExternal);
         assert(heap_caps_monitor_local_minimum_free_size_stop()==ESP_OK);
-        printf("STT_PRECISION {\"type\":\"memory_window\",\"model\":\"%s\",\"operation\":\"%s\",\"iteration\":%u,\"elapsed_us\":%lld,\"numerical_gate_passed\":%s,\"internal_peak_used_upper_bytes\":%u,\"psram_peak_used_upper_bytes\":%u,\"internal_peak_exact\":%s,\"psram_peak_exact\":%s,\"internal_largest_at_end\":%u,\"psram_largest_at_end\":%u}\n",
-               model,operation,iteration,(long long)elapsed,numericalGate<0?"null":numericalGate?"true":"false",
+        printf("STT_PRECISION {\"type\":\"memory_window\",\"model\":\"%s\",\"operation\":\"%s\",\"iteration\":%u,\"frames\":%u,\"elapsed_us\":%lld,\"numerical_gate_passed\":%s,\"internal_peak_used_upper_bytes\":%u,\"psram_peak_used_upper_bytes\":%u,\"internal_peak_exact\":%s,\"psram_peak_exact\":%s,\"internal_largest_at_end\":%u,\"psram_largest_at_end\":%u}\n",
+               model,operation,iteration,frames,(long long)elapsed,numericalGate<0?"null":numericalGate?"true":"false",
                unsigned(internalTotal-internalMin),unsigned(externalTotal-externalMin),
                internalRegions.count==1&&!internalRegions.overflow?"true":"false",
                externalRegions.count==1&&!externalRegions.overflow?"true":"false",
@@ -138,10 +138,10 @@ bool fixture(dl::Model* model,const char* name,unsigned iteration) {
     printf("STT_PRECISION {\"type\":\"fixture\",\"model\":\"%s\",\"iteration\":%u,\"frames\":663,\"modules\":%u,\"input_sha256\":\"%s\",\"output_sha256\":\"%s\",\"expected_sha256\":\"%s\",\"unequal\":%u,\"max_abs_error\":%d,\"passed\":%s}\n",name,iteration,unsigned(model->module_count()),in,out,ref,unsigned(unequal),maximum,equal?"true":"false");
     delete testInput;delete expected;graph->clear_map();return equal;
 }
-bool oneModel(FILE* file,const char* name,bool candidate) {
+bool oneModel(FILE* file,const char* name,bool candidate,bool workloads=false) {
     const size_t bytes=candidate?kCandidateBytes:identity::kRawBytes;
     printf("STT_PRECISION {\"type\":\"model_begin\",\"model\":\"%s\",\"bytes\":%u}\n",name,unsigned(bytes));
-    setPhase(candidate?20:10);HeapWindow load(name,"raw_load",0);
+    setPhase(candidate?20:10);HeapWindow load(name,workloads?"workload_raw_load":"raw_load",0,workloads?0:663);
     auto* raw=static_cast<uint8_t*>(heap_caps_aligned_alloc(16,bytes,kExternal));assert(raw);
     if(candidate) {
         hw1::diagnostic::ModelDelta delta;
@@ -151,7 +151,42 @@ bool oneModel(FILE* file,const char* name,bool candidate) {
         const size_t n=std::min<size_t>(65536,bytes-at);assert(readBase(file,at,raw+at,n)==n);at+=n;yield();
     }
     uint8_t hash[32];digest(raw,bytes,hash);assert(!std::memcmp(hash,candidate?kCandidateSha:identity::kRawSha,32));
-    load.finish(-1);setPhase(candidate?21:11);HeapWindow build(name,"model_construct",0);
+    load.finish(workloads?1:-1);
+    if(workloads) {
+        bool stable=true;
+        for(unsigned frames:{100u,1000u,2000u}) {
+            printf("STT_PRECISION {\"type\":\"workload_begin\",\"model\":\"%s\",\"frames\":%u}\n",name,frames);
+            setPhase(candidate?21:11);HeapWindow build(name,"workload_construct",0,frames);
+            const std::map<std::string,std::vector<int>> shapes{{identity::kInputName,{1,int(frames),1,64}}};
+            auto* model=new(std::nothrow) dl::Model(reinterpret_cast<const char*>(raw),fbs::MODEL_LOCATION_IN_FLASH_RODATA,0,dl::MEMORY_MANAGER_GREEDY,nullptr,false,shapes);assert(model);
+            build.finish(1);
+            auto& inputs=model->get_inputs();auto& outputs=model->get_outputs();assert(inputs.size()==1&&outputs.size()==1);
+            auto* input=inputs.begin()->second;auto* output=outputs.begin()->second;assert(input&&output&&input->data&&output->data);
+            assert(input->dtype==dl::DATA_TYPE_INT8&&input->shape==std::vector<int>({1,int(frames),1,64}));
+            assert(output->dtype==dl::DATA_TYPE_INT8&&output->shape==std::vector<int>({1,int((frames+1)/2),1,29}));
+            assert(input->exponent.is_valid()&&!input->exponent.is_per_channel()&&int(input->exponent)==-4);
+            assert(output->exponent.is_valid()&&!output->exponent.is_per_channel()&&int(output->exponent)==-1);
+            uint8_t cold[32]{};
+            for(unsigned iteration=0;iteration<3;++iteration) {
+                auto* values=static_cast<int8_t*>(input->data);
+                for(size_t i=0;i<size_t(input->get_bytes());++i)values[i]=int8_t(int((i*17+3)%127)-63);
+                uint8_t inHash[32],outHash[32];digest(input->data,input->get_bytes(),inHash);
+                HeapWindow inference(name,"workload_prepare_and_infer",iteration,frames);
+                setPhase(100);model->prepare_args(dl::RUNTIME_MODE_MULTI_CORE);
+                for(int stage=0;stage<model->module_count();++stage) {
+                    setPhase(1000+unsigned(stage));model->run(model->module_count(),stage,dl::RUNTIME_MODE_MULTI_CORE);yield();
+                }
+                inference.finish(1);digest(output->data,output->get_bytes(),outHash);
+                if(!iteration)std::memcpy(cold,outHash,32);
+                const bool equal=!std::memcmp(cold,outHash,32);stable=stable&&equal;
+                char in[65],out[65];hex(inHash,in);hex(outHash,out);
+                printf("STT_PRECISION {\"type\":\"workload\",\"model\":\"%s\",\"frames\":%u,\"iteration\":%u,\"input_sha256\":\"%s\",\"output_sha256\":\"%s\",\"cold_warm_equal\":%s}\n",name,frames,iteration,in,out,equal?"true":"false");
+            }
+            delete model;
+        }
+        heap_caps_free(raw);setPhase(0);return stable;
+    }
+    setPhase(candidate?21:11);HeapWindow build(name,"model_construct",0);
     auto* model=new(std::nothrow) dl::Model(reinterpret_cast<const char*>(raw),fbs::MODEL_LOCATION_IN_FLASH_RODATA,0,dl::MEMORY_MANAGER_GREEDY,nullptr,false);assert(model);
     build.finish(-1);bool passed=true;
     for(unsigned iteration=0;iteration<3;++iteration)passed=fixture(model,name,iteration)&&passed;
@@ -167,7 +202,10 @@ extern "C" void app_main() {
     assert(!internalRegions.overflow&&!externalRegions.overflow&&internalRegions.count&&externalRegions.count);
     printf("STT_PRECISION {\"type\":\"heap_regions\",\"internal\":%u,\"psram\":%u,\"embedded_delta_bytes\":%u,\"aggregate_peak_rule\":\"exact only for a single verified physical heap; otherwise sum-of-minima upper bound\"}\n",unsigned(internalRegions.count),unsigned(externalRegions.count),unsigned(deltaLength()));
     FILE* file=fopen(kModelPath,"rb");assert(file);verifyBase(file);
-    const bool control=oneModel(file,"control",false),candidate=oneModel(file,"block14",true);fclose(file);
-    printf("STT_PRECISION {\"type\":\"complete\",\"control_fixture_passed\":%s,\"candidate_fixture_passed\":%s,\"production_ram_fit_qualified\":false}\n",control?"true":"false",candidate?"true":"false");
+    const bool control=oneModel(file,"control",false),candidate=oneModel(file,"block14",true);
+    bool stable=false;
+    if(control&&candidate) {stable=oneModel(file,"control",false,true);stable=oneModel(file,"block14",true,true)&&stable;}
+    fclose(file);
+    printf("STT_PRECISION {\"type\":\"complete\",\"control_fixture_passed\":%s,\"candidate_fixture_passed\":%s,\"workloads_ran\":%s,\"workloads_cold_warm_stable\":%s,\"production_ram_fit_qualified\":false}\n",control?"true":"false",candidate?"true":"false",control&&candidate?"true":"false",stable?"true":"false");
     for(;;)vTaskDelay(pdMS_TO_TICKS(1000));
 }

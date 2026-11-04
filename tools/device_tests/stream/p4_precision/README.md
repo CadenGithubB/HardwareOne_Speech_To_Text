@@ -21,6 +21,15 @@ observations cannot qualify that model. Logged input hashes reveal any differenc
 between the models' fixture inputs. Both exports currently contain one test input
 and one final test output; other fixture layouts are deliberately refused.
 
+Only after BOTH models pass does the app run additional matched 100-, 1,000- and
+2,000-frame workloads (short, ten-second and resident-cap shapes). Each length
+constructs a fresh model and performs one cold and two warm calls. Both models
+receive identical deterministic int8 inputs, restored before each call; hashes
+must remain stable within a model. Different models need not produce equal
+outputs. These workloads check shape-dependent memory and repeated execution,
+not accuracy or a new numerical reference beyond the own-fixture gate. They do
+not qualify every possible model length or full-application memory use.
+
 Every module uses the existing multicore path and yields after joining; the stage
 count comes from the actual model. This is matched diagnostic timing, not P4
 caption latency, uninterrupted throughput or full-application RAM qualification.
