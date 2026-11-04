@@ -4,7 +4,7 @@ This test app reuses the actual standalone card/model/LM adapters and portable
 scheduler/frontend/runtime. It does not enter the captions app loop, start PDM
 capture or play audio. All PCM is generated in memory; no audio upload is needed.
 
-It performs two distinct checks:
+It performs independent checks:
 
 - Six recognition input/output/text hash pairs compare full-cache and committed-
   prefix clearing. Short, medium and maximum-length phrases repeat across cold
@@ -16,12 +16,41 @@ It performs two distinct checks:
   controls. The installed speaker identity and its embedded trunk self-test are
   checked. A changed/failed forced embedding demonstrates a mechanism; it does
   not prove live overlap or explain an acoustic quality result by itself.
+- A direct embedded-trunk fixture matrix reloads the same model/input for
+  convolution blocking disabled/24 KiB and single/multi-core execution. It reports
+  complete output hashes, unequal/over-tolerance counts and absolute errors.
+  Frontend, float pooling and clustering are absent from this comparison.
+
+With `CONFIG_HW1_STT_MODEL_LOCAL_PREPARE=y`, the isolation probe also repeatedly
+prepares a real independent model while the worker executes. Preparation must
+leave that independent model's input/output bytes unchanged. This is controlled
+cross-model concurrency; a single model remains non-reentrant.
 
 `STT_EXACT` JSON separates the isolation observation from the six recognition
 pairs. A failed embedded speaker fixture stays an explicit failed contract;
 the app reloads a fresh model for the independent isolation/equality checks.
 A passed recognition-equality result does not imply that the speaker fixture or isolation passed. This app
 is not an accuracy, realtime, production RAM-fit or soak benchmark.
+
+Optional diagnostic CMake settings:
+
+- `-DHW1_SPEAKER_TRACE_REFERENCE=/absolute/private/reference.h` embeds private
+  per-layer sample comparisons. The header defines `SpeakerTracePoint` and
+  `kSpeakerTracePoints`: module/tensor names, element count, scalar exponent,
+  sample count (at most 64), indices and int16 values. The execution plan's
+  topological order supplies names because SDK `Module::name` can be null.
+  Records explicitly mark the reconstruction unvalidated. Sampling cannot
+  establish full-tensor equality; a matching full SHA can only do so when its
+  reference was independently checked.
+- `-DHW1_SPEAKER_EXACT_RELU_PROBE=ON` doubles the fixture matrix with the SDK's
+  existing direct ReLU implementation instead of serialized ReLU lookup tables.
+  It changes the creator only during those model loads and restores normal
+  deserialization before the self-test, embedding and recognition checks.
+  It is a numerical causal probe, not a production configuration or an accuracy
+  claim. Model bytes and the original tolerance stay unchanged.
+
+Keep reference headers, model fixture values and generated artifacts private.
+Retain a failed fixture explicitly even when another comparison improves it.
 
 Use ESP-IDF 5.5.5 and the repository's verified staged ESP-DL. For example, from
 the repository root, with a reviewed private sdkconfig:

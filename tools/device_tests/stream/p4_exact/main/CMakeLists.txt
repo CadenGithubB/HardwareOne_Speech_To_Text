@@ -8,3 +8,13 @@ idf_component_register(SRCS "replay.cpp" "speaker_prepare_probe.cpp" "${CAPTIONS
 idf_component_get_property(STT_LIBRARY hw1_stt COMPONENT_LIB)
 target_compile_definitions(${STT_LIBRARY} PUBLIC HW1_STT_RUNTIME_DIAGNOSTICS=1)
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -fstack-usage)
+if(HW1_SPEAKER_TRACE_REFERENCE)
+    if(NOT EXISTS "${HW1_SPEAKER_TRACE_REFERENCE}")
+        message(FATAL_ERROR "Speaker diagnostic reference header is missing")
+    endif()
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE
+        HW1_SPEAKER_TRACE_REFERENCE="${HW1_SPEAKER_TRACE_REFERENCE}")
+endif()
+if(HW1_SPEAKER_EXACT_RELU_PROBE)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE HW1_SPEAKER_EXACT_RELU_PROBE=1)
+endif()

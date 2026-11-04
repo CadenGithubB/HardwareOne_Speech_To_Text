@@ -1530,3 +1530,25 @@ preserved. See STT_CAPTURE_LOCK_RESULTS.md for evidence and limits, and Section 
 of STT_CAPTURE_LOCK_PLAN.md for the updated staged qualification plan. Speaker
 fixture localization, secondary controls, continuous soak, final gate audit and
 the separate mixed-precision RAM request remain incomplete.
+
+### Speaker numerical mismatch: actionable cause found — 4 November
+
+The first Conv matches an independent int64 reference byte for byte. A 181-point
+P4 diagnostic trace locates the first large sampled difference at a residual
+ReLU. The model serializes 16 int16 residual ReLUs as 257-entry lookup tables
+(step 256); an exhaustive host audit finds up to 128 units of approximation
+error per operation. A diagnostic-only direct-ReLU control with the same weights
+reduces final fixture maximum error 788→17 and total absolute error
+891,692→10,591 in all four execution modes. This is a numerical fidelity result,
+not a live speaker-accuracy result. The original one-unit fixture still fails;
+no tolerance/default/model change is made.
+
+One trace prototype faulted on an optional null SDK module name; first-fault
+handling restored the board. Corrected trace and causal comparisons completed
+without watchdogs/panics, preserved the independent isolation/recognition passes,
+and restored/readback-verified the selected app, reconnect/logging off, lock
+released. See STT_CAPTURE_LOCK_RESULTS.md and the reusable audit_relu_tables.py
+for evidence and limits. Matched capture-lock controls are now building with
+original serialized speaker math and the opt-in preparation repair; secondary
+captures, continuous soak, final audit and the separate mixed-precision RAM
+request remain incomplete. Training-agent work is preserved.

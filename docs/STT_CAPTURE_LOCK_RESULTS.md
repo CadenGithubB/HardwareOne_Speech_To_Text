@@ -374,3 +374,61 @@ passed speaker fixture. Secondary controls, continuous soak and the final adopti
 audit remain incomplete; see the updated execution sequence in Section 13 of
 `STT_CAPTURE_LOCK_PLAN.md`. The separate mixed-precision fixture/RAM request stays
 queued and has no device result.
+
+### Speaker fixture localized to coarse residual ReLU tables — 4 November
+
+A diagnostic trace sampled 181 actual execution-plan outputs. The first Conv's
+complete output SHA matches an independent int64 convolution using the existing
+ESPDL input, blocked weights, biases, exponents, padding/stride and fused ReLU.
+Early sampled stages differ by at most two units; the first large sampled jump
+is stage 15, `/layer1/layer1.0/relu_1/Relu`, at 126 units. Other host reconstruction
+points remain unvalidated; this is localization, not a whole-network pass.
+
+The SDK deserializes a Relu node carrying a `lut` attribute as a lookup module.
+The installed model has 16 such int16 residual ReLU nodes, using two unique
+257-entry tables with step 256. Exhaustively applying the pinned P4 nearest-even
+index rule to all 65,536 int16 inputs finds maximum deviation 128 units from exact
+ReLU in every case. The table grid itself is correct; precision is lost between
+its grid points. `tools/device_tests/stream/audit_relu_tables.py` reproduces this
+from an existing trunk without board access. This audit characterizes tables;
+it does not independently qualify the P4 SIMD kernel.
+
+A causal P4 comparison loads the same weights/input with the SDK's existing
+direct ReLU operator in place of those tables, only inside the diagnostic.
+
+| Embedded fixture result | Serialized ReLU tables | Direct ReLU diagnostic |
+|---|---:|---:|
+| Values over the unchanged one-unit tolerance | 9,386 / 9,600 | 2,501 / 9,600 |
+| Maximum absolute error | 788 | 17 |
+| Sum absolute error | 891,692 | 10,591 |
+| Execution modes with identical output within this arm | 4 / 4 | 4 / 4 |
+
+Each arm covers blocking off/24 KiB and single/multi-core execution. Total absolute
+error falls 98.8%, but the fixture still fails. This identifies a dominant cause;
+it neither explains every remaining numerical difference nor establishes live
+speaker accuracy. Do not loosen tolerance, promote direct ReLU, or change speaker
+rules based on this fixture alone. The factory is restored before the normal
+speaker self-test, isolation probe and six recognition pairs; their unchanged
+results verify that the diagnostic switch did not persist into those checks.
+
+The first trace prototype dereferenced optional null Module::name in strcmp and
+faulted before comparisons. The controller detected it and restored/readback-
+verified the selected app. The corrected trace uses the exact topological order
+used to build the model's plan. Failed image/log and SHA-verified source remain
+private; no watchdog was observed. Corrected trace and causal runs both completed
+without watchdogs/panics and restored/readback-verified the selected app, ring
+reconnect/logging off, lock released. This diagnostic fault is not evidence of a
+new cache-line or model-execution fault.
+
+Private evidence under `private/stt-capture-lock/`: `exact-layer-trace-status.json`
+(failed), `exact-layer-trace-v2-status.json`, `exact-relu-probe-status.json`,
+`speaker-first-conv-scalar.json`, `speaker-trace-localization.json` and
+`speaker-relu-table-audit-reviewed-tool.json`. The last image also archives its
+source files. No production default, model file, training file or HardwareOne
+checkout changed.
+
+The diagnostic investigation is now bounded: retain the residual failed fixture
+as an adoption hold, and finish the original capture-lock performance/reliability
+controls using unchanged serialized speaker math in both arms. Six matched
+module-local-preparation profiles are building; exact ReLU is excluded from those
+images. Any future exact-ReLU accuracy experiment is a separate comparison.

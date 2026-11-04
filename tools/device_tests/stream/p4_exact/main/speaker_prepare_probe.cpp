@@ -2,6 +2,8 @@
 #include "stt/speaker_model.h"
 #include "stt/stt_dl_metadata.h"
 #include "dl_model_base.hpp"
+#include "dl_module_creator.hpp"
+#include "dl_module_relu.hpp"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -14,6 +16,9 @@
 #include <cstring>
 #include <new>
 #include <sys/stat.h>
+#ifdef HW1_SPEAKER_TRACE_REFERENCE
+#include HW1_SPEAKER_TRACE_REFERENCE
+#endif
 #ifdef NDEBUG
 #error "Prepare isolation probe requires enabled assertions"
 #endif
@@ -43,12 +48,41 @@ float cosine(const float* a,const float* b,size_t n){
  double dot=0,aa=0,bb=0;for(size_t i=0;i<n;++i){if(!std::isfinite(a[i])||!std::isfinite(b[i]))return NAN;dot+=double(a[i])*b[i];aa+=double(a[i])*a[i];bb+=double(b[i])*b[i];}
  return aa>0&&bb>0?float(dot/std::sqrt(aa*bb)):NAN;
 }
+void traceFixtureStage(dl::Model* model,int stage,const char* moduleName){
+#ifdef HW1_SPEAKER_TRACE_REFERENCE
+ assert(moduleName);
+ for(const auto& point:kSpeakerTracePoints){
+  if(std::strcmp(moduleName,point.module))continue;
+  auto* tensor=model->get_intermediate(point.tensor);assert(tensor&&tensor->data);
+  assert(tensor->dtype==dl::DATA_TYPE_INT16&&size_t(tensor->get_bytes())==point.elements*2&&int(tensor->exponent)==point.exponent);
+  const auto* actual=static_cast<const int16_t*>(tensor->data);unsigned over=0;int maxError=0;
+  for(unsigned k=0;k<point.count;++k){assert(point.indices[k]<point.elements);int e=std::abs(int(actual[point.indices[k]])-int(point.values[k]));over+=e>1;maxError=std::max(maxError,e);}
+  char digest[65];hexSha(tensor->data,tensor->get_bytes(),digest);
+  printf("STT_EXACT {\"type\":\"speaker_trace\",\"stage\":%d,\"module\":\"%s\",\"tensor\":\"%s\",\"samples\":%u,\"sample_over_tolerance\":%u,\"sample_max_abs_error\":%d,\"actual_sha256\":\"%s\",\"reference_validated\":false}\n",stage,point.module,point.tensor,point.count,over,maxError,digest);
+ }
+#else
+ (void)model;(void)stage;(void)moduleName;
+#endif
+}
 // Exercise the file's embedded quantized fixture directly, without frontend,
 // pooling or clustering. Reload weights for every case: Conv bias setup may
 // mutate its private copy. Report all differences rather than stopping at one.
 void fixtureMatrix(const char* path,size_t bytes){
  const int savedBlock=dl::base::hw1_dl_conv_block_bytes;
- for(int block:{0,24*1024})for(bool multi:{false,true}){
+ const bool reluModes[]={false,
+#if HW1_SPEAKER_EXACT_RELU_PROBE
+ true,
+#endif
+ };
+ for(bool exactRelu:reluModes)for(int block:{0,24*1024})for(bool multi:{false,true}){
+#if HW1_SPEAKER_EXACT_RELU_PROBE
+  auto* creator=dl::module::ModuleCreator::get_instance();creator->register_dl_modules();
+  if(exactRelu)creator->register_module("Relu",[](fbs::FbsModel* source,std::string name)->dl::module::Module*{
+   dl::quant_type_t type;source->get_operation_attribute(name,"quant_type",type);
+   return new dl::module::Relu(name.c_str(),dl::MODULE_INPLACE_CHANGED_BUFFER,type);
+  });
+  else creator->register_module("Relu",dl::module::Relu::deserialize);
+#endif
   auto* blob=static_cast<uint8_t*>(heap_caps_aligned_alloc(16,bytes,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));assert(blob);
   FILE* file=fopen(path,"rb");assert(file);
   for(size_t offset=0;offset<bytes;){size_t n=fread(blob+offset,1,std::min<size_t>(65536,bytes-offset),file);assert(n);offset+=n;}fclose(file);
@@ -56,20 +90,30 @@ void fixtureMatrix(const char* path,size_t bytes){
   dl::base::hw1_dl_conv_block_bytes=block;
   auto* model=new(std::nothrow) dl::Model(reinterpret_cast<const char*>(blob+offset),fbs::MODEL_LOCATION_IN_FLASH_RODATA,0,dl::MEMORY_MANAGER_GREEDY,nullptr,false);assert(model);
   auto* fbs=model->get_fbs_model();assert(fbs);fbs->load_map();
+  // Module::name is optional in this SDK. The execution plan is built in this
+  // exact topological order; retain the names privately for this diagnostic.
+  const auto moduleNames=fbs->topological_sort();assert(moduleNames.size()==size_t(model->module_count()));
   auto& inputs=model->get_inputs();auto& outputs=model->get_outputs();assert(inputs.size()==1&&outputs.size()==1);
   auto* input=inputs.begin()->second;auto* output=outputs.begin()->second;
   auto* testInput=fbs->get_test_input_tensor(inputs.begin()->first);auto* expected=fbs->get_test_output_tensor(outputs.begin()->first);
   assert(testInput&&expected&&input->assign(testInput));
   assert(output->dtype==dl::DATA_TYPE_INT16&&expected->dtype==output->dtype&&output->shape==expected->shape&&output->get_bytes()==expected->get_bytes());
   char inputHash[65];hexSha(input->data,input->get_bytes(),inputHash);
-  for(int i=0;i<model->module_count();++i){model->run(model->module_count(),i,multi?dl::RUNTIME_MODE_MULTI_CORE:dl::RUNTIME_MODE_SINGLE_CORE);vTaskDelay(1);}
+  for(int i=0;i<model->module_count();++i){
+   model->run(model->module_count(),i,multi?dl::RUNTIME_MODE_MULTI_CORE:dl::RUNTIME_MODE_SINGLE_CORE);
+   if(block==0&&!multi&&!exactRelu)traceFixtureStage(model,i,moduleNames[i].c_str());
+   vTaskDelay(1);
+  }
   const auto* actual=static_cast<const int16_t*>(output->data);const auto* reference=static_cast<const int16_t*>(expected->data);
   size_t unequal=0,overTolerance=0;int maxError=0;uint64_t totalError=0;
   for(size_t i=0;i<output->get_bytes()/sizeof(int16_t);++i){int error=std::abs(int(actual[i])-int(reference[i]));unequal+=error!=0;overTolerance+=error>1;maxError=std::max(maxError,error);totalError+=unsigned(error);}
   char actualHash[65],expectedHash[65];hexSha(output->data,output->get_bytes(),actualHash);hexSha(expected->data,expected->get_bytes(),expectedHash);
-  printf("STT_EXACT {\"type\":\"speaker_fixture_matrix\",\"block_bytes\":%d,\"multi_core\":%s,\"input_sha256\":\"%s\",\"output_sha256\":\"%s\",\"expected_sha256\":\"%s\",\"elements\":%u,\"unequal\":%u,\"over_tolerance\":%u,\"max_abs_error\":%d,\"sum_abs_error\":%llu,\"passed\":%s}\n",block,multi?"true":"false",inputHash,actualHash,expectedHash,unsigned(output->get_bytes()/2),unsigned(unequal),unsigned(overTolerance),maxError,(unsigned long long)totalError,overTolerance?"false":"true");
+  printf("STT_EXACT {\"type\":\"speaker_fixture_matrix\",\"exact_relu\":%s,\"block_bytes\":%d,\"multi_core\":%s,\"input_sha256\":\"%s\",\"output_sha256\":\"%s\",\"expected_sha256\":\"%s\",\"elements\":%u,\"unequal\":%u,\"over_tolerance\":%u,\"max_abs_error\":%d,\"sum_abs_error\":%llu,\"passed\":%s}\n",exactRelu?"true":"false",block,multi?"true":"false",inputHash,actualHash,expectedHash,unsigned(output->get_bytes()/2),unsigned(unequal),unsigned(overTolerance),maxError,(unsigned long long)totalError,overTolerance?"false":"true");
   delete testInput;delete expected;fbs->clear_map();delete model;heap_caps_free(blob);
  }
+#if HW1_SPEAKER_EXACT_RELU_PROBE
+ dl::module::ModuleCreator::get_instance()->register_module("Relu",dl::module::Relu::deserialize);
+#endif
  dl::base::hw1_dl_conv_block_bytes=savedBlock;
 }
 }
