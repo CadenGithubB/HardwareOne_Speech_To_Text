@@ -100,3 +100,33 @@ The starting checkout was `claude/spkeval-diagnostics` at `ec22e39`. Implementat
 The exclusive controllers verified the board MAC and actual partition table digest `39b3160f424d886b0939b43d3e127d893a6bb93d843d8e530d8acd8f1a33c5c3` before writing only the app at 0x10000. All six runs completed without observed watchdog or panic. Each restored and readback-verified `b55bf096156476f2e0e9fc15ea06acb2d91d27c32784a92215f76e06fbda0e88`, verified reconnect and logging off, closed the serial port and released the lock. Model bytes on the card were unchanged. The speaker candidate traveled in isolated app images. Block 14 used the preverified file-backed reconstruction delta.
 
 Private evidence lives under `private/numerical-takeover`, `private/numerical-speaker`, `private/numerical-fixed`, `private/numerical-contract`, `private/numerical-final-matrix` and `private/numerical-product`. The first directory includes the regenerated native graph, stage hashes, integer/float diagnostic, two independent candidate builds, training artifacts, per-turn results and the six-run restoration audit. The other directories pair each image with its build/config identities, raw serial log and status. The host transcript, product storage, bridge, viewer, model delta and speaker cluster regressions passed.
+
+## Last encoder block on distant speech, 4 November 2026
+
+This follow-up compares current checkpoint 25397, the previously exported distant-mic head-only control and a new arm that updates the last acoustic encoder block and character projection. Both adaptation arms start from 25397 and use the same 96 training spans, actual C++ frontend, ordered inputs, targets, AdamW settings and 24 updates. The new arm optimizes the last convolution after batch-normalization folding. Reconstruction into the checkpoint verified its effective weights and bias. The preceding 17 blocks stayed frozen. All three arms use the same saved LM and full strength.
+
+The primary measurement uses one headset and one distant recording of each of 48 distinct annotated meeting spans. There are eight sessions from four meeting series, 14 speakers and 635 reference words per mic. Each session contributes three isolated spans and three with at least 25% annotated competing speech. The overlap group's median is 55%. The isolated group has 364 words and the overlap group has 271. This design balances the two conditions and does not estimate the frequency of overlap in deployment.
+
+These are fresh spans and sessions for the paired adaptation studies. Too few validation meetings remained after excluding calibration and previous screen meetings. Selection used the official AMI test split, whose aggregate scores have previously been available in this project. The new evaluation uses no adaptation meeting series and excludes previously sampled, calibration and fitting PCM hashes. Membership was frozen before inference. The separately reserved Common Voice data was untouched. The frozen 48-case release suite provides additional regression controls.
+
+The same LM scored the floating models on the 48 distant clips. The current model made 117 isolated and 158 overlap errors. Head-only adaptation produced 116 and 158, and last-block-plus-head adaptation produced 116 and 159. The small change in training loss (2.045 to 2.040) did not correspond to an improvement on fresh floating-point transcripts.
+
+To examine what the paired microphone can teach us, we aligned each existing int8 hypothesis to the same labeled reference using a deterministic minimum-edit path. On isolated speech 66 reference words were correct only with the headset and eight only with the distant mic. On overlap speech those counts were 80 and five. This counts reference-word matches, excludes insertions and depends on tie-breaking for repeated words. It gives a reason to test paired-view supervision without treating every headset prediction as correct.
+
+The candidate checkpoint SHA-256 is `e91cb5cad00f70e801f353eb4d2c07d290f35ee15d8f6ebc89959ce8d7f1581b`; its 20,112,032-byte ESP-DL export is `36fc608ddf6af42e9b4c6b47de699d186c4987330409efef67338e6d5e4ac24f`. The fresh suite manifest hashes to `0939a85dab8fda9decb64e40c14a0ac1d167bad3b91ff1ffd3925a6b03932f27`. All 102 calibration examples matched the original export. Comparing serialized tensors against the original identified only the two head tensors in the head-only arm and those plus the last convolution weight and bias in the new arm. All intermediate activation exponents were identical. The private reproduction scripts, manifests, per-case results and export comparison are under `private/encoder-followup/`.
+
+Word edits (substitutions + deletions + insertions); lower is better. These are host scores using the exported integer graphs.
+
+| Recording condition | Reference words | Deployed int8 | Head only | Last block + head |
+|---|---:|---:|---:|---:|
+| Distant, isolated | 364 | 117 | 120 | 123 |
+| Distant, overlap | 271 | 165 | 170 | 170 |
+| Distant, all | 635 | 282 | 290 | 293 |
+| Headset, isolated | 364 | 60 | 60 | 63 |
+| Headset, overlap | 271 | 78 | 79 | 78 |
+| Headset, all | 635 | 138 | 139 | 141 |
+| Frozen release suite | 687 | 146 | 145 | 147 |
+
+Keep the deployed int8 checkpoint. The last-block candidate raised distant word error rate from 44.4% to 46.1%. Against the deployed model it improved two clips, tied 36 and worsened ten; against head-only it improved one, tied 43 and worsened four. Relative to the deployed model its distant errors rose in all four series: EN2002 +1, ES2004 +2, IS1009 +4, TS3003 +4. The release controls produced no false words on silence, taps or fan in any arm. No candidate was flashed. This rules against this particular 24-update recipe; it does not establish that adapting the encoder can never help.
+
+Next experiment: keep the same trainable layers, optimizer and labels, but add a training target from the simultaneous headset recording using a frozen teacher. Compare against the same distant-only training recipe. Check timing alignment on training pairs, keep the transcript as ground truth, and use new meeting series for evaluation. Report missed words separately under competing speech: the deployed model had 77 deletions on distant audio versus 32 on the headset in that condition. The student alone would run on the P4.

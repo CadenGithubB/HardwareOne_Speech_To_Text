@@ -1700,3 +1700,7 @@ The original block-14 export passes on the P4 when the isolated firmware links t
 On 24 matched meeting excerpts, RMS matching increased distant-mic errors from 110 to 117 on 292 words. A matched output-head training experiment gave 112 distant errors after training on the headset view and 113 after training on the distant view. Keep the existing gain and checkpoint. The final controller restored and readback-verified the selected x2f app and released the port. No default was changed.
 
 See [STT numerical qualification](STT_NUMERICAL_QUALIFICATION.md) for the original and corrected identities, exact numerical references, matched device RAM/timing, training A/B results and remaining limits. Source implementation checkpoint 829e863 is local to this standalone repository.
+
+## Distant-mic encoder adaptation follow-up, 4 November 2026
+
+Keep checkpoint 25397 and the current P4 app. On 48 matched meeting spans (635 words per microphone), the deployed int8 model made 282 distant errors, head-only adaptation 290, and last-block-plus-head adaptation 293. The new candidate regressed in all four meeting series and made 147 versus 146 errors on the frozen 687-word release suite. Host comparison only; no flash or default change. The next training comparison should use the paired headset recording as a teacher for the distant recording. See the [numerical report](STT_NUMERICAL_QUALIFICATION.md#last-encoder-block-on-distant-speech-4-november-2026) for controls, identities and limitations.
