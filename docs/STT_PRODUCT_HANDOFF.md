@@ -1373,3 +1373,27 @@ This is a plan-only milestone: no runtime change, new test result, board access
 or default change occurred. First implementation deliverable is instrumentation,
 not an unlocked read from live capture memory. Actual contention and benefit
 remain unmeasured; existing SDK/model/pacing conditions must be held fixed.
+
+### Capture-lock instrumentation and first device smoke — 3 November
+
+Goal remains active. Optional, default-off stream metrics are implemented without
+changing PCM/cache ownership or clearing policy. Exact original-runtime replay
+comparisons match all JSON, PCM and cached feature bytes (24 comparisons across
+enabled/disabled probes and both pacing modes). Actual streaming sanitizer/TSan
+checks, memcpy controls, telemetry parser and required product regressions pass.
+P4 metrics and optional speakers build successfully; no training/export file is
+modified or staged by this work. See `STT_CAPTURE_LOCK_RESULTS.md` for details.
+
+The exclusive startup/quiet-room smoke passes with active features/speakers and
+zero watchdog, panic, I2S overflow, phrase drop or feature overrun. Telemetry plus
+the largest reporting page is exactly 4 KiB. Capture wait p99 is (1,10] us, max
+18 us in that short sample; this is not evidence of loaded contention or a gain.
+A cache retirement cleared 256,000 bytes / 2,566 us despite only 38,656 bytes of
+feature writes. Full loaded baseline, overhead controls and optimization gates
+remain pending. The selected x2f-only app was restored and read back with ring
+reconnect/perf logging off; the port and lock were released.
+
+The user separately requested a block-14 model RAM/fixture benchmark through the
+training chat. That direct request was verified and queued for isolated runtime
+work at a safe device window, separate from fixed-model capture-lock comparisons.
+No mixed model is deployed and no device RAM result is claimed yet.

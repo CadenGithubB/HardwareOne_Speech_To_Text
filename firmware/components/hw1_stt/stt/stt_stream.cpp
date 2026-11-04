@@ -3,9 +3,58 @@
 #include <cstring>
 #include <cstdio>
 #include <limits>
+#if HW1_STT_STREAM_METRICS
+#ifdef ESP_PLATFORM
+#include "esp_timer.h"
+#else
+#include <chrono>
+#endif
+#endif
 namespace hw1::stt {
+#if HW1_STT_STREAM_METRICS
+namespace {
+uint64_t streamClockUs() {
+#ifdef ESP_PLATFORM
+  return uint64_t(esp_timer_get_time());
+#else
+  return uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+}
+}
+void StreamPipeline::memoryMeasured(StreamMemoryOperation op, size_t bytes, uint64_t us) {
+  auto& metric = diagnostics_.memory[size_t(op)];
+  metric.bytes += bytes;
+  metric.time.add(us);
+  diagnostics_.bytes_by_caller[size_t(operation_)][size_t(op)] += bytes;
+}
+#endif
+void StreamPipeline::copyMemory(void* dst, const void* src, size_t bytes, StreamMemoryOperation op) {
+#if HW1_STT_STREAM_METRICS
+  const uint64_t started = streamClockUs();
+#else
+  (void)op;
+#endif
+  std::memcpy(dst, src, bytes);
+#if HW1_STT_STREAM_METRICS
+  memoryMeasured(op, bytes, streamClockUs() - started);
+#endif
+}
+void StreamPipeline::clearMemory(void* dst, size_t bytes, StreamMemoryOperation op) {
+#if HW1_STT_STREAM_METRICS
+  const uint64_t started = streamClockUs();
+#else
+  (void)op;
+#endif
+  std::memset(dst, 0, bytes);
+#if HW1_STT_STREAM_METRICS
+  memoryMeasured(op, bytes, streamClockUs() - started);
+#endif
+}
+
 bool StreamPipeline::begin(const StreamConfig& c, const StreamBuffers& b, StreamLock l) {
-  if (initialized_ || !b.capture || b.capacity < 320 || (bool(l.lock) != bool(l.unlock))) return false;
+  if (initialized_ || !b.capture || b.capacity < 320 || (bool(l.lock) != bool(l.unlock)) ||
+      (bool(l.tagged_lock) != bool(l.tagged_unlock))) return false;
   for (auto* p : b.slots)
     if (!p) return false;
   if (c.tail_samples >= c.segmentation.end_silence_samples ||
@@ -26,7 +75,7 @@ void StreamPipeline::retire(int idx) {
   auto& c = caches_[idx];
   c.state = CacheState::Retired;
   if (!c.pins) {
-    std::memset(c.rows, 0, buffers_.capacity / 160 * 64 * sizeof(float));
+    clearMemory(c.rows, buffers_.capacity / 160 * 64 * sizeof(float), StreamMemoryOperation::CacheClear);
     c.state = CacheState::Free;
     ++c.generation;
     c.frames = 0;
@@ -89,6 +138,9 @@ void StreamPipeline::updateLive() {
           break;
         }
     if (live_cache_ >= 0) caches_[live_cache_].length = len;
+#if HW1_STT_STREAM_METRICS
+    else ++diagnostics_.cache_unavailable_checks;
+#endif
   }
   uint64_t ss = 0;
   size_t ve = 0, n = 0;
@@ -130,9 +182,9 @@ void StreamPipeline::queue(uint32_t now) {
     return;
   }
   const size_t idx = size_t(slot - slots_);
-  std::memcpy(buffers_.slots[idx], s->pcm, s->samples * sizeof(int16_t));
+  copyMemory(buffers_.slots[idx], s->pcm, s->samples * sizeof(int16_t), StreamMemoryOperation::QueueCopy);
   if (s->samples < 320)
-    std::memset(buffers_.slots[idx] + s->samples, 0, (320 - s->samples) * sizeof(int16_t));
+    clearMemory(buffers_.slots[idx] + s->samples, (320 - s->samples) * sizeof(int16_t), StreamMemoryOperation::Padding);
   slot->segment = *s;
   slot->segment.pcm = buffers_.slots[idx];
   slot->sequence = sequence;
@@ -152,11 +204,16 @@ void StreamPipeline::queue(uint32_t now) {
     live_cache_ = -1;
   }
   slot->state = SlotState::Ready;
+#if HW1_STT_STREAM_METRICS
+  uint32_t ready = 0;
+  for (const auto& queued : slots_) if (queued.state == SlotState::Ready) ++ready;
+  diagnostics_.ready_high_water = std::max(diagnostics_.ready_high_water, ready);
+#endif
   live_spec_ = 0;
   segmenter_.release();
 }
 bool StreamPipeline::push(const int16_t* pcm, size_t count, uint32_t now) {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Push);
   if (!initialized_ || stopped_ || finished_ || (!pcm && count)) return false;
   size_t offset = 0;
   while (offset < count) {
@@ -167,6 +224,9 @@ bool StreamPipeline::push(const int16_t* pcm, size_t count, uint32_t now) {
     ring_head_ = start + n;
     const auto fed = segmenter_.push(pcm + offset, n);
     offset += fed.consumed;
+#if HW1_STT_STREAM_METRICS
+    diagnostics_.accepted_samples += fed.consumed;
+#endif
     if (fed.status == SegmentStatus::Ready)
       queue(now);
     else if (fed.status != SegmentStatus::Ok || !fed.consumed) {
@@ -179,7 +239,7 @@ bool StreamPipeline::push(const int16_t* pcm, size_t count, uint32_t now) {
   return true;
 }
 bool StreamPipeline::finish(uint32_t now) {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Finish);
   if (!initialized_ || stopped_ || finished_) return false;
   finished_ = true;
   live_spec_ = 0;
@@ -192,21 +252,21 @@ bool StreamPipeline::finish(uint32_t now) {
   return true;
 }
 void StreamPipeline::cancel() {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Cancel);
   stopped_ = true;
   live_spec_ = held_spec_ = 0;
   std::memset(held_text_, 0, sizeof(held_text_));
   for (auto& s : slots_)
     if (s.state == SlotState::Ready) {
       retire(s.cache);
-      std::memset(const_cast<int16_t*>(s.segment.pcm), 0, s.segment.samples * sizeof(int16_t));
+      clearMemory(const_cast<int16_t*>(s.segment.pcm), s.segment.samples * sizeof(int16_t), StreamMemoryOperation::CancelClear);
       s.state = SlotState::Free;
     }
   if (live_cache_ >= 0) retire(live_cache_);
   live_cache_ = -1;
 }
 bool StreamPipeline::take(StreamWork& w, uint32_t now) {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Take);
   if (!initialized_ || stopped_ || busy_) return false;
   w = {};
   active_slot_ = active_cache_ = -1;
@@ -262,7 +322,7 @@ bool StreamPipeline::take(StreamWork& w, uint32_t now) {
       last_draft_samples_ = n;
       last_draft_sequence_ = next_sequence_;
     }
-    std::memcpy(buffers_.snapshot, pcm, n * sizeof(int16_t));
+    copyMemory(buffers_.snapshot, pcm, n * sizeof(int16_t), StreamMemoryOperation::SnapshotCopy);
     w.pcm = buffers_.snapshot;
     w.samples = n;
     w.captured_samples = liveLen;
@@ -277,7 +337,7 @@ bool StreamPipeline::take(StreamWork& w, uint32_t now) {
   return true;
 }
 bool StreamPipeline::cancelled(const StreamWork& w) {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Status);
   if (stopped_ || !busy_ || w.id != active_id_) return true;
   if (w.kind == StreamWorkKind::Final) return false;
   if (w.kind == StreamWorkKind::Speculative) return !validSpec(w.id);
@@ -285,7 +345,7 @@ bool StreamPipeline::cancelled(const StreamWork& w) {
 }
 void StreamPipeline::complete(const StreamWork& w, bool ok, const char* text, const STTLocalStats& stats,
                               uint32_t elapsed) {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Complete);
   if (!busy_ || w.id != active_id_) return;
   bool valid = !stopped_;
   if (w.kind == StreamWorkKind::Speculative) valid = valid && validSpec(w.id);
@@ -308,14 +368,14 @@ void StreamPipeline::complete(const StreamWork& w, bool ok, const char* text, co
   if (active_slot_ >= 0) {
     auto& s = slots_[active_slot_];
     retire(s.cache);
-    std::memset(buffers_.slots[active_slot_], 0, std::max<size_t>(320, s.segment.samples) * sizeof(int16_t));
+    clearMemory(buffers_.slots[active_slot_], std::max<size_t>(320, s.segment.samples) * sizeof(int16_t), StreamMemoryOperation::SlotClear);
     if (held_spec_ == s.spec) {
       held_spec_ = 0;
       std::memset(held_text_, 0, sizeof(held_text_));
     }
     s.state = SlotState::Free;
   } else {
-    std::memset(buffers_.snapshot, 0, w.samples * sizeof(int16_t));
+    clearMemory(buffers_.snapshot, w.samples * sizeof(int16_t), StreamMemoryOperation::SnapshotClear);
   }
   busy_ = false;
   active_slot_ = -1;
@@ -325,7 +385,7 @@ void StreamPipeline::complete(const StreamWork& w, bool ok, const char* text, co
   }
 }
 bool StreamPipeline::enableFeatures(int16_t* ring, size_t size, float* first, float* second) {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::EnableFeatures);
   if (!initialized_ || ring_ || !ring || size < 512 || (size & (size - 1)) || !first || !second ||
       segmenter_.samples_seen())
     return false;
@@ -333,13 +393,13 @@ bool StreamPipeline::enableFeatures(int16_t* ring, size_t size, float* first, fl
   ring_size_ = size;
   caches_[0].rows = first;
   caches_[1].rows = second;
-  std::memset(ring, 0, size * sizeof(int16_t));
-  std::memset(first, 0, buffers_.capacity / 160 * 64 * sizeof(float));
-  std::memset(second, 0, buffers_.capacity / 160 * 64 * sizeof(float));
+  clearMemory(ring, size * sizeof(int16_t), StreamMemoryOperation::StartupClear);
+  clearMemory(first, buffers_.capacity / 160 * 64 * sizeof(float), StreamMemoryOperation::StartupClear);
+  clearMemory(second, buffers_.capacity / 160 * 64 * sizeof(float), StreamMemoryOperation::StartupClear);
   return true;
 }
 bool StreamPipeline::featureTake(StreamFeatureWork& w) {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::FeatureTake);
   if (stopped_ || live_cache_ < 0) return false;
   auto& c = caches_[live_cache_];
   if (c.state != CacheState::Live || c.overrun || c.length < 320 || c.frames >= c.length / 160) return false;
@@ -357,11 +417,17 @@ bool StreamPipeline::featureTake(StreamFeatureWork& w) {
   w.start = c.start;
   w.samples = c.length;
   w.frame = frame;
+#if HW1_STT_STREAM_METRICS
+  const uint64_t started = streamClockUs();
+#endif
   for (uint64_t i = low; i < high; ++i) w.ring[i & 511] = ring_[i & (ring_size_ - 1)];
+#if HW1_STT_STREAM_METRICS
+  memoryMeasured(StreamMemoryOperation::FeatureWindow, size_t(high - low) * sizeof(int16_t), streamClockUs() - started);
+#endif
   return true;
 }
 void StreamPipeline::featureComplete(const StreamFeatureWork& w, const float* row, bool ok) {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::FeatureComplete);
   if (w.cache < 0 || size_t(w.cache) >= kStreamCaches) return;
   auto& c = caches_[w.cache];
   if (c.generation != w.generation || c.state != CacheState::Live || c.frames != w.frame) return;
@@ -370,23 +436,61 @@ void StreamPipeline::featureComplete(const StreamFeatureWork& w, const float* ro
     ++counters_.feature_overruns;
     return;
   }
-  std::memcpy(c.rows + c.frames * 64, row, 64 * sizeof(float));
+  copyMemory(c.rows + c.frames * 64, row, 64 * sizeof(float), StreamMemoryOperation::FeatureRow);
   ++c.frames;
 }
 StreamCounters StreamPipeline::counters() {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Status);
   return counters_;
 }
 uint16_t StreamPipeline::level() {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Status);
   return segmenter_.current_rms();
 }
 uint16_t StreamPipeline::noise() {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Status);
   return segmenter_.noise_rms();
 }
 bool StreamPipeline::calibrated() {
-  Guard guard(lock_);
+  Guard guard(*this, StreamOperation::Status);
   return segmenter_.calibrated();
 }
+#if HW1_STT_STREAM_METRICS
+StreamStateDiagnostics StreamPipeline::snapshotState() const {
+  StreamStateDiagnostics result = diagnostics_;
+  result.ready = result.running = result.free_slots = result.free_caches = result.retired_caches = 0;
+  result.feature_capacity = ring_ ? uint32_t(buffers_.capacity / 160) : 0;
+  for (const auto& slot : slots_) {
+    result.ready += slot.state == SlotState::Ready;
+    result.running += slot.state == SlotState::Running;
+    result.free_slots += slot.state == SlotState::Free;
+  }
+  for (size_t i = 0; i < kStreamCaches; ++i) {
+    result.free_caches += caches_[i].state == CacheState::Free;
+    result.retired_caches += caches_[i].state == CacheState::Retired;
+    result.frames[i] = uint32_t(caches_[i].frames);
+    result.pins[i] = uint32_t(caches_[i].pins);
+  }
+  return result;
+}
+StreamDiagnostics StreamPipeline::diagnostics() {
+  Guard guard(*this, StreamOperation::Status);
+  StreamDiagnostics result = diagnostics_;
+  static_cast<StreamStateDiagnostics&>(result) = snapshotState();
+  return result;
+}
+StreamStateDiagnostics StreamPipeline::diagnosticsState() {
+  Guard guard(*this, StreamOperation::Status);
+  return snapshotState();
+}
+StreamMemoryDiagnostics StreamPipeline::memoryDiagnostics(StreamMemoryOperation op) {
+  Guard guard(*this, StreamOperation::Status);
+  StreamMemoryDiagnostics result;
+  if (size_t(op) >= kStreamMemoryOperations) return result;
+  result.metric = diagnostics_.memory[size_t(op)];
+  for (size_t i = 0; i < kStreamOperations; ++i)
+    result.bytes_by_caller[i] = diagnostics_.bytes_by_caller[i][size_t(op)];
+  return result;
+}
+#endif
 }  // namespace hw1::stt

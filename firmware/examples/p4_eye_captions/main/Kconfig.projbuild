@@ -1,4 +1,11 @@
 menu "Standalone captions streaming"
+config CAPTIONS_STREAM_METRICS
+    bool "Collect bounded streaming lock and capture diagnostics"
+    default n
+    help
+        Adds operation timing, memory-traffic counters and I2S loss counters.
+        Use the USB command perf dump between test inputs. Results are emitted
+        outside the streaming lock. This changes timing and needs overhead controls.
 config CAPTIONS_CAPTURE_FEATURES
     bool "Compute reusable features during capture"
     default y

@@ -1,4 +1,5 @@
 #include "speaker_adapter.h"
+#include "capture_diagnostics.h"
 #if HW1_STT_SPEAKER_LABELS
 #include "stt/speaker_model.h"
 #include "stt/speaker_cluster.h"
@@ -102,6 +103,9 @@ void begin(size_t reserve, size_t contiguous) {
     read += n;
   }
   if (f) fclose(f);
+#if HW1_STT_STREAM_METRICS
+  if (ok) captions_perf::modelIdentity("speaker", s->blob, bytes);
+#endif
   // Bound PCM/workspace to the same model-defined centre window as HardwareOne.
   constexpr size_t maxSamples = 10 * 16000;
   if (ok)

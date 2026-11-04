@@ -64,3 +64,8 @@ endif()
 if(HW1_STT_SPEAKER_LABELS)
     target_compile_definitions(${COMPONENT_LIB} PUBLIC HW1_STT_SPEAKER_LABELS=1)
 endif()
+
+if(CONFIG_CAPTIONS_STREAM_METRICS)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC HW1_STT_STREAM_METRICS=1)
+    set_property(SOURCE stt/stt_stream.cpp APPEND PROPERTY COMPILE_OPTIONS -fstack-usage)
+endif()

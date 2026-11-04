@@ -13,17 +13,23 @@ struct Fixture {
     std::vector<float> rows[2]={std::vector<float>(200*64),std::vector<float>(200*64)};
     StreamPipeline pipeline;FrontendWorkspace workspace{};uint32_t now=0;
     std::mutex mutex;
+    uint32_t tagged_calls[kStreamOperations]{};
+    StreamOperation current_operation=StreamOperation::Status;
+    static void taggedLock(void* p,StreamOperation op){auto& f=*static_cast<Fixture*>(p);f.mutex.lock();++f.tagged_calls[size_t(op)];f.current_operation=op;}
+    static void taggedUnlock(void* p,StreamOperation op){auto& f=*static_cast<Fixture*>(p);assert(f.current_operation==op);f.mutex.unlock();}
     static void lock(void* p){static_cast<Fixture*>(p)->mutex.lock();}
     static void unlock(void* p){static_cast<Fixture*>(p)->mutex.unlock();}
     Fixture(bool trim=false,bool features=true,size_t ringSize=65536,
-            DraftPacing pacing=DraftPacing::Legacy,uint32_t interval=1000){
+            DraftPacing pacing=DraftPacing::Legacy,uint32_t interval=1000,bool tagged=false){
         StreamConfig c;c.segmentation.adaptive=false;c.segmentation.rms_threshold=100;
         c.segmentation.max_segment_samples=32000;c.segmentation.min_segment_samples=320;
         c.segmentation.min_voice_samples=320;c.segmentation.pre_roll_samples=0;
         c.tail_samples=trim?8000:0;c.draft_interval_ms=interval;c.draft_pacing=pacing;
         StreamBuffers b;b.capacity=32000;b.capture=capture.data();b.snapshot=snapshot.data();
         for(int i=0;i<3;++i)b.slots[i]=pcm[i].data();
-        assert(pipeline.begin(c,b,{this,lock,unlock}));
+        StreamLock synchronization{this,lock,unlock};
+        if(tagged){synchronization.tagged_lock=taggedLock;synchronization.tagged_unlock=taggedUnlock;}
+        assert(pipeline.begin(c,b,synchronization));
         if(features)assert(pipeline.enableFeatures(ring.data(),ringSize,rows[0].data(),rows[1].data()));
     }
     void features(){StreamFeatureWork f;float row[64];size_t count=0;while(pipeline.featureTake(f)){
@@ -37,6 +43,46 @@ struct Fixture {
     }
     void done(StreamWork& w,bool ok=true,const char* text="words"){pipeline.complete(w,ok,text,{},100);}
 };
+void tagged_lock_contract(){
+    Fixture f(false,false,65536,DraftPacing::Legacy,1000,true);
+    f.feed(16000,true);StreamWork w;assert(f.pipeline.take(w,f.now));f.done(w);
+    assert(f.tagged_calls[size_t(StreamOperation::Push)]==100);
+    assert(f.tagged_calls[size_t(StreamOperation::Take)]==1&&f.tagged_calls[size_t(StreamOperation::Complete)]==1);
+    StreamConfig c;c.segmentation.adaptive=false;c.segmentation.max_segment_samples=32000;
+    c.segmentation.min_segment_samples=c.segmentation.min_voice_samples=320;c.segmentation.pre_roll_samples=0;
+    StreamBuffers b;b.capture=f.capture.data();b.capacity=f.capture.size();for(int i=0;i<3;++i)b.slots[i]=f.pcm[i].data();
+    StreamPipeline bad;StreamLock missing{&f,Fixture::lock,Fixture::unlock,Fixture::taggedLock,nullptr};
+    assert(!bad.begin(c,b,missing));missing.tagged_unlock=Fixture::taggedUnlock;missing.unlock=nullptr;
+    assert(!bad.begin(c,b,missing));missing.unlock=Fixture::unlock;assert(bad.begin(c,b,missing));
+    (void)bad.level();assert(f.tagged_calls[size_t(StreamOperation::Status)]==1);
+}
+void metrics_accounting(){
+    StreamTimeHistogram h;
+    for(uint64_t n:{0ull,1ull,2ull,10ull,11ull,500ull,501ull,2000ull,4001ull,16001ull})h.add(n);
+    assert(h.count==10&&h.max_us==16001&&h.buckets[0]==2&&h.buckets[1]==2&&h.buckets[11]==1);
+    uint64_t sum=0;for(auto n:h.buckets)sum+=n;assert(sum==h.count);
+    h.buckets[0]=UINT32_MAX;h.add(0);assert(h.saturated&&h.buckets[0]==UINT32_MAX);
+    StreamTimeHistogram scaled;scaled.add(64,64);scaled.add(65,64);scaled.add(64000,64);scaled.add(64001,64);
+    assert(scaled.buckets[0]==1&&scaled.buckets[1]==1&&scaled.buckets[6]==1&&scaled.buckets[7]==1);
+    assert(scaled.max_us==64001&&scaled.total_us==128130);
+#if HW1_STT_STREAM_METRICS
+    Fixture f(false,true,65536,DraftPacing::Legacy,1000,true);auto d=f.pipeline.diagnostics();
+    assert(d.memory[size_t(StreamMemoryOperation::StartupClear)].bytes==131072+2*51200);
+    f.feed(16000,true);StreamWork w;assert(f.pipeline.take(w,f.now));
+    d=f.pipeline.diagnostics();assert(d.accepted_samples==16000&&d.pins[0]==1);
+    assert(d.memory[size_t(StreamMemoryOperation::FeatureRow)].bytes==100*64*4);
+    assert(d.memory[size_t(StreamMemoryOperation::SnapshotCopy)].bytes==32000);
+    assert(d.bytes_by_caller[size_t(StreamOperation::Take)][size_t(StreamMemoryOperation::SnapshotCopy)]==32000);
+    auto page=f.pipeline.memoryDiagnostics(StreamMemoryOperation::SnapshotCopy);
+    assert(page.metric.bytes==32000&&page.bytes_by_caller[size_t(StreamOperation::Take)]==32000);
+    assert(f.pipeline.memoryDiagnostics(StreamMemoryOperation::Count).metric.bytes==0);
+    f.done(w);f.feed(9600,false);assert(f.pipeline.take(w,f.now)&&w.kind==StreamWorkKind::Final);f.done(w);
+    d=f.pipeline.diagnostics();assert(d.ready_high_water==1&&d.free_slots==3&&d.running==0&&d.ready==0);
+    assert(d.memory[size_t(StreamMemoryOperation::CacheClear)].bytes==51200);
+    for(const auto& rows:f.rows)for(float value:rows)assert(value==0);
+    auto state=f.pipeline.diagnosticsState();assert(state.accepted_samples==25600&&state.free_caches==2);
+#endif
+}
 void draft_pacing_and_phrase_reset(){
     Fixture f(false,false,65536,DraftPacing::X2FastFirst,0);StreamWork w;
     f.feed(9600,true);assert(!f.pipeline.take(w,f.now)); // retain the 1 s audio floor
@@ -138,4 +184,4 @@ void concurrent_ownership(DraftPacing pacing=DraftPacing::Legacy){
     producer.join();features.join();assert(finals>0);
     assert(finals+f.pipeline.counters().dropped==30);
 }
-int main(){draft_pacing_and_phrase_reset();concurrent_ownership();concurrent_ownership(DraftPacing::X2FastFirst);features_and_draft_preemption();features_and_draft_preemption(DraftPacing::X2FastFirst);exact_promotion_and_resumed_speech();hard_cut_finish_and_cancel();queue_overflow_and_stale_features();puts("Streaming: bit-exact cached features, draft preemption, exact promotion, resumed speech, hard cuts, stop/cancel, overflow and stale generations passed");}
+int main(){tagged_lock_contract();metrics_accounting();draft_pacing_and_phrase_reset();concurrent_ownership();concurrent_ownership(DraftPacing::X2FastFirst);features_and_draft_preemption();features_and_draft_preemption(DraftPacing::X2FastFirst);exact_promotion_and_resumed_speech();hard_cut_finish_and_cancel();queue_overflow_and_stale_features();puts("Streaming: bit-exact cached features, draft preemption, exact promotion, resumed speech, hard cuts, stop/cancel, overflow and stale generations passed");}

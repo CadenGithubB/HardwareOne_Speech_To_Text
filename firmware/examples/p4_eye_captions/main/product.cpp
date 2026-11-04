@@ -1,3 +1,4 @@
+#include "capture_diagnostics.h"
 #include "product.h"
 #include <cstdio>
 #include <cstring>
@@ -219,6 +220,9 @@ void readNote(char* name) {
   cJSON_AddNumberToObject(page, "nextOffset", next); emit(page);
 }
 void run(char* cmd) {
+#if HW1_STT_STREAM_METRICS
+  if (!std::strcmp(cmd, "perf dump")) { captions_perf::request(); return; }
+#endif
   if (!std::strcmp(cmd, "help")) message("vocab list | vocab add DISPLAY[|spoken] | vocab remove spoken | vocab reload | note start | note stop | notes | note read FILENAME [OFFSET] | clock set EPOCH | lm strength 0..1 | status. Stop saves accepted results through this command; microphone/captions continue.");
   else if (!std::strcmp(cmd, "vocab list")) {
     cJSON* obj = event("vocabulary"); if (!obj) return; cJSON* rows = cJSON_AddArrayToObject(obj, "words");

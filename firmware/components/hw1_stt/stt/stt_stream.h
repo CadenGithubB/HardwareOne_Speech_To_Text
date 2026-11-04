@@ -7,6 +7,7 @@
 #include "stt_segmenter.h"
 #include "quartznet_frontend.h"
 #include "../System_STTLocal.h"
+#include "stt_stream_metrics.h"
 namespace hw1::stt {
 inline constexpr size_t kStreamSlots = 3, kStreamCaches = 2, kStreamText = 512;
 enum class DraftPacing : uint8_t { Legacy, X2FastFirst };
@@ -29,6 +30,10 @@ struct StreamLock {
   void* context = nullptr;
   void (*lock)(void*) = nullptr;
   void (*unlock)(void*) = nullptr;
+  // Optional tagged synchronization pair; takes precedence over the legacy
+  // pair. These have the same locking contract and must not invoke the engine.
+  void (*tagged_lock)(void*, StreamOperation) = nullptr;
+  void (*tagged_unlock)(void*, StreamOperation) = nullptr;
 };
 enum class StreamWorkKind : uint8_t { Final, Draft, Speculative };
 struct StreamWork {
@@ -69,15 +74,27 @@ class StreamPipeline {
   uint16_t level();
   uint16_t noise();
   bool calibrated();
+#if HW1_STT_STREAM_METRICS
+  StreamDiagnostics diagnostics();
+  // Small pages keep the device reporter's temporary storage bounded.
+  StreamStateDiagnostics diagnosticsState();
+  StreamMemoryDiagnostics memoryDiagnostics(StreamMemoryOperation);
+#endif
 
  private:
   struct Guard {
-    StreamLock& l;
-    explicit Guard(StreamLock& v) : l(v) {
-      if (l.lock) l.lock(l.context);
+    StreamPipeline& p;
+    StreamOperation operation;
+    explicit Guard(StreamPipeline& v, StreamOperation op) : p(v), operation(op) {
+      if (p.lock_.tagged_lock) p.lock_.tagged_lock(p.lock_.context, op);
+      else if (p.lock_.lock) p.lock_.lock(p.lock_.context);
+#if HW1_STT_STREAM_METRICS
+      p.operation_ = op;
+#endif
     }
     ~Guard() {
-      if (l.unlock) l.unlock(l.context);
+      if (p.lock_.tagged_unlock) p.lock_.tagged_unlock(p.lock_.context, operation);
+      else if (p.lock_.unlock) p.lock_.unlock(p.lock_.context);
     }
   };
   enum class SlotState : uint8_t { Free, Ready, Running };
@@ -120,6 +137,14 @@ class StreamPipeline {
   size_t ring_size_ = 0;
   uint64_t ring_head_ = 0;
   uint32_t newId();
+  void copyMemory(void*, const void*, size_t, StreamMemoryOperation);
+  void clearMemory(void*, size_t, StreamMemoryOperation);
+#if HW1_STT_STREAM_METRICS
+  StreamOperation operation_ = StreamOperation::Status;
+  StreamDiagnostics diagnostics_;
+  void memoryMeasured(StreamMemoryOperation, size_t, uint64_t);
+  StreamStateDiagnostics snapshotState() const;  // caller holds the stream lock
+#endif
   void updateLive();
   void retire(int);
   void unpin(int);

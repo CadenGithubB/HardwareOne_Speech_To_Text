@@ -31,6 +31,7 @@
 #include "stt/stt_stream.h"
 #include "product.h"
 #include "speaker_adapter.h"
+#include "capture_diagnostics.h"
 
 #ifndef CONFIG_CAPTIONS_DRAFTS
 #define CONFIG_CAPTIONS_DRAFTS 0
@@ -175,6 +176,9 @@ bool startMic() {
   // clock bands; DSR16 doubles the PDM clock and keeps the 16 kHz PCM rate.
   cfg.clk_cfg.dn_sample_mode = I2S_PDM_DSR_16S;
   if (i2s_channel_init_pdm_rx_mode(gMic, &cfg) != ESP_OK) return false;
+#if HW1_STT_STREAM_METRICS
+  if (!captions_perf::attachMic(gMic, kReadSamples * sizeof(int16_t), chan.dma_desc_num)) return false;
+#endif
   if (i2s_channel_enable(gMic) != ESP_OK) return false;
 
   // Let the microphone settle: discard the first three blocks.
@@ -182,6 +186,9 @@ bool startMic() {
   for (int i = 0; i < 3; ++i) {
     size_t bytes = 0;
     i2s_channel_read(gMic, warm, sizeof(warm), &bytes, 500);
+#if HW1_STT_STREAM_METRICS
+    captions_perf::warmBytes(bytes);
+#endif
   }
   return true;
 }
@@ -189,14 +196,40 @@ bool startMic() {
 // ---------------------------------------------------------------- portable streaming adapters
 void captureTask(void*) {
   static int16_t block[kReadSamples];
+#if HW1_STT_STREAM_METRICS
+  uint32_t sample_count = 0, last_level_sample = 0;
+#endif
   for (;;) {
     size_t bytes = 0;
+#if HW1_STT_STREAM_METRICS
+    const uint64_t started = uint64_t(esp_timer_get_time());
+#endif
     const esp_err_t err = i2s_channel_read(gMic, block, sizeof(block), &bytes, 200);
+#if HW1_STT_STREAM_METRICS
+    const uint64_t read = uint64_t(esp_timer_get_time());
+#endif
     if (err != ESP_OK && err != ESP_ERR_TIMEOUT) {
+#if HW1_STT_STREAM_METRICS
+      captions_perf::captureRead(started, read, read, read, bytes, err, true);
+#endif
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
-    if (bytes && !gPipeline.push(block, bytes / sizeof(int16_t), nowMs())) {
+#if HW1_STT_STREAM_METRICS
+    const uint64_t push_started = uint64_t(esp_timer_get_time());
+#endif
+    const bool accepted = !bytes || gPipeline.push(block, bytes / sizeof(int16_t), nowMs());
+#if HW1_STT_STREAM_METRICS
+    captions_perf::captureRead(started, read, push_started, uint64_t(esp_timer_get_time()), bytes, err, accepted);
+#endif
+#if HW1_STT_STREAM_METRICS
+    if (accepted) sample_count += uint32_t(bytes / sizeof(int16_t));
+    if (sample_count - last_level_sample >= 3200) {
+      last_level_sample = sample_count;
+      captions_perf::level(sample_count, nowMs(), gPipeline.level(), gPipeline.noise());
+    }
+#endif
+    if (!accepted) {
       ESP_LOGE(TAG, "Streaming capture rejected input");
       std::memset(block, 0, sizeof(block));
       vTaskDelete(nullptr);
@@ -310,6 +343,9 @@ void loadLanguageModel(LanguageModel& m) {
     m.blob = nullptr;
     return;
   }
+#if HW1_STT_STREAM_METRICS
+  captions_perf::modelIdentity("language", m.blob, bytes);
+#endif
   printf("Language model: %u words, %u bigrams, %u trigrams, beam %u (%u bytes)\n", unsigned(m.view.vocab()),
          unsigned(m.view.bigrams()), unsigned(m.view.trigrams()), unsigned(m.view.beamWidth()),
          unsigned(bytes));
@@ -446,7 +482,13 @@ extern "C" void app_main() {
   cfg.draft_interval_ms = 0;  // adaptive audio growth supplies the pacing floor
 #endif
   cfg.speculative = CONFIG_CAPTIONS_SPECULATIVE_FINAL;
-  if (!gPipeline.begin(cfg, gBuffers, {nullptr, streamLock, streamUnlock}))
+  hw1::stt::StreamLock synchronization{nullptr, streamLock, streamUnlock};
+#if HW1_STT_STREAM_METRICS
+  captions_perf::begin(gPipelineMutex, &gPipeline);
+  synchronization.tagged_lock = captions_perf::lock;
+  synchronization.tagged_unlock = captions_perf::unlock;
+#endif
+  if (!gPipeline.begin(cfg, gBuffers, synchronization))
     halt("Streaming buffers/settings unavailable.");
 
   // Load and verify the model now (and the language model at its first decode), so the first
@@ -483,6 +525,9 @@ extern "C" void app_main() {
   for (;;) {
     captions_speaker::poll();
     product::poll();
+#if HW1_STT_STREAM_METRICS
+    captions_perf::poll();
+#endif
     hw1::stt::StreamWork work;
     if (!gPipeline.take(work, nowMs())) {
       if (!announced && gPipeline.calibrated()) {
@@ -526,6 +571,14 @@ extern "C" void app_main() {
              unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
              unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
              unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
+#if HW1_STT_STREAM_METRICS
+    printf("STT_PERF {\"type\":\"inference\",\"sequence\":%llu,\"kind\":%u,\"start_sample\":%llu,\"samples\":%u,\"captured\":%u,\"valid\":%s,\"promoted\":%s,\"lm_used\":%s,\"wall_ms\":%u,\"closed_ms\":%u,\"done_ms\":%u,\"cached_rows\":%u,\"note\":%u,\"caption_sequence\":%u}\n",
+           (unsigned long long)work.sequence, unsigned(work.kind), (unsigned long long)work.start_sample,
+           unsigned(work.samples), unsigned(work.captured_samples), valid ? "true" : "false",
+           work.promoted ? "true" : "false", stats.lmUsed ? "true" : "false", unsigned(ms),
+           unsigned(work.closed_ms), unsigned(doneMs), unsigned(stats.featureCachedFrames),
+           unsigned(product::receipt().note), unsigned(product::receipt().sequence));
+#endif
     gPipeline.complete(work, valid, text, stats, ms);
     const auto counters = gPipeline.counters();
     if (counters.dropped != dropped) {

@@ -1,7 +1,8 @@
 # STT capture-lock contention: implementation and qualification plan
 
-Status: planned, 3 November 2026. Source audit completed; instrumentation and
-optimization have not started. Starting runtime: `9a0f14e`. This is standalone
+Status: in progress, 3 November 2026. Instrumentation is implemented with host
+equivalence and P4 build evidence; device baseline and optimization are pending.
+See `STT_CAPTURE_LOCK_RESULTS.md` for actual outcomes. Starting runtime: `9a0f14e`. This is standalone
 STT engine work. The other agent owns training/data/quantization work.
 
 ## 1. Outcome and boundaries
