@@ -1315,7 +1315,9 @@ LittleFS read/memcpy). This reproduces a directory-listing problem, not an STT
 DNN warning or an established kernel/cache root cause. Narrow target checks pass.
 
 Final x2f-only selection/readback passed: app SHA `b55bf0961564…`, ring reconnect
-disabled, perf logging disabled, 7,106,560 free bytes, port and lock released. Automatic approval review rejected
-deletion of this task's disposable build/dependency copies for lack of explicit
-destructive-cleanup authorization. Nothing was deleted; about 1.7 GiB remains
-in the isolated worktree. Other checkouts and concurrent training work are preserved.
+disabled, perf logging disabled, 7,106,560 free bytes, port and lock released.
+After explicit user approval, all four disposable build/dependency directories
+in the isolated worktree were removed (1.69 GiB of pre-removal allocation).
+Saved firmware hashes were reverified; source, local commits, Git bundle/patch,
+rollback images and private test evidence remain intact. Other checkouts and
+concurrent training work are preserved. The board was not accessed for cleanup.

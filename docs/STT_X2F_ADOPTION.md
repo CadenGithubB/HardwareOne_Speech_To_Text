@@ -131,15 +131,19 @@ private speaker diagnostics as needed. Do not change speaker rules to mask this
 result. The initial no-data accumulation problem remains in the selected x2f-only
 firmware; the validated source fix is held, not silently deployed.
 
-Automatic approval review rejected recursive deletion of this task's build and
-dependency copies because explicit destructive-cleanup approval was absent.
-Nothing was deleted. About 1.7 GiB of inspected build/dependency copies remains
-in the isolated worktree; preserved private firmware/source evidence is separate.
-The cleanup plan lists exact paths and does not include any other checkout.
+The user explicitly approved the reviewed cleanup plan. All four task-owned
+disposable directories were removed: `build-config-p4-openclaw`,
+`components/arduino`, `.sdk-overrides` and `managed_components` in the isolated
+adoption checkout. Their pre-removal allocation totals 1,818,533,888 bytes
+(1.69 GiB). The first pass left only a Finder `.DS_Store` in the build root;
+it was inspected and removed in the bounded continuation. Source commits, the
+Git bundle/patch, saved firmware/ELF/SDK/build identity, rollback images and private
+test evidence remain preserved. Saved firmware hashes were reverified.
 
 Final x2f-only selection/readback passed: app SHA `b55bf0961564…`, ring reconnect
 disabled, perf logging disabled, 7,106,560 free bytes, port and lock released.
-Build cleanup requires user approval; the candidate comparison and source work
-are complete. Local source and all private evidence remain preserved. R1 first-row behavior remains host-tested: ring reconnection stays
+Approved build cleanup, candidate comparison and source documentation are
+complete. Rebuilds will need the ignored Arduino copy and generated dependencies
+prepared again; the existing original Arduino source remains intact. R1 first-row behavior remains host-tested: ring reconnection stays
 off, and no artificial health measurements will be injected. Physical SD/FAT
 power-loss behavior and deliberate near-full-media behavior remain untested.
