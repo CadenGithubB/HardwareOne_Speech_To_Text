@@ -58,3 +58,11 @@ The cached SDK override predated the current pinned patch; it was preserved ther
 and the current reviewed override was staged and digest-verified before building.
 The existing build directory is reused with a separate private candidate sdkconfig;
 the prior root sdkconfig is preserved and no source defaults were changed.
+
+## Capture-lock work approved for planning
+
+The user selected target 2. [The detailed capture-lock plan](STT_CAPTURE_LOCK_PLAN.md)
+records the actual producer/consumer paths, ownership invariants, measurement
+strategy, progressively riskier candidates, 36 targeted correctness cases and
+device acceptance/rollback gates. First implementation milestone: bounded
+instrumentation and an unchanged baseline. No lock optimization has been applied.

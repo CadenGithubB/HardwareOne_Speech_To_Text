@@ -1352,3 +1352,24 @@ in this task. Standalone device WER/speaker accuracy, preview/final/label latenc
 and long-session qualification remain pending; integrated x2f results are not
 proof of the same gain here. The existing build folder now points to the private
 candidate SDK configuration; the prior root config/build artifacts are preserved.
+
+### STT capture-lock improvement plan — 3 November
+
+The user selected streaming capture contention and requested an in-depth plan.
+`STT_CAPTURE_LOCK_PLAN.md` is grounded in `stt_stream` and the standalone I2S/task
+adapters. It includes whole-phrase queue copying and capture-triggered cache
+clearing, not only the draft snapshot. Moving producer work outside the mutex
+alone does not shorten the producer's read cycle.
+
+Planned order: bounded instrumentation and an unchanged baseline; dirty-prefix
+cache clearing with a complete-zero invariant; exclusive cleanup states/leases
+if material contention remains; bounded snapshot copies or segmenter storage
+handoff only if copy time justifies their extra ownership complexity. The plan
+sets correctness/lifetime/privacy invariants, 36 targeted cases, sanitizer controls,
+P4 capture/loss/latency/memory measurements, candidate gates, ABBA qualification
+and the required same-test watchdog repeat rule. Training work stays separate.
+
+This is a plan-only milestone: no runtime change, new test result, board access
+or default change occurred. First implementation deliverable is instrumentation,
+not an unlocked read from live capture memory. Actual contention and benefit
+remain unmeasured; existing SDK/model/pacing conditions must be held fixed.
