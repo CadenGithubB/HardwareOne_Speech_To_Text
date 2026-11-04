@@ -441,6 +441,10 @@ extern "C" void app_main() {
   cfg.tail_samples = kSampleRate / 2;
 #endif
   cfg.drafts = CONFIG_CAPTIONS_DRAFTS;
+#if CONFIG_CAPTIONS_X2F_DRAFT_PACING
+  cfg.draft_pacing = hw1::stt::DraftPacing::X2FastFirst;
+  cfg.draft_interval_ms = 0;  // adaptive audio growth supplies the pacing floor
+#endif
   cfg.speculative = CONFIG_CAPTIONS_SPECULATIVE_FINAL;
   if (!gPipeline.begin(cfg, gBuffers, {nullptr, streamLock, streamUnlock}))
     halt("Streaming buffers/settings unavailable.");

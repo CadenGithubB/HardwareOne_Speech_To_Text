@@ -1321,3 +1321,34 @@ in the isolated worktree were removed (1.69 GiB of pre-removal allocation).
 Saved firmware hashes were reverified; source, local commits, Git bundle/patch,
 rollback images and private test evidence remain intact. Other checkouts and
 concurrent training work are preserved. The board was not accessed for cleanup.
+
+### Standalone STT runtime improvement — 3 November
+
+Work has returned to this STT engine/app, separate from the concurrent training
+pipeline session. `STT_RUNTIME_IMPROVEMENTS.md` records six code-backed targets:
+draft pacing, capture-lock copy/clear cost, inference kernels, speaker-result
+completion, decoder fallback visibility and actual standalone qualification.
+
+Implemented an optional portable `DraftPacing::X2FastFirst` scheduler and
+`CONFIG_CAPTIONS_X2F_DRAFT_PACING` / `sdkconfig.x2f` adapter. First previews retain
+a one-second audio floor; subsequent previews use at least 600 ms of new audio
+or twice the last draft compute time. A new phrase ignores the previous phrase's
+slow draft. Legacy remains the default; model weights, speaker rules, endpoint
+pauses, tail trimming and exact speculative reuse are unchanged. Wide arithmetic
+prevents elapsed-time growth from wrapping on P4.
+
+Actual scheduler tests pass under address/undefined sanitizers and ThreadSanitizer
+(with positive/negative memcpy controls). Both modes exercise concurrent ownership
+and cached-feature/draft preemption; threshold, phrase reset, explicit wall floor,
+large elapsed time, final priority and existing promotion/cancel/overflow cases pass.
+The P4 opt-in build passed on IDF 5.5.5 with actual 64B L2 / 200MHz PSRAM and the
+new mode enabled; app size is 645,968 bytes. A stale cached ESP-DL override was
+preserved privately and the current pinned override digest-verified before build.
+The sandbox initially blocked ESP-IDF process inspection; the authorized build
+rerun passed. Candidate app/ELF/config/source hashes are saved privately.
+
+No board access, HardwareOne changes, training edits or default promotion occurred
+in this task. Standalone device WER/speaker accuracy, preview/final/label latency
+and long-session qualification remain pending; integrated x2f results are not
+proof of the same gain here. The existing build folder now points to the private
+candidate SDK configuration; the prior root config/build artifacts are preserved.

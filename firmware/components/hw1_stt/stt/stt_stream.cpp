@@ -245,9 +245,16 @@ bool StreamPipeline::take(StreamWork& w, uint32_t now) {
       n = spec_samples_;
       w.id = live_spec_;
     } else {
-      const size_t pace = std::max<size_t>(kSampleRate, size_t(last_draft_duration_) * 16);
-      const size_t previous = last_draft_sequence_ == next_sequence_ ? last_draft_samples_ : 0;
-      if (!config_.drafts || n < previous + pace ||
+      const bool first = last_draft_sequence_ != next_sequence_;
+      const bool x2 = config_.draft_pacing == DraftPacing::X2FastFirst;
+      const uint64_t minimum = x2 ? kSampleRate * 6 / 10 : kSampleRate;
+      // Wide arithmetic also keeps an unusually long elapsed time from wrapping
+      // into an immediate retry on the 32-bit target. Finals remain prioritized.
+      const uint64_t growth = x2 && first ? 0 :
+          uint64_t(last_draft_duration_) * (kSampleRate / 1000) * (x2 ? 2 : 1);
+      const uint64_t pace = std::max(minimum, growth);
+      const size_t previous = first ? 0 : last_draft_samples_;
+      if (!config_.drafts || n < kSampleRate || uint64_t(n) < uint64_t(previous) + pace ||
           uint32_t(now - last_draft_ms_) < config_.draft_interval_ms)
         return false;
       w.kind = StreamWorkKind::Draft;

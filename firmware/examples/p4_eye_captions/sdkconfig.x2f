@@ -1,0 +1,3 @@
+# Opt-in draft scheduler only; preserve the base profile's audio/closing policy.
+CONFIG_CAPTIONS_DRAFTS=y
+CONFIG_CAPTIONS_X2F_DRAFT_PACING=y

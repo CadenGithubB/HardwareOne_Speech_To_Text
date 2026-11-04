@@ -9,11 +9,15 @@
 #include "../System_STTLocal.h"
 namespace hw1::stt {
 inline constexpr size_t kStreamSlots = 3, kStreamCaches = 2, kStreamText = 512;
+enum class DraftPacing : uint8_t { Legacy, X2FastFirst };
 struct StreamConfig {
   SegmenterConfig segmentation;
   size_t tail_samples = 0;  // full audio by default; 8000 = HardwareOne's 500 ms tail
   bool drafts = true, speculative = true;
   uint32_t draft_interval_ms = 1000;
+  // X2FastFirst uses compute-scaled audio growth and resets for each phrase.
+  // Set draft_interval_ms=0 to use that policy without an extra wall-clock floor.
+  DraftPacing draft_pacing = DraftPacing::Legacy;
 };
 struct StreamBuffers {
   int16_t* capture = nullptr;

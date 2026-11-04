@@ -89,6 +89,15 @@ adapter, which loads `/sd/STT Models/speaker.spk` if the file and caption memory
 reserves permit. The model runs single-core below caption inference; a full job
 queue produces an unknown label without blocking captions.
 
+### Optional x2f draft pacing
+
+`CONFIG_CAPTIONS_X2F_DRAFT_PACING` enables compute-scaled draft scheduling with a
+fresh first-preview budget for each phrase. Layer `sdkconfig.x2f` over
+`sdkconfig.defaults` to test only this scheduler change; it does not enable
+trimming or change closing pauses. The default remains the legacy scheduler.
+Host scheduler/ownership checks pass; standalone P4 quality and latency still
+need qualification. See [runtime improvements and evidence](../docs/STT_RUNTIME_IMPROVEMENTS.md).
+
 ## Keeping in step with HardwareOne
 
 The engine and ESP-DL patch originated as HardwareOne snapshots. The

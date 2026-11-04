@@ -15,11 +15,12 @@ struct Fixture {
     std::mutex mutex;
     static void lock(void* p){static_cast<Fixture*>(p)->mutex.lock();}
     static void unlock(void* p){static_cast<Fixture*>(p)->mutex.unlock();}
-    Fixture(bool trim=false,bool features=true,size_t ringSize=65536){
+    Fixture(bool trim=false,bool features=true,size_t ringSize=65536,
+            DraftPacing pacing=DraftPacing::Legacy,uint32_t interval=1000){
         StreamConfig c;c.segmentation.adaptive=false;c.segmentation.rms_threshold=100;
         c.segmentation.max_segment_samples=32000;c.segmentation.min_segment_samples=320;
         c.segmentation.min_voice_samples=320;c.segmentation.pre_roll_samples=0;
-        c.tail_samples=trim?8000:0;c.draft_interval_ms=1000;
+        c.tail_samples=trim?8000:0;c.draft_interval_ms=interval;c.draft_pacing=pacing;
         StreamBuffers b;b.capacity=32000;b.capture=capture.data();b.snapshot=snapshot.data();
         for(int i=0;i<3;++i)b.slots[i]=pcm[i].data();
         assert(pipeline.begin(c,b,{this,lock,unlock}));
@@ -36,8 +37,39 @@ struct Fixture {
     }
     void done(StreamWork& w,bool ok=true,const char* text="words"){pipeline.complete(w,ok,text,{},100);}
 };
-void features_and_draft_preemption(){
-    Fixture f;f.feed(16000,true);StreamWork draft;
+void draft_pacing_and_phrase_reset(){
+    Fixture f(false,false,65536,DraftPacing::X2FastFirst,0);StreamWork w;
+    f.feed(9600,true);assert(!f.pipeline.take(w,f.now)); // retain the 1 s audio floor
+    f.feed(6400,true);assert(f.pipeline.take(w,f.now)&&w.kind==StreamWorkKind::Draft);
+    f.pipeline.complete(w,true,"first",{},400);
+    f.feed(12640,true);assert(!f.pipeline.take(w,f.now));
+    f.feed(160,true);assert(f.pipeline.take(w,f.now)&&w.kind==StreamWorkKind::Draft);
+    assert(w.samples==28800); // 16,000 + 400 ms * 2 * 16 samples/ms
+    f.pipeline.complete(w,true,"slow draft",{},5000);
+    f.feed(3200,true);assert(f.pipeline.take(w,f.now)&&w.kind==StreamWorkKind::Final);
+    assert(w.hard_limit);f.done(w);
+    f.feed(16000,true);assert(f.pipeline.take(w,f.now)&&w.kind==StreamWorkKind::Draft);
+    assert(w.sequence==2&&w.samples==16000); // no 5 s carryover into the first preview
+    f.pipeline.complete(w,true,"new phrase",{},(1u<<27));
+    f.feed(9600,true);assert(!f.pipeline.take(w,f.now)); // x32 would wrap to zero in 32-bit arithmetic
+    f.feed(6400,true);assert(f.pipeline.take(w,f.now)&&w.kind==StreamWorkKind::Final);f.done(w);
+
+    Fixture floor(false,false,65536,DraftPacing::X2FastFirst,0);
+    floor.feed(16000,true);assert(floor.pipeline.take(w,floor.now));floor.done(w);
+    floor.feed(9440,true);assert(!floor.pipeline.take(w,floor.now));
+    floor.feed(160,true);assert(floor.pipeline.take(w,floor.now)&&w.samples==25600);floor.done(w);
+
+    Fixture gated(false,false,65536,DraftPacing::X2FastFirst,2000);
+    gated.feed(16000,true);assert(!gated.pipeline.take(w,gated.now)); // explicit wall floor still honored
+    gated.now=2000;assert(gated.pipeline.take(w,gated.now));gated.done(w);
+
+    Fixture legacy(false,false);legacy.feed(16000,true);assert(legacy.pipeline.take(w,legacy.now));
+    legacy.pipeline.complete(w,true,"legacy",{},5000);legacy.feed(16000,true);
+    assert(legacy.pipeline.take(w,legacy.now)&&w.kind==StreamWorkKind::Final);legacy.done(w);
+    legacy.feed(16000,true);assert(!legacy.pipeline.take(w,legacy.now)); // default policy retained
+}
+void features_and_draft_preemption(DraftPacing pacing=DraftPacing::Legacy){
+    Fixture f(false,true,65536,pacing,0);f.feed(16000,true);StreamWork draft;
     assert(f.pipeline.take(draft,f.now));assert(draft.kind==StreamWorkKind::Draft&&draft.features.count==100);
     // Exact raw rows and CMVN must match the production batch frontend.
     std::vector<float> batch(100*64),cached(draft.features.rows,draft.features.rows+100*64);
@@ -88,8 +120,8 @@ void queue_overflow_and_stale_features(){
     assert(overrun.pipeline.counters().feature_overruns==1);assert(overrun.pipeline.take(w,overrun.now));
     assert(!w.features.count);overrun.done(w);
 }
-void concurrent_ownership(){
-    Fixture f;std::atomic<bool> done{false};
+void concurrent_ownership(DraftPacing pacing=DraftPacing::Legacy){
+    Fixture f(false,true,65536,pacing,0);std::atomic<bool> done{false};
     std::thread producer([&]{for(int i=0;i<30;++i){f.feed(16000,true,false);f.feed(9600,false,false);}assert(f.pipeline.finish(f.now));done=true;});
     std::thread features([&]{while(!done){f.features();std::this_thread::yield();}});
     uint64_t last=0;size_t finals=0;FrontendWorkspace workspace{};float row[64];
@@ -106,4 +138,4 @@ void concurrent_ownership(){
     producer.join();features.join();assert(finals>0);
     assert(finals+f.pipeline.counters().dropped==30);
 }
-int main(){concurrent_ownership();features_and_draft_preemption();exact_promotion_and_resumed_speech();hard_cut_finish_and_cancel();queue_overflow_and_stale_features();puts("Streaming: bit-exact cached features, draft preemption, exact promotion, resumed speech, hard cuts, stop/cancel, overflow and stale generations passed");}
+int main(){draft_pacing_and_phrase_reset();concurrent_ownership();concurrent_ownership(DraftPacing::X2FastFirst);features_and_draft_preemption();features_and_draft_preemption(DraftPacing::X2FastFirst);exact_promotion_and_resumed_speech();hard_cut_finish_and_cancel();queue_overflow_and_stale_features();puts("Streaming: bit-exact cached features, draft preemption, exact promotion, resumed speech, hard cuts, stop/cancel, overflow and stale generations passed");}

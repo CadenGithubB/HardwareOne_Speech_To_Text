@@ -5,6 +5,15 @@ config CAPTIONS_CAPTURE_FEATURES
 config CAPTIONS_DRAFTS
     bool "Publish preemptible live drafts"
     default y
+config CAPTIONS_X2F_DRAFT_PACING
+    bool "Use x2 compute-paced drafts with a fast first draft (experimental)"
+    depends on CAPTIONS_DRAFTS
+    default n
+    help
+        Keep a one-second audio floor for the first preview, then require
+        at least 600 ms of new audio or twice the previous draft compute time.
+        A new phrase does not inherit a slow previous phrase's draft delay.
+        Requires standalone device latency/accuracy qualification.
 config CAPTIONS_TRIM_SILENCE
     bool "Retain 500 ms of trailing silence (requires audio qualification)"
     default n
