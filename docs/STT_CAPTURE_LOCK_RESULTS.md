@@ -10,7 +10,8 @@ Implemented optional `CONFIG_CAPTIONS_STREAM_METRICS` (default off). The portabl
 engine counts/times its existing copies and clearing, attributed to the calling
 operation. Optional tagged synchronization callbacks retain the old lock-pair API
 and reject incomplete pairs. No unlocked memory ownership change or prefix-clear
-optimization has been applied.
+optimization was present in the frozen baseline. A separate default-off
+prefix-clearing candidate is described below; it is not yet qualified for adoption.
 
 The standalone adapter adds lock wait/hold histograms, I2S read/push timing,
 ISR-safe DMA-completion and receive-queue-overflow counters, accepted-sample/cache/
@@ -89,9 +90,71 @@ Boot heap minima include startup and are not per-inference peaks.
 
 Private evidence: `private/stt-capture-lock/`, including original/enabled/disabled
 trace payloads, equivalence report, sanitizer/regression logs, configuration and
-build records. Next action: collect the unchanged speech/inference-load baseline and freeze
-its acceptance gates before selecting an optimization. The initial smoke is
-complete; the full ABBA comparison, overload controls and soak remain pending.
+build records. The initial smoke and the loaded runs below are complete;
+the full ABBA comparison, overload controls and soak remain pending.
+
+## Loaded baseline and candidate checkpoint
+
+The unchanged instrumented image completed one acoustic run each of conv2–4.
+All three have zero DMA overflow, phrase drops, watchdogs and panics. Conv4 has
+two feature-cache overruns: this invalidates cache availability, not accepted PCM.
+Source review confirms that inference computes uncached frontend rows or uses
+the batch frontend when the retained prefix is insufficient. Preserve the
+overruns as a cost/reliability outcome; do not describe them as microphone loss.
+The first controller stopped on them and restored/readback-verified the selected
+app. A separate unchanged conv4 repeat and long-input baseline are in progress.
+
+| Baseline fixture | Capture wait p99 bin | Maximum wait | Maximum push hold | Cache bytes cleared | WER edits / words | Speaker correct / eligible |
+|---|---|---|---|---|---|---|
+| conv2 | (1,10] us | 3,969 us | 6,644 us | 10,240,000 | 91 / 499 | 24 / 38 |
+| conv3 | (1,10] us | 2,574 us | 6,128 us | 13,312,000 | 116 / 466 | 23 / 48 |
+| conv4 | (10,50] us | 3,470 us | 9,605 us | 9,984,000 | 80 / 470 | 19 / 33 |
+
+These single acoustic runs are a baseline, not a measured optimization win.
+Speaker results use per-capture best one-to-one identity assignment; raw
+unknown/missing labels are 3/38, 13/48 and 8/33 respectively, with no missing
+speaker-update events. No reference/mixed-phrase exclusions occurred in these
+three runs. Conv3 has two unmatched annotated speech ends; retain that denominator
+when interpreting latency summaries.
+
+The original conv2 onset estimate was early and its first score was rejected.
+A baseline-only waveform search, frozen as `sample-rms-v1`, requires independent
+even/odd and temporal-half agreement, minimum correlation and a unique peak.
+All three runs pass these checks. Sparse sample-indexed RMS is not a recording
+of microphone PCM, and host receipt is not an exact display timestamp. Private
+scores retain these limitations and the rejected fit. No old HardwareOne result
+was relabeled with this method.
+
+Capture wait is small in these workloads. There is currently no evidence to
+justify clearing leases, asynchronous cleanup or segmenter buffer handoff.
+The remaining baseline/stress checks can change that decision. Prefix clearing
+is still a reasonable small experiment because partial caches currently cause
+large unused regions to be cleared repeatedly. Acceptance gates were saved
+before examining candidate device results; caption speedup is not assumed.
+
+### Default-off prefix candidate: host evidence
+
+`StreamConfig::clear_committed_features` and the example's experimental Kconfig
+option remain false by default. When enabled, retirement clears every committed
+feature row after the last reader releases its pin. Full startup clearing,
+generation checks, PCM ownership and all existing synchronization stay intact.
+The proof depends on feature publication being the sole writer and committing
+a contiguous prefix under the mutex. Trimmed inference length is not a safe
+clearing bound: a test covers 159 dirty rows with a 150-row inference prefix.
+
+Tests inspect the entire reusable region and surrounding canaries after empty,
+one-row, overrun fallback, repeated partial/maximum-length retirement, pinned
+cancellation and stale-generation completion. Concurrent tests exercise both
+cadences with the option enabled and disabled. Address/undefined sanitizers and
+ThreadSanitizer pass. Twelve deterministic candidate traces and payloads are
+byte-identical to the pre-instrumentation `9a0f14e` baseline, including real
+frontend rows. This proves scheduler/frontend equivalence, not model accuracy.
+
+The candidate P4 build passes and its frozen app is 787,056 bytes, 16 bytes
+larger than the instrumented baseline. The saved sdkconfig differs only by
+enabling the prefix option. No candidate device performance result is available
+at this checkpoint. Matched runs, instrumentation controls and soak remain
+required; no production default or board model changed.
 
 ## Separately queued user request
 

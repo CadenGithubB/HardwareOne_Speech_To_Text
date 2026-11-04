@@ -30,6 +30,9 @@ struct Replay {
     c.segmentation.hard_cut_search_samples=32000;
     c.tail_samples=trim?8000:0;c.draft_pacing=x2?DraftPacing::X2FastFirst:DraftPacing::Legacy;
     c.draft_interval_ms=x2?0:1000;
+#if TRACE_CLEAR_COMMITTED
+    c.clear_committed_features=true;
+#endif
     StreamBuffers b;b.capacity=capacity;b.capture=capture.data();b.snapshot=snapshot.data();
     for(size_t i=0;i<3;++i)b.slots[i]=slots[i].data();
     assert(pipeline.begin(c,b,{this,lock,unlock}));

@@ -1397,3 +1397,28 @@ The user separately requested a block-14 model RAM/fixture benchmark through the
 training chat. That direct request was verified and queued for isolated runtime
 work at a safe device window, separate from fixed-model capture-lock comparisons.
 No mixed model is deployed and no device RAM result is claimed yet.
+
+
+### Capture-lock loaded baseline and prefix candidate — 3 November
+
+The unchanged standalone instrumented baseline completed conv2–4 with zero DMA
+overflow, phrase drops, watchdogs or panics. Capture wait p99 is at most 50 us
+and maxima range from 2,574 to 3,969 us. Conv4 records two feature-cache overruns;
+these invoke uncached/batch frontend fallback and are not evidence of lost PCM.
+An unchanged conv4 repeat and long-input baseline are in progress. All raw results
+and the first controller's failure/restoration remain private.
+
+The default-off committed-prefix clearing candidate retains full startup zeroing,
+reader pins, generations and PCM ownership. Address/undefined and thread sanitizers
+pass, including complete-region zero/canary checks and the 159-dirty-row versus
+150-inference-row case. Twelve actual scheduler/frontend replays are byte-identical
+to the pre-instrumentation baseline. The P4 candidate builds; its sdkconfig differs
+only by enabling the experimental option. No device benefit is claimed yet.
+
+Baseline acceptance gates and a waveform-only sample-clock alignment method were
+frozen before candidate device scoring. Rejected fits remain retained; sparse RMS
+and host receipt timings are estimates, not microphone recordings/display clocks.
+See docs/STT_CAPTURE_LOCK_RESULTS.md for actual per-fixture counts and limitations.
+The full ABBA comparison, instrumentation controls, remaining stress checks and
+one-hour soak are incomplete. Models, speaker rules and production defaults remain
+unchanged; training files belong to the other session.

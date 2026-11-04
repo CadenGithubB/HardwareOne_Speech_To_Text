@@ -65,4 +65,6 @@ The user selected target 2. [The detailed capture-lock plan](STT_CAPTURE_LOCK_PL
 records the actual producer/consumer paths, ownership invariants, measurement
 strategy, progressively riskier candidates, 36 targeted correctness cases and
 device acceptance/rollback gates. First implementation milestone: bounded
-instrumentation and an unchanged baseline. No lock optimization has been applied.
+instrumentation and an unchanged baseline. A default-off committed-prefix clearing
+candidate now passes host sanitizer and exact-replay checks; device qualification
+is incomplete. No ownership rewrite or production default change is adopted.

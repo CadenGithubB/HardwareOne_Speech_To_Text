@@ -75,7 +75,12 @@ void StreamPipeline::retire(int idx) {
   auto& c = caches_[idx];
   c.state = CacheState::Retired;
   if (!c.pins) {
-    clearMemory(c.rows, buffers_.capacity / 160 * 64 * sizeof(float), StreamMemoryOperation::CacheClear);
+    // enableFeatures clears the whole pool. featureComplete is its only writer
+    // and commits a contiguous prefix under this lock. Retired caches reject
+    // late rows, and readers retain their pins until completion. Clear every
+    // written row, including rows beyond a trimmed inference prefix.
+    const size_t rows = config_.clear_committed_features ? c.frames : buffers_.capacity / 160;
+    clearMemory(c.rows, rows * 64 * sizeof(float), StreamMemoryOperation::CacheClear);
     c.state = CacheState::Free;
     ++c.generation;
     c.frames = 0;

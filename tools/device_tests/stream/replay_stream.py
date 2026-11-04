@@ -7,6 +7,7 @@ p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--component',type=Path,default=ROOT/'firmware/components/hw1_stt')
 p.add_argument('--out',type=Path,required=True)
 p.add_argument('--metrics',action='store_true')
+p.add_argument('--clear-committed',action='store_true',help='Exercise the default-off prefix-clearing candidate')
 a=p.parse_args()
 if 'private' not in a.out.resolve().parts:p.error('traces must stay in ignored private storage')
 a.out.mkdir(parents=True,exist_ok=True)
@@ -14,9 +15,10 @@ with tempfile.TemporaryDirectory(prefix='stt-trace-') as folder:
  exe=Path(folder)/'trace'
  command=['clang++','-std=c++17','-O2','-pthread','-ffp-contract=off','-Wall','-Wextra','-Werror','-Wno-unused-private-field','-fsanitize=address,undefined','-fno-omit-frame-pointer']
  if a.metrics:command+=['-DHW1_STT_STREAM_METRICS=1']
+ if a.clear_committed:command+=['-DTRACE_CLEAR_COMMITTED=1']
  command+=['-I'+str(a.component),str(ROOT/'tests/stream_trace.cpp'),str(a.component/'stt/stt_stream.cpp'),str(a.component/'stt/quartznet_frontend.cpp'),'-o',str(exe)]
  subprocess.run(command,check=True)
- report={'scope':'Deterministic scheduler/frontend only; synthetic PCM, no acoustic model/LM inference','component':str(a.component.resolve()),'metrics':a.metrics,'traces':[]}
+ report={'scope':'Deterministic scheduler/frontend only; synthetic PCM, no acoustic model/LM inference','component':str(a.component.resolve()),'metrics':a.metrics,'clear_committed':a.clear_committed,'traces':[]}
  for pacing in ['legacy','x2f']:
   for scenario in range(6):
    payload=a.out/f'{pacing}-{scenario}.bin'

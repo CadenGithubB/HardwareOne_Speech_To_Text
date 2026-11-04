@@ -9,6 +9,14 @@ config CAPTIONS_STREAM_METRICS
 config CAPTIONS_CAPTURE_FEATURES
     bool "Compute reusable features during capture"
     default y
+config CAPTIONS_CLEAR_COMMITTED_FEATURES
+    bool "Clear only committed feature-cache rows (experimental)"
+    depends on CAPTIONS_CAPTURE_FEATURES
+    default n
+    help
+        Preserve initial whole-pool clearing, then clear the complete written
+        prefix on retirement. Reader pins and generation checks remain intact.
+        Requires the capture-lock qualification described in the project plan.
 config CAPTIONS_DRAFTS
     bool "Publish preemptible live drafts"
     default y

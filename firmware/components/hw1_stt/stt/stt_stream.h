@@ -19,6 +19,9 @@ struct StreamConfig {
   // X2FastFirst uses compute-scaled audio growth and resets for each phrase.
   // Set draft_interval_ms=0 to use that policy without an extra wall-clock floor.
   DraftPacing draft_pacing = DraftPacing::Legacy;
+  // Experimental: caches start zero and only committed rows are dirtied.
+  // Keep disabled until target qualification; does not change PCM ownership.
+  bool clear_committed_features = false;
 };
 struct StreamBuffers {
   int16_t* capture = nullptr;

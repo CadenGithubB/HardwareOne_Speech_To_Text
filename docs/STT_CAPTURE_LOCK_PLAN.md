@@ -1,7 +1,9 @@
 # STT capture-lock contention: implementation and qualification plan
 
-Status: in progress, 3 November 2026. Instrumentation is implemented with host
-equivalence and P4 build evidence; device baseline and optimization are pending.
+Status: in progress, 3 November 2026. Instrumentation, host equivalence, the P4
+build and an initial device smoke are recorded. Loaded baseline qualification,
+candidate validation and adoption remain separate gates; consult the results
+record rather than treating a prototype in the working tree as qualified.
 See `STT_CAPTURE_LOCK_RESULTS.md` for actual outcomes. Starting runtime: `9a0f14e`. This is standalone
 STT engine work. The other agent owns training/data/quantization work.
 
@@ -389,3 +391,58 @@ work is needed to begin it. Timing estimates should be updated after the baselin
 final ABBA audio alone is roughly an hour with boot/drain overhead, and the soak
 adds at least another hour. Architectural copy changes may take substantially
 longer than the initial prefix-clear change and are not assumed necessary.
+
+## 12. Execution checklist and reviewable deliverables
+
+The requested improvement is target 2 in `STT_RUNTIME_IMPROVEMENTS.md`: reduce
+capture-lock contention. Success means a useful measured reduction in capture
+cost with preserved audio and recognition behavior. Finding that contention is
+too small to justify a rewrite is also an actionable decision, provided the
+baseline and limiting operation are documented. It is not a claim of a speedup.
+
+| Step | Concrete output | Exit decision |
+|---|---|---|
+| Reconcile current work | Identify committed instrumentation, uncommitted prototypes, completed runs and missing checks; preserve other agents' files | Reuse valid evidence; do not rerun solely because it predates this checklist |
+| Complete loaded baseline | Per-fixture table of lock wait/hold, read-to-push delay, copy/clear bytes and time, driver loss, queue pressure, captions and labels | Freeze gates before candidate scoring; identify the actual dominant path |
+| Validate prefix clearing | Default-off candidate, documented zeroing invariant, exact PCM/features and sanitizer results | Reject on any stale data, ownership, bounds or sequence failure |
+| Short matched device comparison | Same build configuration, models, inputs and probes; compare partial and maximum-length caches | Continue only if saved work produces measurable benefit without a displaced cost |
+| Decide on further ownership work | Written proceed/skip decision for clearing leases and copying changes independently | Skip complexity when baseline contention is negligible or the small change is sufficient |
+| Qualify finalist | Twelve ABBA captures, instrumentation controls, secondary pacing/speaker checks and at least one-hour soak | Accept, reject or hold with the precise unresolved check stated |
+| Close out | Aggregate comparison, source/evidence identities, handoff update, small source commits and verified board restoration | Recommend adoption separately; no automatic production default change |
+
+For every acoustic comparison, show each fixture/run as well as totals. Include
+WER edits/reference words, speaker correct/eligible, raw unknown/missing labels,
+final-text median/p90, first-preview freshness and speaker-label lag. Keep
+unqualified timing fits visible as excluded results. Use deterministic equality
+to establish algorithm preservation; acoustic repeatability measures product
+behavior and cannot prove exact equality.
+
+### Failure handling
+
+- A correctness or race failure stops that candidate before further device runs.
+- A watchdog triggers one unchanged rerun at minimum, with both outcomes retained;
+  compare input position and sampled task/location before changing anything.
+- Audio loss or queue exhaustion must be attributed and reported, including in
+  controls. Do not silently enlarge buffers or change pacing to make a run pass.
+- Failed or ambiguous acoustic alignment withholds the affected latency/identity
+  claims. Improve the measurement using baseline evidence, then freeze the method
+  before candidate comparisons; never tune it to favor a candidate.
+- If benefit remains uncertain after the bounded follow-up set, hold the candidate
+  and name the next discriminating experiment rather than reporting a win.
+
+### Effort and elapsed time
+
+These are planning ranges, not a completion promise. Reuse already-valid results.
+Baseline reconciliation and remaining short controls may take one to three hours;
+the prefix candidate and focused correctness work may take another two to four.
+Full finalist qualification needs roughly one hour of ABBA audio, at least one
+hour of soak, and additional build/flash/drain/scoring time. A small-change path
+therefore merits roughly one working day, possibly spilling into a second if
+measurement or reliability checks fail. Lease-based cleanup or segmenter buffer
+handoff can add multiple days and should receive a revised estimate only after
+the baseline demonstrates a need.
+
+The separately requested mixed-precision RAM benchmark is outside these timing
+estimates. Keep its models, images and results distinct so it cannot confound the
+fixed-model capture comparison. No firmware flash or new test is required merely
+to review this plan.

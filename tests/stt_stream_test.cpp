@@ -20,11 +20,11 @@ struct Fixture {
     static void lock(void* p){static_cast<Fixture*>(p)->mutex.lock();}
     static void unlock(void* p){static_cast<Fixture*>(p)->mutex.unlock();}
     Fixture(bool trim=false,bool features=true,size_t ringSize=65536,
-            DraftPacing pacing=DraftPacing::Legacy,uint32_t interval=1000,bool tagged=false){
+            DraftPacing pacing=DraftPacing::Legacy,uint32_t interval=1000,bool tagged=false,bool clearPrefix=false){
         StreamConfig c;c.segmentation.adaptive=false;c.segmentation.rms_threshold=100;
         c.segmentation.max_segment_samples=32000;c.segmentation.min_segment_samples=320;
         c.segmentation.min_voice_samples=320;c.segmentation.pre_roll_samples=0;
-        c.tail_samples=trim?8000:0;c.draft_interval_ms=interval;c.draft_pacing=pacing;
+        c.tail_samples=trim?8000:0;c.draft_interval_ms=interval;c.draft_pacing=pacing;c.clear_committed_features=clearPrefix;
         StreamBuffers b;b.capacity=32000;b.capture=capture.data();b.snapshot=snapshot.data();
         for(int i=0;i<3;++i)b.slots[i]=pcm[i].data();
         StreamLock synchronization{this,lock,unlock};
@@ -43,6 +43,68 @@ struct Fixture {
     }
     void done(StreamWork& w,bool ok=true,const char* text="words"){pipeline.complete(w,ok,text,{},100);}
 };
+void guarded_features(Fixture& f,size_t ringSize=65536){
+    for(auto& rows:f.rows){rows.assign(200*64+16,7.75f);}
+    assert(f.pipeline.enableFeatures(f.ring.data(),ringSize,f.rows[0].data()+8,f.rows[1].data()+8));
+}
+void cache_zero_and_guards(const Fixture& f){
+    for(const auto& rows:f.rows){
+        for(size_t i=0;i<8;++i)assert(rows[i]==7.75f&&rows[rows.size()-1-i]==7.75f);
+        for(size_t i=8;i<8+200*64;++i)assert(rows[i]==0);
+    }
+}
+void committed_prefix_clearing(){
+    Fixture f(false,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(f);cache_zero_and_guards(f);
+    f.feed(320,true,false);f.pipeline.cancel();cache_zero_and_guards(f);
+#if HW1_STT_STREAM_METRICS
+    assert(f.pipeline.memoryDiagnostics(StreamMemoryOperation::CacheClear).metric.bytes==0);
+#endif
+    Fixture one(false,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(one);
+    one.feed(320,true,false);StreamFeatureWork first;float row[64];assert(one.pipeline.featureTake(first));
+    assert(log_mel_frame_ring(first.ring,511,first.start,first.samples,first.frame,row,&one.workspace)==Status::Ok);
+    one.pipeline.featureComplete(first,row,true);one.pipeline.cancel();cache_zero_and_guards(one);
+#if HW1_STT_STREAM_METRICS
+    assert(one.pipeline.memoryDiagnostics(StreamMemoryOperation::CacheClear).metric.bytes==64*sizeof(float));
+#endif
+    Fixture overrun(false,false,512,DraftPacing::Legacy,1000,false,true);guarded_features(overrun,512);
+    overrun.feed(16000,true,false);overrun.features();assert(overrun.pipeline.counters().feature_overruns==1);
+    overrun.feed(9600,false);StreamWork fallback;assert(overrun.pipeline.take(fallback,overrun.now));
+    assert(!fallback.features.count);overrun.done(fallback);cache_zero_and_guards(overrun);
+    Fixture repeated(false,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(repeated);
+    for(int pass=0;pass<6;++pass){
+        const size_t voice=pass%2?32000:16000;repeated.feed(voice,true);
+        if(voice<32000)repeated.feed(9600,false);
+        StreamWork w;assert(repeated.pipeline.take(w,repeated.now)&&w.kind==StreamWorkKind::Final);
+        assert(w.features.count>0);bool dirty=false;
+        for(size_t i=8;i<8+200*64;++i)dirty|=repeated.rows[0][i]!=0||repeated.rows[1][i]!=0;
+        assert(dirty);repeated.done(w);cache_zero_and_guards(repeated);
+    }
+    Fixture trimmed(true,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(trimmed);
+    trimmed.feed(16000,true);trimmed.feed(8000,false);StreamWork spec;
+    assert(trimmed.pipeline.take(spec,trimmed.now)&&spec.kind==StreamWorkKind::Speculative);
+    const size_t used_rows=spec.features.count;trimmed.feed(1600,false);trimmed.done(spec);
+    StreamWork final;assert(trimmed.pipeline.take(final,trimmed.now)&&final.promoted);
+    assert(final.features.count==used_rows&&used_rows==150);
+#if HW1_STT_STREAM_METRICS
+    const auto before=trimmed.pipeline.diagnostics();assert(before.frames[0]==159&&before.pins[0]==1);
+#endif
+    trimmed.done(final);cache_zero_and_guards(trimmed);
+#if HW1_STT_STREAM_METRICS
+    assert(trimmed.pipeline.memoryDiagnostics(StreamMemoryOperation::CacheClear).metric.bytes==159*64*4);
+#endif
+    Fixture pinned(false,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(pinned);
+    pinned.feed(16000,true);assert(pinned.pipeline.take(spec,pinned.now));
+    const auto retained=std::vector<float>(spec.features.rows,spec.features.rows+spec.features.count*64);
+    pinned.feed(9600,false);pinned.pipeline.cancel();assert(pinned.pipeline.cancelled(spec));
+    assert(!std::memcmp(retained.data(),spec.features.rows,retained.size()*sizeof(float)));
+    pinned.done(spec,false);cache_zero_and_guards(pinned);
+    Fixture stale(false,false,65536,DraftPacing::Legacy,1000,false,true);guarded_features(stale);
+    stale.feed(320,true,false);StreamFeatureWork old;assert(stale.pipeline.featureTake(old));
+    stale.feed(9600,false,false);assert(stale.pipeline.take(final,stale.now));stale.done(final);cache_zero_and_guards(stale);
+    stale.feed(320,true,false);float foreign[64];std::fill(foreign,foreign+64,99.f);
+    stale.pipeline.featureComplete(old,foreign,true);cache_zero_and_guards(stale);
+    stale.features();assert(stale.pipeline.take(final,stale.now)==false);stale.pipeline.cancel();cache_zero_and_guards(stale);
+}
 void tagged_lock_contract(){
     Fixture f(false,false,65536,DraftPacing::Legacy,1000,true);
     f.feed(16000,true);StreamWork w;assert(f.pipeline.take(w,f.now));f.done(w);
@@ -166,8 +228,8 @@ void queue_overflow_and_stale_features(){
     assert(overrun.pipeline.counters().feature_overruns==1);assert(overrun.pipeline.take(w,overrun.now));
     assert(!w.features.count);overrun.done(w);
 }
-void concurrent_ownership(DraftPacing pacing=DraftPacing::Legacy){
-    Fixture f(false,true,65536,pacing,0);std::atomic<bool> done{false};
+void concurrent_ownership(DraftPacing pacing=DraftPacing::Legacy,bool clearPrefix=false){
+    Fixture f(false,true,65536,pacing,0,false,clearPrefix);std::atomic<bool> done{false};
     std::thread producer([&]{for(int i=0;i<30;++i){f.feed(16000,true,false);f.feed(9600,false,false);}assert(f.pipeline.finish(f.now));done=true;});
     std::thread features([&]{while(!done){f.features();std::this_thread::yield();}});
     uint64_t last=0;size_t finals=0;FrontendWorkspace workspace{};float row[64];
@@ -184,4 +246,4 @@ void concurrent_ownership(DraftPacing pacing=DraftPacing::Legacy){
     producer.join();features.join();assert(finals>0);
     assert(finals+f.pipeline.counters().dropped==30);
 }
-int main(){tagged_lock_contract();metrics_accounting();draft_pacing_and_phrase_reset();concurrent_ownership();concurrent_ownership(DraftPacing::X2FastFirst);features_and_draft_preemption();features_and_draft_preemption(DraftPacing::X2FastFirst);exact_promotion_and_resumed_speech();hard_cut_finish_and_cancel();queue_overflow_and_stale_features();puts("Streaming: bit-exact cached features, draft preemption, exact promotion, resumed speech, hard cuts, stop/cancel, overflow and stale generations passed");}
+int main(){committed_prefix_clearing();tagged_lock_contract();metrics_accounting();draft_pacing_and_phrase_reset();concurrent_ownership();concurrent_ownership(DraftPacing::X2FastFirst);concurrent_ownership(DraftPacing::Legacy,true);concurrent_ownership(DraftPacing::X2FastFirst,true);features_and_draft_preemption();features_and_draft_preemption(DraftPacing::X2FastFirst);exact_promotion_and_resumed_speech();hard_cut_finish_and_cancel();queue_overflow_and_stale_features();puts("Streaming: bit-exact cached features, draft preemption, exact promotion, resumed speech, hard cuts, stop/cancel, overflow and stale generations passed");}
