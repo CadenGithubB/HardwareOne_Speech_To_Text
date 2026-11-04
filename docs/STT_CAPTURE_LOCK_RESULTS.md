@@ -549,3 +549,68 @@ clock. The secondary controller currently owns the board lock; its restoration
 is pending. Probes-off has no DMA-loss or sample-aligned timing claim, and
 speaker-off is not an accuracy arm. Continuous soak, optional prepare-refusal
 hardware check, final audit and the separate model/RAM benchmark remain incomplete.
+
+### Secondary x2f bracket: label-delay gate raised — 4 November
+
+The matched x2f full/prefix/prefix/full bracket is complete with unchanged models,
+SDK isolation setting and original speaker arithmetic. All four host clocks and
+sample fits qualify. WER edits are 82/72/76/78 over 499 words; speaker correctness
+is 28/38, 28/38, 29/38 and 30/39, with one unknown/missing label in each run.
+No DMA overflow, phrase drop, watchdog or panic was observed in these four runs.
+
+| Run | Final publication median / p90 (s) | Label-after-caption median / p90 (s) |
+|---|---:|---:|
+| B0 | 1.909 / 2.731 | 1.164 / 2.020 |
+| P1 | 1.938 / 2.789 | 1.120 / 2.231 |
+| P2 | 1.947 / 2.642 | 1.162 / 2.443 |
+| B3 | 1.933 / 2.683 | 1.166 / 1.817 |
+
+The predefined comparison flags the separated label-after-caption p90 increase:
+both candidates exceed both controls by more than 5% and 100 ms. This acoustic
+bracket is evidence of a concern, not proof that clearing causes it. It reinforces
+the adoption hold. No additional follow-up is scheduled to seek a favorable
+sample. There is no separated WER/speaker-correctness flag or final-caption
+latency flag. Median total clearing cost falls 61.1% (89.203 to 34.737 ms per
+recording); this does not establish faster captions.
+
+Evidence: private/stt-capture-lock/secondary-local-score-8.json and matching
+controller run directories. The instrumentation bracket is also complete; the
+speaker-load bracket remains active. Board restoration is pending until the
+existing controller finishes. Overall speaker numerical qualification still
+fails, and the primary conv4 quality hold remains unchanged.
+
+### Contract coverage audit checkpoint — 4 November
+
+This maps the original plan to inspected production-code tests and retained
+execution evidence. It is not an overall pass: device quality/latency holds,
+preparation-refusal hardware execution, final reporting and the separate model
+benchmark remain outstanding.
+
+| Plan cases | Actual coverage and scope |
+|---|---|
+| C01–C05 | `committed_prefix_clearing` tests empty/one-row/repeated partial and full-capacity prefixes, overrun retirement, complete reusable-region zeroing and guards. Dirty high-water 159 rows remains cleared when inference uses only 150. Full 160,000-sample production capacity is additionally exercised by replay. |
+| C06–C10 | Same test pins a reader through repeated cancel, compares retained bytes, releases the last pin, and attempts late old-generation feature completion. `queue_overflow_and_stale_features` checks stale publication and explicit fallback. |
+| C11–C17 | Cleanup leases, chunked/unlocked copies and asynchronous housekeeping belong to conditional Milestones C/D, which are not implemented. Their new-state tests are not applicable to the retained synchronous Milestone B. Existing finish/cancel/pin semantics remain covered; no claim of tested lease behavior is made. |
+| C18 | `no_hot_allocations_and_null_lock` runs both clearing modes with features and snapshot independently enabled/disabled. |
+| C19–C20 | Concurrent producer/feature/consumer exercise validates exact cached rows, sequence accounting and both cadences. Chunked snapshot preparation was not introduced, so chunk-revalidation tests are conditional rather than claimed passed. Existing phrase close/final preemption is covered by `features_and_draft_preemption`. Random concurrent scheduling is not an exhaustive interleaving proof. |
+| C21–C25 | `exact_promotion_and_resumed_speech`, `hard_cut_finish_and_cancel`, replay scenarios 0/2/3/6 and segmenter boundary tests cover speculative invalidation/promotion, hard continuation, pre-roll/ring rotation and cancellation. |
+| C26–C30 | Replay uses 29/31/37/71/79/127/160/1,024-sample partitions, a 160-sample final span, 160,000-sample capacity, full queues and feature-ring overrun. Exact original-versus-prefix payload comparison complements explicit drop/fallback assertions. |
+| C31–C35 | Null-lock allocation watcher, features/snapshot combinations, both cadences, zero/guard assertions, and actual frontend row comparisons cover retained contracts. Heap allocation watcher applies to the tested scheduler thread; it is not whole-firmware allocation instrumentation. |
+| C36 | All six mutex serialization orders of finish/cancel/late feature completion are tested with a pinned reader, for both clearing modes; retained bytes and terminal drainage are asserted. |
+
+Execution evidence: `host-metrics-asan.log`, `host-off-asan.log`,
+`host-metrics-tsan.log`, `prefix-tsan.log` and `host-tsan-controls.log` under
+private/stt-capture-lock/. The TSan memcpy positive control detects the unlocked
+race with interceptor accesses enabled; the locked negative control stays clean.
+`preroll-host-status.json` records four exit-zero commands;
+`preroll-equivalence.json` records 28 equal replay comparisons and unchanged
+original twelve traces. The segmenter log reports 720 chunk comparisons and
+1,076 reference segments with exact source-sample conservation.
+
+Host SDK/runtime lifetime coverage is retained in runtime-both-prepare-host.log
+across preparation flag, resident/per-call execution and diagnostics combinations.
+Those SDK fakes establish control flow/lifetime, not P4 arithmetic. Actual P4
+recognition equality and independent-model isolation have separate diagnostic
+artifacts; the failed speaker numerical fixture stays failed. The optional
+allocation-refusal device probe has not run and must not be counted as coverage
+of actual device failure recovery yet.

@@ -1,14 +1,15 @@
 # STT capture-lock contention: implementation and qualification plan
 
-Status: in progress, 3 November 2026. Instrumentation, host equivalence, twelve
-primary acoustic captures and one bounded four-capture follow-up are complete.
-Prefix clearing reduces clearing cost, but a caption-latency gain is unproven.
-An execution-isolation defect was reproduced; its default-off fix passed an
-initial controlled P4 diagnostic. An independent speaker fixture still fails.
-Secondary controls, continuous soak and adoption remain incomplete. Section 13
-sets the current execution order; earlier sections retain the design contracts.
-See `STT_CAPTURE_LOCK_RESULTS.md` for actual outcomes. Starting runtime: `9a0f14e`. This is standalone
-STT engine work. The other agent owns training/data/quantization work.
+Status: in progress, 4 November 2026. Instrumentation, host equivalence,
+original and model-local SDK primary cohorts, and their bounded follow-ups are
+complete. Prefix clearing reduces clearing cost; a caption-latency gain remains
+unproven. The default-off execution-isolation repair passed controlled P4 tests.
+An independent speaker fixture still fails, and the new conv4 quality hold remains.
+Secondary controls are running; soak, final evidence review and adoption decisions
+are incomplete. Section 14 is the current remaining-work plan; Sections 1–13 retain
+the design contracts and experimental history. See `STT_CAPTURE_LOCK_RESULTS.md`
+for actual outcomes. Starting runtime: `9a0f14e`. This is standalone STT engine
+work; the other agent owns training/data/quantization work.
 
 ## 1. Outcome and boundaries
 
@@ -658,3 +659,161 @@ Completion means the evidence supports a recorded decision, the required checks
 are complete or explicitly block adoption, owned changes are reviewable, and the
 board is restored. It does not require inventing a latency win or implementing
 the conditional buffer-ownership redesign.
+
+## 14. Remaining-work plan — 4 November 2026
+
+### Goal and success criteria
+
+Reach separate, evidence-backed decisions on (1) model-local SDK preparation,
+(2) committed-prefix cache clearing and (3) any larger ownership rewrite. The
+intended product benefit is reliable capture without worse recognition, speaker
+labels or caption delay. Reduced clearing cost alone does not establish that
+benefit. A documented rejection or hold is a valid result; default promotion is
+not required for completion.
+
+The model-local primary cohort has twelve captures. The single permitted conv4
+follow-up is also complete. Its concerning speaker pattern did not repeat, but
+that does not establish noninferiority or erase the original hold. Do not run
+additional conv4 brackets to seek a favorable outcome. The independent embedded
+speaker fixture is still failed. Keep both limitations visible throughout.
+
+### Step 1 — finish the secondary controls already in progress
+
+Continue the existing controller, preserving its state and lock ownership. At
+this checkpoint seven of twelve captures are recorded; the closing x2f control
+is running. Observe the same process rather than launching another controller.
+
+| Group | Order | Purpose | Interpretation limit |
+|---|---|---|---|
+| Instrumentation | On / off / off / on | Identify probe effects | Probe-off DMA counters and aligned timing are unavailable |
+| x2f | Full / prefix / prefix / full | Check clearing under the other cadence | This is not a fresh legacy-versus-x2f adoption study |
+| Speaker load | On / off / off / on | Attribute concurrent speaker cost | Speaker-off cannot establish speaker accuracy |
+
+Keep images, local waveforms, speaker volume, scoring and alignment parameters
+frozen. Preserve each run's reference denominator, missing/unknown labels and
+clock qualification. A feature-cache fallback is not microphone sample loss.
+Record absent metrics as unmeasured, never zero. Worker categories are final=0,
+draft=1 and speculative=2; descriptive duration buckets are not equal-input
+kernel benchmarks.
+
+Exit: all twelve captures scored, or a named fault stops the sequence; controller
+termination, selected-app restoration/readback and lock release are verified.
+A watchdog requires the same image/input/mode rerun at least once, retaining both
+outcomes and comparing task/location/input position.
+
+### Step 2 — close the preparation-failure correctness gap
+
+Build the optional isolated P4 preparation-refusal probe after acoustic playback
+has stopped. Keep it outside production images and leave its flag off by default.
+It is currently source-only and has no device pass result.
+
+1. Establish the ordinary output for the actual fixed speaker fixture.
+2. Reject the optional prepared-argument storage requests using the scoped
+   diagnostic allocator policy; record that a rejection actually occurred.
+3. Require preparation to leave activation input/output snapshots unchanged.
+4. Run ordinary inference through the fallback and require the same output hash.
+5. Restore allocation policy, prepare again and require exact recovery.
+6. Retain the existing recognition-equality and independent-model checks.
+
+This tests allocation-policy refusal, not real heap exhaustion or production RAM
+fit. The known numerical fixture failure stays failed even if fallback equality
+passes. If this probe fails, hold the SDK repair and produce the smallest
+reproducer before scheduling additional performance work.
+
+Exit: explicit pass/fail for refusal, fallback and recovery, with image/config
+identities and verified board restoration. Reuse valid host lifetime/equivalence
+coverage rather than rerunning every test for documentation-only edits.
+
+### Step 3 — make the soak decision before reserving another hour
+
+Apply the existing correctness and quality gates after Steps 1–2. The original
+speaker-quality hold and independent fixture failure currently prevent overall
+qualification. Do not describe this candidate as a qualified finalist.
+
+If there is a safe, correctness-qualified configuration and an explicit remaining
+reliability question, a minimum one-hour run may provide diagnostic reliability
+evidence only. State that scope before starting. Otherwise record the soak as
+not run because its prerequisite is unmet, as Section 13 requires.
+
+The prepared sequence uses one boot and repeated conv2/3/4/long-phrase sessions,
+with no hidden model reloads. Check elapsed host/device time, sample continuity,
+DMA loss, drops, watchdogs, panics, session/model identities, drained queue/pins,
+and free/largest-block trends. These heap checkpoints are not transient peaks.
+A watchdog requires an unchanged repeat of the sequence from boot. Stop on unsafe
+state, restore the selected app and preserve the failed sequence.
+
+Exit: scoped reliability result or an explicit prerequisite-blocked result;
+never imply broad accuracy or indefinite reliability from the soak.
+
+### Step 4 — audit evidence and make three independent recommendations
+
+Map the original 36-case contract matrix and twelve isolation cases to actual
+artifacts. Mark each completed, failed, conditional/not applicable, or unchecked.
+An inventory script listing files does not establish that the requirements pass.
+
+| Decision | Evidence required | Current constraint |
+|---|---|---|
+| SDK isolation repair | Model-local ownership, no preparation arithmetic, equality, independent-model safety, fallback/lifetime behavior | Controlled isolation passes; refusal probe remains unrun |
+| Prefix clearing | Exact input/output preservation, useful benefit, no displaced capture/quality problem | Clearing cost improves; caption benefit unproven; conv4 quality hold |
+| Larger ownership rewrite | Material remaining capture stalls that justify more states and lifetime complexity | Existing small waits do not currently justify implementation |
+
+Publish per-run WER edits/reference words, speaker correct/eligible and unknowns,
+qualified publication/label timing, capture wait/hold, clearing cost, faults and
+memory observations. Keep old/new SDK cohorts separate. Withhold the old conv4
+control's publication timing because its receive clock stepped backward; never
+repair its timestamps after the fact. New monotonic receive clocks measure host
+receipt, not physical display latency.
+
+Deliver an updated comparison visual, results document and handoff with raw
+private evidence identities and all exclusions. Commit only owned source and
+owned handoff sections, preserving the training agent's uncommitted changes.
+The recommendation may be accept for explicit integration, reject, or hold with
+a named missing gate. Production defaults remain unchanged.
+
+### Step 5 — keep the separately requested block-14 benchmark isolated
+
+This model-changing experiment is outstanding and cannot replace fixed-model
+capture qualification. Coordinate board time after the current controller ends.
+
+1. Verify candidate/control hashes and identical input lengths and build settings.
+2. Implement and review the isolated fixture/RAM harness; retain production model
+   guards. Validate supported mixed-precision operators and allocation failures.
+3. Prefer the host-verified small reconstruction delta over uploading a complete
+   model. Any device scratch source must use fresh private paths with checked
+   capacity; verify reconstructed bytes before loading. No audio upload is needed.
+4. Require each model's own embedded fixture to pass before interpreting its RAM
+   result as a viable candidate. Record a failure honestly rather than weakening
+   fixture tolerance.
+5. Compare matched cold/warm load and inference behavior. Distinguish checkpoints,
+   conservative heap-derived bounds and actual event-level peaks. Name the
+   allocation stage/capabilities and contiguous-block failure when observed.
+6. Report isolated-probe overhead and limits: this is not full-application RAM
+   qualification. Restore/read back the selected app afterward.
+
+Exit: numerical result and defensible matched memory result, or an explicit
+failure/blocker with the missing measurement named. No model/default adoption.
+
+### Schedule, stop conditions and completion
+
+Finish the running controls first. Allow approximately one to three focused hours
+for the refusal diagnostic, evidence audit and report if no new fault appears.
+A permitted soak adds at least an hour plus setup/restoration; an unchanged
+watchdog repeat adds the same sequence again. The mixed-precision harness is a
+separate several-hour engineering task, with a revised estimate after its first
+fixture/build result. These are remaining-work estimates, not measured results.
+
+Stop expanding the capture optimization if useful product benefit is absent or
+a quality hold persists. Do not reopen the closed 128-byte cache-line fault hunt.
+Do not combine new speaker arithmetic, training weights or decoder changes with
+this fixed-model comparison. Any later speaker numerical-contract repair needs
+its own plan, equal-input reference and separate acoustic qualification.
+
+Board operations retain MAC/partition checks, app-only flashing through the
+approved helper, private rollback evidence, owned locking, local speakers at
+50%, and ring reconnect off. No flash erase or filesystem cleanup is part of
+this plan. Pushes, main merges, production-default changes and outward filings
+require the user's approval.
+
+Completion requires reviewable decisions and evidence, explicit incomplete
+checks, owned changes recorded, and verified restoration/lock release. It does
+not require manufacturing a speedup or claiming that a held candidate passed.
