@@ -1,0 +1,13 @@
+menu "HardwareOne standalone STT"
+config HW1_STT_MODEL_LOCAL_PREPARE
+    bool "Use model-local prepared arguments (experimental)"
+    default n
+    help
+        Prepare each model through its own module objects. Normal execution in
+        another model never consults the recognition worker's preparation flag.
+        Non-Conv operators do no arithmetic during preparation. Requires the
+        isolated and concurrent-model qualification; does not change weights.
+        All ESP-DL modules/callers must be rebuilt with the same setting; this
+        adds a virtual preparation entry point. A single model still requires
+        one execution owner; this does not make that model safe for reentry.
+endmenu

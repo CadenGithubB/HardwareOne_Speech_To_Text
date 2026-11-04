@@ -466,8 +466,18 @@ class Model {
     }
     fbs::FbsModel* get_fbs_model() {return &graph;}
     std::map<std::string,Memory> get_memory_info()const{return {{"variable",{4096,512}}};}
+#if CONFIG_HW1_STT_MODEL_LOCAL_PREPARE
+    void prepare_args(int mode) {
+        assert(fake::hasRaw(weights) && mode==RUNTIME_MODE_MULTI_CORE);
+        assert(hw1_dl_prepare_mode==0 && hw1_dl_prepare_gen==0);
+        fake::state.prepareFrames.push_back(size_t(input.shape[1]));
+    }
+#endif
     void run(int count,int stage,int mode) {
         assert(fake::hasRaw(weights));assert(count==hw1::stt::identity::kNodeCount && mode==RUNTIME_MODE_MULTI_CORE);
+#if CONFIG_HW1_STT_MODEL_LOCAL_PREPARE
+        assert(hw1_dl_prepare_mode==0 && hw1_dl_prepare_gen==0);
+#endif
         if(hw1_dl_prepare_mode){
             assert(hw1_dl_prepare_gen!=0);
             if(stage==0)fake::state.prepareFrames.push_back(size_t(input.shape[1]));

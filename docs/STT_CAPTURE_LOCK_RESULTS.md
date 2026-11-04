@@ -321,3 +321,56 @@ verified in that chat. It is queued for an isolated model/fixture benchmark at a
 safe device window. Its model/kernel/runtime work must remain separate from the
 fixed-model capture-lock A/B. No mixed model has been deployed, no device RAM
 claim is made, and training/export files remain owned by that session.
+
+### Model-local preparation: controlled P4 pass, fixture cause narrowed
+
+Implemented `CONFIG_HW1_STT_MODEL_LOCAL_PREPARE`, default off. The runtime uses
+an owner-only Model preparation method; only Conv prepares reusable arguments.
+Other operators do no arithmetic during preparation, and normal inference ignores
+another model's legacy global preparation flag. Prepared arguments are invalidated
+before each pass and consumed once. Same-model reentry remains unsupported; all
+SDK modules/callers must share the configuration because the opt-in adds a virtual
+entry point. No weights, speaker rules or production defaults changed.
+
+The initial fixed P4 diagnostic completed 83 real preparations of model A while
+model B ran: B's embedding remained byte-identical to normal/recovery (cosine 1).
+Six recognition pairs also matched input/output/text hashes across clearing modes
+and the frozen pre-fix results. A second diagnostic retained those checks and
+added a direct embedded-fixture matrix. Both runs completed without watchdogs or
+panics and restored/readback-verified the selected app, reconnect/perf logging off,
+with the board lock released. These are controlled mechanism tests, not proof of
+historical acoustic causation or full accuracy qualification.
+
+The direct speaker fixture gives identical output hashes in all four combinations
+of convolution blocking disabled/24 KiB and single/multi-core execution. All fail:
+9,386 of 9,600 values exceed the existing one-unit tolerance, maximum error 788,
+sum absolute error 891,692. Thus those execution choices do not explain this
+fixture discrepancy. The exact local export matches the installed speaker blob;
+its trunk and embedded input/output are present. This bypasses microphone/frontend,
+float pooling and clustering, narrowing the discrepancy to the trunk/export
+numerical contract. It does not yet identify the offending operator.
+
+A host reconstruction using saved ONNX/quantization JSON was attempted. Correctly
+folding isolated BatchNormalization into depthwise Conv (as the exporter does)
+reduces its discrepancy, but it still fails the embedded reference: maximum error
+18, 4,531 values over tolerance. It is an unvalidated diagnostic, not an oracle for
+per-layer correctness. Do not replace the embedded reference with it or loosen
+tolerance. The next discriminating work is to reproduce the original exporter
+execution/reference exactly or construct independently checked operator fixtures.
+
+Actual runtime lifecycle tests now exercise both preparation settings, per-call
+and resident models, diagnostics off/on under ASan/UBSan: all eight combinations
+pass. Host fakes verify control flow/lifetime, not ESP-DL arithmetic. P4 DWARF
+inspection shows unchanged object sizes (vendor Model 144 B, Module 40 B, Conv
+108 B); equal sizes do not prove vtable ABI compatibility or peak RAM fit.
+Normalized patch context formatting round-trips against the pinned pristine SDK
+with unchanged patched source-tree digest.
+
+Private evidence: `exact-local-status.json`, `exact-fixture-matrix-status.json`,
+`speaker-fixture-host-inventory.json`, `speaker-host-reconstruction/result.json`,
+`runtime-both-prepare-host.log` and `module-local-object-sizes.json` under
+`private/stt-capture-lock/`. Overall status remains complete-with-findings, not a
+passed speaker fixture. Secondary controls, continuous soak and the final adoption
+audit remain incomplete; see the updated execution sequence in Section 13 of
+`STT_CAPTURE_LOCK_PLAN.md`. The separate mixed-precision fixture/RAM request stays
+queued and has no device result.

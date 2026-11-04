@@ -1511,3 +1511,22 @@ and match the old engine. Secondary controls, continuous soak, final audit and
 the separately queued block-14 fixture/RAM test remain incomplete. Next isolate
 preparation ownership with fixed models and speaker rules; keep defaults unchanged
 and preserve training-agent edits. See docs/STT_CAPTURE_LOCK_RESULTS.md.
+
+### Model-local preparation repair and direct speaker fixture matrix
+
+The default-off execution-isolation repair passed controlled P4 concurrency: 83
+real preparations of another model left speaker output unchanged (cosine 1), and
+six recognition pairs matched frozen pre-fix hashes. Runtime lifecycle tests pass
+ASan/UBSan for both preparation APIs, resident/per-call models and probes off/on.
+The direct embedded speaker fixture still fails identically with convolution
+blocking off/on and single/multi-core execution: 9,386/9,600 values exceed tolerance,
+maximum error 788. Those choices do not explain it; no accuracy pass is claimed.
+A saved-export host reconstruction is also not byte-exact and remains unvalidated.
+
+The latest diagnostic completed without watchdogs/panics, restored and readback-
+verified the selected app, reconnect/perf logging off, and released the lock.
+The SDK source tree is digest-verified; production defaults and training edits are
+preserved. See STT_CAPTURE_LOCK_RESULTS.md for evidence and limits, and Section 13
+of STT_CAPTURE_LOCK_PLAN.md for the updated staged qualification plan. Speaker
+fixture localization, secondary controls, continuous soak, final gate audit and
+the separate mixed-precision RAM request remain incomplete.

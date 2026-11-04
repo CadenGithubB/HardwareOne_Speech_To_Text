@@ -537,10 +537,14 @@ bool transcribe(ModelReader reader, const int16_t* pcm, size_t samples,
     // keeps. Per-call models (the warm-up) skip the pass, so the LM, which
     // the warm-up loads lazily at its decode, sees the same PSRAM as before.
     if(resident) {
+#if CONFIG_HW1_STT_MODEL_LOCAL_PREPARE
+        model->prepare_args(dl::RUNTIME_MODE_MULTI_CORE);
+#else
         if(++hw1_dl_prepare_gen==0)++hw1_dl_prepare_gen;
         hw1_dl_prepare_mode=1;
         for(int stage=0;stage<identity::kNodeCount;++stage)model->run(identity::kNodeCount,stage,dl::RUNTIME_MODE_MULTI_CORE);
         hw1_dl_prepare_mode=0;
+#endif
     }
 #endif
     constexpr int64_t kYieldBlockUs=250000;

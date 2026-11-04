@@ -1,9 +1,12 @@
 # STT capture-lock contention: implementation and qualification plan
 
-Status: in progress, 3 November 2026. Instrumentation, host equivalence, the P4
-build and an initial device smoke are recorded. Loaded baseline qualification,
-candidate validation and adoption remain separate gates; consult the results
-record rather than treating a prototype in the working tree as qualified.
+Status: in progress, 3 November 2026. Instrumentation, host equivalence, twelve
+primary acoustic captures and one bounded four-capture follow-up are complete.
+Prefix clearing reduces clearing cost, but a caption-latency gain is unproven.
+An execution-isolation defect was reproduced; its default-off fix passed an
+initial controlled P4 diagnostic. An independent speaker fixture still fails.
+Secondary controls, continuous soak and adoption remain incomplete. Section 13
+sets the current execution order; earlier sections retain the design contracts.
 See `STT_CAPTURE_LOCK_RESULTS.md` for actual outcomes. Starting runtime: `9a0f14e`. This is standalone
 STT engine work. The other agent owns training/data/quantization work.
 
@@ -446,3 +449,212 @@ The separately requested mixed-precision RAM benchmark is outside these timing
 estimates. Keep its models, images and results distinct so it cannot confound the
 fixed-model capture comparison. No firmware flash or new test is required merely
 to review this plan.
+
+## 13. Current detailed execution plan — 3 November 2026
+
+### Objective and current decision
+
+Determine whether the small prefix-clear optimization earns inclusion in the
+standalone STT runtime, while preserving audio, recognition and speaker behavior.
+First qualify the model-execution isolation repair needed for trustworthy
+concurrent inference. Keep the two changes separately selectable and report
+their effects separately. Neither option becomes a production default here.
+
+The existing measurements argue against a larger capture-buffer ownership rewrite:
+loaded capture wait p99 is already small and the measured maximum is below 4 ms.
+Clearing time falls approximately 67–73%, but that saves roughly tens of
+milliseconds across a multi-minute recording. That is a memory-work reduction,
+not evidence of faster captions. Milestones C/D stay conditional.
+
+### Phase 0 — reconcile evidence and freeze experiments
+
+1. Inventory owned source changes, other-agent changes, build identities and
+   controller status. Preserve uncommitted work and archive manifests before
+   replacing any private build artifact. Do not update/switch repositories merely
+   to restart this task.
+2. Retain the original twelve-run cohort and four-run follow-up unchanged.
+   Publish their flags and denominators; do not average away the conv3 concern.
+3. Record the latest isolated diagnostic separately: six recognition pairs pass
+   and match pre-fix hashes; 83 real preparations of another model leave the
+   speaker embedding unchanged with the fix. The speaker fixture remains failed.
+   This demonstrates controlled isolation, not live incidence or accuracy.
+4. Confirm final controller state before another board action. The latest saved
+   status reports selected-app restoration, rollback readback and lock release.
+5. Freeze a manifest per image: source, SDK patch/tree, model, LM, vocabulary,
+   decoder, pacing, clearing, probes, speaker mode, L2 and PSRAM settings. Existing
+   sdkconfig values must be checked directly, not inferred from defaults.
+
+Deliverable: evidence inventory and configuration table. Exit when each existing
+result has a known profile and each planned comparison changes one named factor.
+
+### Phase 1 — qualify execution isolation independently
+
+Review the default-off SDK/runtime patch before expanding acoustic testing.
+Model preparation must visit only that model's modules, perform no arithmetic,
+invalidate stale prepared arguments and leave other models' execution untouched.
+Keep weights, kernels' arithmetic and speaker thresholds fixed.
+
+| Case | Required observation |
+|---|---|
+| I01: option disabled | Legacy execution path and existing runtime tests remain valid |
+| I02: cold model | First preparation and inference succeed with correct arguments |
+| I03: warm repeated model | No stale arguments or changed output hashes |
+| I04: alternating supported shapes | Each shape uses its own valid allocation and parameters |
+| I05: invalid/preparation failure | No previous successful preparation is accidentally reused |
+| I06: mixed operator graph | Non-Conv preparation does not execute activation arithmetic |
+| I07: activation sentinels | Preparing A leaves A's activation bytes unchanged |
+| I08: concurrent independent model B | B matches its normal embedding during repeated A preparation |
+| I09: forced old global flag | Fixed B ignores unrelated global preparation state |
+| I10: recovery/negative controls | Repeat same input matches; different inputs differ; recovery is exact |
+| I11: lifetime | Reconstruct/free models without leaked arguments or dangling owners |
+| I12: recognition equality | Same feature inputs yield identical output/text hashes across clearing modes and pre-fix control |
+
+Reuse passing checks; add tests only for a real uncovered contract. Host fakes
+can test lifetime/control flow but cannot validate P4 kernel arithmetic. Require
+actual P4 equality for device claims. Record memory layout/binary size changes;
+do not call free-heap checkpoints peak-memory measurements.
+
+Exit: either a reviewable isolation fix with explicitly scoped evidence, or a
+failed/held repair with a minimal reproducer. A clean controlled test does not
+prove that the defect caused any historical acoustic score.
+
+### Phase 2 — explain the independent speaker fixture failure
+
+1. Verify the exact installed blob, embedded test presence, input/output types,
+   shapes, quantization metadata and SDK version against its export contract.
+2. Reproduce in an otherwise idle single-model process with the isolation option
+   off and on. Retain first mismatch, expected/actual values and tolerance.
+3. Check whether the wrapper's preprocessing/layout or the vendor embedded test
+   path changes the compared tensor. Keep direct-trunk and wrapper tests distinct.
+4. Where a matching host/export reference is available, compare the same fixture
+   at intermediate tensors to locate the earliest divergence. If it is absent,
+   record that limit rather than substituting an unrelated model or fixture.
+5. Separate a test/export contract defect from a real inference error using that
+   evidence. Do not loosen tolerance, replace weights, or label the result a
+   silicon defect to obtain a pass.
+
+Time-box the initial localization to one focused investigation session. If the
+cause remains unknown, write a bounded next experiment and keep speaker accuracy
+and adoption on hold. Independent performance evidence can still be reported;
+it cannot be described as full qualification.
+
+Deliverable: minimal reproducer and an explained result, or an explicit unresolved
+contract with the first divergence and missing evidence named.
+
+### Phase 3 — build a matched qualification cohort
+
+Prepare the following explicit profiles after Phase 1; use the same validated
+SDK isolation setting in both sides of each clearing comparison. Earlier images
+used the shared preparation path and are historical evidence, not interchangeable
+controls for these images.
+
+| Profile | Clearing | Cadence | Probes | Speakers | Purpose |
+|---|---|---|---|---|---|
+| A | Full | Legacy | On | On | Matched control |
+| B | Committed prefix | Legacy | On | On | Small optimization |
+| C | Committed prefix | Legacy | Off | On | Probe overhead |
+| D | Full | x2f | On | On | Secondary cadence control |
+| E | Committed prefix | x2f | On | On | Secondary cadence candidate |
+| F | Committed prefix | Legacy | On | Off | Speaker contention control |
+
+Verify 64-byte L2 and standalone 200 MHz PSRAM in every built sdkconfig. Preserve
+the verified rollback app and actual partition evidence. Recheck scoring and
+panic detection before unattended captures. No audio upload is required: play
+existing local WAVs through the Mac mini speakers at 50%.
+
+Deliverable: frozen images/configs and comparison manifest. Exit only when no
+unintended model, decoder, memory-speed or pacing difference confounds an A/B.
+
+### Phase 4 — bounded acoustic qualification
+
+If Phase 2 permits a meaningful speaker qualification, run one fresh matched
+primary cohort on conv2–4: A/B/B/A per fixture, twelve captures. This cohort
+qualifies the changed SDK context; retain the original cohort separately.
+If the fixture remains unresolved, explicitly choose diagnostic-only runs and
+withhold adoption rather than spending a full cohort to claim an overall pass.
+
+Then complete the previously required secondary controls on conv2:
+
+| Comparison | Order | Captures | Question |
+|---|---|---:|---|
+| Instrumentation | B/C/C/B | 4 | Do probes materially alter measured product behavior? |
+| Other pacing | D/E/E/D | 4 | Does prefix clearing remain safe under x2f scheduling? |
+| Speaker load | B/F/F/B | 4 | How much contention comes from concurrent speaker execution? |
+
+These are twelve secondary captures, not twelve new algorithm variants. Speaker-off
+runs have no speaker-accuracy comparison. Probe-off runs cannot claim zero driver
+loss from unavailable counters. Use retained timing fields only within their
+documented measurement limits.
+
+For every acoustic run retain WER edits/reference words, speaker correct/eligible,
+unknown and missing labels, qualified final lag median/p90, shown-text and label
+lag, queue/cache pressure, loss/fault counters and memory checkpoints. Use the
+already frozen waveform alignment method; keep rejected fits visible. Do not
+change alignment parameters after seeing candidate scores.
+
+Apply Section 9 gates per fixture. A concerning acoustic result gets at most one
+bounded bracketed follow-up for this new cohort, with a reason recorded first.
+An unresolved result means hold, not repeated testing until a favorable sample.
+Every watchdog-bearing image/input/mode receives at least one unchanged rerun;
+retain both outcomes and compare location and input position.
+
+Deliverable: run-by-run comparison and accept/reject/hold table. Exit when each
+gate has evidence or a clearly named failed/unmeasured status.
+
+### Phase 5 — continuous reliability check
+
+Only a finalist that passes the preceding correctness gates receives the full
+soak. Run at least one continuous hour on one boot, mixing conv2–4 and long
+phrases with repeated start/stop/drain sessions. Do not reset between fixtures
+or silently reload models to hide memory/lifetime problems.
+
+Check sample continuity, DMA loss, drops, watchdogs, panics, queue/pin drainage,
+unexpected session/model restarts, free/largest-block trends and playback coverage.
+Checkpoints establish observed memory trends, not transient peaks. Apply the
+unchanged-test watchdog repeat rule to the same sequence from boot. Preserve the
+failed sequence; limit repetitions to the defined diagnostic purpose.
+
+Finish by restoring the selected app, verifying readback and ring reconnect off,
+closing serial/audio and releasing the board lock. If there is no qualified
+finalist, record the soak as not run and why; do not soak an unsafe candidate
+merely to fill a checklist.
+
+### Phase 6 — reviewable conclusion
+
+Update `STT_CAPTURE_LOCK_RESULTS.md` and `STT_PRODUCT_HANDOFF.md` with actual
+outcomes, raw evidence identities, exclusions, incomplete checks and board state.
+Keep source changes small and stage only owned paths/sections; preserve training
+agent changes. Provide a comparison visual with clearing cost, capture wait,
+WER, speaker correctness/unknowns and qualified lag, showing all runs and separate
+SDK cohorts. Never draw a speedup bar from clearing time alone.
+
+Make separate recommendations for the isolation repair, prefix clearing and any
+further ownership work. Possible outcomes are accept for explicit integration,
+reject for insufficient benefit/regression, or hold for a named unresolved gate.
+No production-default change, HardwareOne push, main merge or outward issue is
+part of this plan; those require the user's approval.
+
+### Scheduling, scope and completion
+
+Execute Phases 0–2 first; they determine whether a new acoustic qualification is
+worth running. Budget several hours for focused isolation/fixture work, then
+roughly two to four hours for builds, the 24 planned primary/secondary captures,
+flashes, drains and scoring. The continuous soak adds at least an hour plus
+restoration/reporting. A clean path is roughly one working day; an unresolved
+fixture may extend it and must receive an evidence-based revised estimate.
+These are planning allowances, not measured completion times or a promise that
+the fixture can be explained in a day.
+
+Do not count tests by inflating every parameter into a new goal. The contract
+matrix, twelve isolation cases, primary cohort, secondary controls and continuous
+soak cover different failure modes; report which are completed, failed, not
+applicable or not checked. Reuse existing valid host/sanitizer/replay evidence.
+
+The separately requested block-14 mixed-precision fixture/RAM benchmark remains
+queued as its own experiment. It changes the model and needs its own numerical
+fixture and memory methodology; it cannot replace fixed-model capture tests.
+
+Completion means the evidence supports a recorded decision, the required checks
+are complete or explicitly block adoption, owned changes are reviewable, and the
+board is restored. It does not require inventing a latency win or implementing
+the conditional buffer-ownership redesign.
