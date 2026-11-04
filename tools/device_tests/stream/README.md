@@ -77,3 +77,30 @@ The controlling gates, ABBA order, mandatory watchdog repeats and soak requireme
 are in docs/STT_CAPTURE_LOCK_PLAN.md. Actual results and unchecked items belong in
 docs/STT_CAPTURE_LOCK_RESULTS.md and the product handoff. No helper grants
 permission to promote production defaults or synchronize another checkout.
+
+## Isolated model-delta reconstruction
+
+`model_delta.h` is a bounded diagnostic decoder, separate from the production
+model loader. `parseModelDelta` validates the complete plan, pinned base/target
+identities, contiguous destination coverage and source/literal bounds before
+`applyModelDelta` writes the destination. The latter accepts only that validated,
+unchanged descriptor and immutable patch bytes. Its source reader must provide
+the separately verified base bytes; this is not an in-place patcher. Any read
+failure leaves an unverified partial destination that must be discarded.
+
+The caller must verify the actual base envelope/raw SHA before reconstruction
+and the complete target SHA before invoking the model parser. A verified stored
+container can supply base reads from its payload offset without a scratch copy.
+Never assume this offset for a compressed or differently identified container.
+This helper performs no device upload, card write, firmware flash or model load.
+
+```sh
+python3 tests/test_model_delta.py
+python3 tests/test_model_delta.py --base private/control.espdl \
+  --delta private/model.delta --target private/candidate.espdl
+```
+
+The host test uses the actual C++ decoder under address/undefined sanitizers,
+checks destination guards, truncated/invalid plans and failed reads, and can
+compare a complete private reconstruction against its target bytes. This proves
+neither model numerical correctness nor device RAM fit.
