@@ -1,0 +1,8 @@
+# Link-size layout only. NEVER flash this table, bootloader or generated flash_args.
+# Verify the actual board's table, app address and rollback independently.
+# Name, Type, SubType, Offset, Size, Flags
+nvs, data, nvs, 0xA000, 0x4000,
+nvs_key, data, nvs_keys, 0xE000, 0x1000, encrypted
+phy_init, data, phy, 0xf000, 0x1000,
+factory, app, factory, 0x10000, 0x715000,
+littlefs, data, littlefs, 0x725000, 0x8DB000, encrypted

@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.16)
+get_filename_component(STT_REPO "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+set(EXTRA_COMPONENT_DIRS "${STT_REPO}/firmware/components")
+set(SDKCONFIG_DEFAULTS "${STT_REPO}/firmware/examples/p4_eye_captions/sdkconfig.defaults;${CMAKE_CURRENT_LIST_DIR}/sdkconfig.defaults")
+set(HW1_STT_SPEAKER_LABELS ON CACHE BOOL "Link the existing mixed-precision kernel bank")
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(stt_precision_probe)
