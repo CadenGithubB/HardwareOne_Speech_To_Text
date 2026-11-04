@@ -1716,3 +1716,7 @@ The [orientation A/B](STT_ORIENTATION_AB.md) retained the starting position with
 ## Quiet-speech threshold screening
 
 Retain adaptive speech floor 45. A matched 83-case, four-floor replay found release speech gains at floors 32, 24 and 16, but no quiet aggregate gain on the facing-speaker microphone recordings and extra background words (4 to 8 across six minutes). Ordinary captions also had per-phrase regressions. No board flash was needed for these rejected candidates. The [admission threshold report](STT_ADMISSION_THRESHOLD_AB.md) records the full results, controls and live-test limitations. The [microphone endpoint replay](STT_MICROPHONE_ENDPOINT_REPLAY.md) describes the initial admission failure.
+
+## Dual-source microphone quality A/B
+
+The [P4/G2 quality report](STT_DUAL_MIC_QUALITY.md) pins the installed source and verifies both sources reach STT as raw 16 kHz mono PCM. Recorder gain/filtering is separate. On actual recordings, the full recorder chain reduced 73 to 65 errors on each source’s 146-word set, but some phrases regressed and the fixed gain clipped louder LC3 compatibility inputs. Retain the current shared path. Two owned-recording G2 rearm attempts stalled; a continuous 56.55-second G2 recording completed and the original source preference and disabled/idle recorder state were verified. See the report for all arms, alignment, evidence and qualification limits.
