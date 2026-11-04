@@ -1567,3 +1567,21 @@ The controller is actively running the remaining conv3–4 captures and owns the
 board lock. It has not yet restored the selected app for this cohort. Secondary
 controls, continuous soak, final audit and the separate block-14 RAM request are
 still incomplete. Do not touch the board during the active chain.
+
+### Fresh SDK twelve-run cohort finished; bounded conv4 follow-up active — 4 November
+
+The model-local SDK cohort completed/restored/readback-verified the selected app,
+then released its lock. All twelve sample-RMS fits qualify and all captures have
+zero observed driver/phrase loss, watchdogs, panics or application errors. Clearing
+cost falls 67–74%, without a demonstrated caption-speed gain. Conv4 raises a
+speaker/unknown gate: controls 30/34 and 33/35 correct, unknown 4/2; prefixes 23/32
+and 25/33, unknown 8/7. Preserve this concern; no adoption/default change is made.
+
+Conv4 B0's receive timestamps jump backward 307 ms. Publication timing remains
+withheld, while sample-clock identity/WER remain usable. A separately tested
+monotonic receive-log adapter now supports future captures; old logs are unchanged.
+The ONE bounded conv4 ABBA follow-up is currently active with unchanged images,
+models and scoring, and owns the board lock. See STT_CAPTURE_LOCK_RESULTS.md.
+Secondary controls, continuous soak and final audit remain incomplete. The optional
+allocation-refusal probe is unbuilt source only; the separate block14 delta is
+host-verified but not deployed or RAM-qualified. Training edits remain preserved.

@@ -464,3 +464,56 @@ The same controller is now running conv3–4. The board remains reserved and on 
 test app; this cohort's restoration is still pending. Secondary controls and the
 continuous soak remain unrun. The baseline numerical fixture still fails, so no
 production adoption or overall numerical qualification is claimed.
+
+### Fresh model-local SDK cohort complete: conv4 quality hold — 4 November
+
+All twelve new ABBA captures completed with the matched module-local SDK images
+and original serialized speaker math. All sample-RMS fits qualify; zero observed
+DMA loss, phrase drops, watchdogs, panics or application errors occurred. The
+selected app was restored/readback-verified and the board lock released afterward.
+
+| Fixture | Run | Word edits / words | Speaker correct / eligible | Unknown |
+|---|---|---:|---:|---:|
+| conv2 | B0 | 78/499 | 29/38 | 1 |
+| conv2 | P1 | 78/499 | 28/38 | 2 |
+| conv2 | P2 | 75/499 | 28/38 | 1 |
+| conv2 | B3 | 81/499 | 28/38 | 2 |
+| conv3 | B0 | 123/466 | 41/47 | 3 |
+| conv3 | P1 | 115/466 | 43/47 | 1 |
+| conv3 | P2 | 112/466 | 45/48 | 1 |
+| conv3 | B3 | 107/466 | 43/47 | 2 |
+| conv4 | B0 | 81/470 | 30/34 | 4 |
+| conv4 | P1 | 70/470 | 23/32 | 8 |
+| conv4 | P2 | 82/470 | 25/33 | 7 |
+| conv4 | B3 | 81/470 | 33/35 | 2 |
+
+Median per-recording clearing time falls 68.9%, 73.7% and 67.3% on conv2, conv3 and
+conv4. No caption speedup or formal noninferiority is established. Conv2–3 raise
+no separated quality/latency flags. Conv4 does: both prefix speaker rates are below
+both controls, and both prefix unknown counts are worse. This is an adoption hold,
+not a result to average away with WER gains or other fixtures.
+
+Conv4 B0 also has a genuine 307 ms backward host-wall-clock transition, including
+recognized receive events. The approved helper's logger uses time.time() in its
+single receive loop. Publication/label/draft latency remains withheld for that
+original capture. Its waveform/sample-clock speaker identity and WER remain
+available. No timestamp repair, alignment tuning or tolerance change was applied.
+
+A new logger adapter preserves the approved serial transport, scrubbing, sends
+and deadlines, while timestamping its writer with a wall anchor plus monotonic
+elapsed time. It records an exclusive clock sidecar and source identity. Host
+tests cover the 307 ms backward-wall case, payload preservation, existing sidecar
+protection, incompatible transport and a regressing monotonic source. They pass;
+this does not by itself prove device timing. Existing capture/scoring rules stay
+unchanged. This adapter applies only to subsequent captures, not the completed
+cohort. See tools/device_tests/stream/console_clock.py and tests/test_console_clock.py.
+
+The plan's ONE bounded conv4 ABBA follow-up is now active with the exact same
+images/models/configuration and scoring, using the stable receive clock in all
+four runs. Retain the primary flag and clock-invalid record even if it passes.
+Evidence: primary-local-score-12.json, primary-local-status.json and
+conv4-baseline-host-clock-audit.json under private/stt-capture-lock/.
+The follow-up owns the board lock and will restore the selected app in finally.
+Secondary controls, continuous soak and final audit remain incomplete. A separate
+optional prepared-block refusal diagnostic is source-only/unbuilt; do not count
+it as a passed test. Production defaults and training-agent work remain unchanged.
