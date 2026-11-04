@@ -70,12 +70,13 @@ struct HeapWindow {
         const size_t internalLargest=heap_caps_get_largest_free_block(kInternal);
         const size_t externalLargest=heap_caps_get_largest_free_block(kExternal);
         assert(heap_caps_monitor_local_minimum_free_size_stop()==ESP_OK);
-        printf("STT_PRECISION {\"type\":\"memory_window\",\"model\":\"%s\",\"operation\":\"%s\",\"iteration\":%u,\"frames\":%u,\"elapsed_us\":%lld,\"numerical_gate_passed\":%s,\"internal_peak_used_upper_bytes\":%u,\"psram_peak_used_upper_bytes\":%u,\"internal_peak_exact\":%s,\"psram_peak_exact\":%s,\"internal_largest_at_end\":%u,\"psram_largest_at_end\":%u}\n",
+        printf("STT_PRECISION {\"type\":\"memory_window\",\"model\":\"%s\",\"operation\":\"%s\",\"iteration\":%u,\"frames\":%u,\"elapsed_us\":%lld,\"numerical_gate_passed\":%s,\"internal_peak_used_upper_bytes\":%u,\"psram_peak_used_upper_bytes\":%u,\"internal_peak_exact\":%s,\"psram_peak_exact\":%s,\"internal_largest_at_end\":%u,\"psram_largest_at_end\":%u,\"internal_heap_total_bytes\":%u,\"psram_heap_total_bytes\":%u,\"internal_min_free_bytes\":%u,\"psram_min_free_bytes\":%u}\n",
                model,operation,iteration,frames,(long long)elapsed,numericalGate<0?"null":numericalGate?"true":"false",
                unsigned(internalTotal-internalMin),unsigned(externalTotal-externalMin),
                internalRegions.count==1&&!internalRegions.overflow?"true":"false",
                externalRegions.count==1&&!externalRegions.overflow?"true":"false",
-               unsigned(internalLargest),unsigned(externalLargest));
+               unsigned(internalLargest),unsigned(externalLargest),
+               unsigned(internalTotal),unsigned(externalTotal),unsigned(internalMin),unsigned(externalMin));
     }
 };
 void digest(const void* data,size_t bytes,uint8_t* hash) {
@@ -200,7 +201,7 @@ extern "C" void app_main() {
     assert(heap_caps_register_failed_alloc_callback(allocationFailed)==ESP_OK);
     heap_caps_walk(kInternal,countRegion,&internalRegions);heap_caps_walk(kExternal,countRegion,&externalRegions);
     assert(!internalRegions.overflow&&!externalRegions.overflow&&internalRegions.count&&externalRegions.count);
-    printf("STT_PRECISION {\"type\":\"heap_regions\",\"internal\":%u,\"psram\":%u,\"embedded_delta_bytes\":%u,\"aggregate_peak_rule\":\"exact only for a single verified physical heap; otherwise sum-of-minima upper bound\"}\n",unsigned(internalRegions.count),unsigned(externalRegions.count),unsigned(deltaLength()));
+    printf("STT_PRECISION {\"type\":\"heap_regions\",\"internal\":%u,\"psram\":%u,\"internal_caps\":%u,\"psram_caps\":%u,\"embedded_delta_bytes\":%u,\"aggregate_peak_rule\":\"exact only for a single verified physical heap; otherwise sum-of-minima upper bound\"}\n",unsigned(internalRegions.count),unsigned(externalRegions.count),unsigned(kInternal),unsigned(kExternal),unsigned(deltaLength()));
     FILE* file=fopen(kModelPath,"rb");assert(file);verifyBase(file);
     const bool control=oneModel(file,"control",false),candidate=oneModel(file,"block14",true);
     bool stable=false;

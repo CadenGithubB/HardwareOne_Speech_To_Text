@@ -1,15 +1,16 @@
 # STT capture-lock contention: implementation and qualification plan
 
-Status: in progress, 4 November 2026. Instrumentation, host equivalence,
-original and model-local SDK primary cohorts, and their bounded follow-ups are
-complete. Prefix clearing reduces clearing cost; a caption-latency gain remains
-unproven. The default-off execution-isolation repair passed controlled P4 tests.
-An independent speaker fixture still fails, and the new conv4 quality hold remains.
-All twelve secondary controls are complete; soak, final evidence review and adoption decisions
-are incomplete. Section 14 is the current remaining-work plan; Sections 1–13 retain
-the design contracts and experimental history. See `STT_CAPTURE_LOCK_RESULTS.md`
-for actual outcomes. Starting runtime: `9a0f14e`. This is standalone STT engine
-work; the other agent owns training/data/quantization work.
+Status: investigation executed, 4 November 2026; adoption held. Instrumentation,
+host/sanitizer and exact P4 checks, original and model-local SDK primary cohorts,
+bounded follow-ups, twelve secondary controls and a 66m44s single-boot diagnostic
+soak are complete. Clearing work falls; caption speedup is unproven. Conv4 quality,
+x2f label-delay and speaker numerical-fixture gates remain held. The separate
+block-14 experiment completed with its own-fixture failure, so longer RAM workloads
+were gated off. Section 15 records requirement dispositions; earlier sections
+retain their design contracts and dated execution sequence. Actual evidence is in
+STT_CAPTURE_LOCK_RESULTS.md and all 44 bracketed runs in STT_CAPTURE_LOCK_RUNS.md.
+Starting runtime: `9a0f14e`. This is standalone STT engine work; training/data work
+remains with the other agent. No production default was promoted.
 
 ## 1. Outcome and boundaries
 
@@ -817,3 +818,45 @@ require the user's approval.
 Completion requires reviewable decisions and evidence, explicit incomplete
 checks, owned changes recorded, and verified restoration/lock release. It does
 not require manufacturing a speedup or claiming that a held candidate passed.
+
+## 15. Execution disposition — 4 November 2026
+
+The investigation has reached the plan's accept/reject/hold exits. This is not
+an overall qualification pass. Failed numerical/quality gates remain failed;
+measurements deliberately gated off are named below rather than treated as zero
+or promised as pending background work.
+
+| Requirement | Actual disposition |
+|---|---|
+| Baseline and bounded instrumentation | Complete; optional probes default off, 3,720 bytes plus largest 376-byte page, loaded capture attribution and direct loss counters retained |
+| Prefix clearing invariants | Applicable host/real-C++ sanitizer, canary, pin/generation, allocation and exact replay checks pass; actual P4 inputs/logits/text match across clearing arms and pre-fix control |
+| Original 36-case contract matrix | Mapped to source and evidence in the results document; new lease/chunk-housekeeping cases are conditional/not applicable because C/D were not implemented |
+| Calibrated race checks | Separate ASan/UBSan and TSan evidence, including positive/negative memcpy controls, retained |
+| Pre-roll/ring boundaries | 28 original-versus-prefix replay comparisons include nonzero pre-roll/ring rotation; segmenter boundary checks pass |
+| Preparation repair and twelve isolation cases | Reviewed default-off repair, real independent-model overlap and 104 optional-allocation refusals pass their scoped checks; arbitrary shapes, same-model reentry, warmed growth failure and physical exhaustion remain unqualified |
+| Independent speaker fixture | Failed; dominant coarse int16 ReLU-table error explained by a causal probe, residual mismatch retained. No tolerance/default/model promotion |
+| Matched profiles | Six model-local images verified, fixed model/decoder context, actual 64B L2 and standalone 200 MHz PSRAM; old SDK cohort kept separate |
+| Primary device comparisons | Original twelve and new twelve complete; one bounded four-run follow-up per raised quality concern complete; no repeated favorable-sample search |
+| Secondary controls | Twelve complete: instrumentation, x2f clearing and speaker load. Missing probe-off metrics and intentional speaker-off labels remain explicit |
+| One-hour reliability | Twenty mixed-length sessions over 4,003.987 device seconds on one boot; no observed driver/phrase loss, watchdog/panic or reset/reload. Stable matched-fixture memory checkpoints; diagnostic scope only |
+| Larger ownership work | Skip C/D: measured capture contention does not justify added ownership/lifetime complexity |
+| Separate block-14 benchmark | Executed: control passes own fixture, candidate fails all three repeats. Both-model prerequisite fails, so additional 100/1,000/2,000-frame workloads are not run and candidate RAM viability is unqualified |
+| Per-run reporting and visual | All 44 bracketed runs have quality, timing and capture/memory-work tables; seven-cohort visual retains unavailable metrics. Data/interaction checks pass; browser drawing/layout remains unchecked after local-preview URL policy rejection |
+| Host product regressions | Actual transcript, persistence, bridge and viewer evidence retained; final viewer assertions run in a fresh Node runtime with source-identified proof |
+| Privacy and restoration | Raw artifacts stay private/ignored; approved helper verifies MAC/PT and app-only writes. Every completed controller restores/readback-verifies the selected app and releases its lock |
+| Production/integration boundaries | No default promotion, HardwareOne synchronization/push, main merge or outward issue. Those require separate authorization |
+
+Adoption decisions: retain the default-off SDK repair as a reviewed integration
+candidate with ABI/consumer limits; hold prefix clearing; skip the complex buffer
+rewrite; reject this block-14 artifact for adoption until its numerical contract is
+corrected. The results document names the next discriminating numerical experiments.
+They are follow-on work, not a basis for claiming the failed models qualified.
+
+Not checked: physical SD/FAT power-loss behavior, every real acoustic condition,
+statistical noninferiority, word-level physical-display lag, dedicated silence
+false-caption behavior, general physical-OOM recovery, unrelated prebuilt-consumer
+ABI compatibility, and indefinite reliability. The internal memory benchmark gives
+multi-heap bounds rather than an exact global internal peak. The failed candidate's
+longer-shape and full-application RAM requirements remain unqualified. These limits
+are explicit consequences of scope and failed prerequisites, not silently passed
+requirements. Production defaults remain unchanged.

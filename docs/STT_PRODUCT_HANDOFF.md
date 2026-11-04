@@ -1632,3 +1632,61 @@ allowing immutable payload reads without a 20 MB scratch card write. Device
 header/base/target hash checks remain mandatory; no candidate model has been
 loaded or numerically/RAM-qualified on the device. See STT_CAPTURE_LOCK_RESULTS.md
 and private/stt-capture-lock/next-actions.json for continuation evidence.
+
+### Capture-lock investigation executed; adoption held — 4 November
+
+The plan in STT_CAPTURE_LOCK_PLAN.md has reached its recorded dispositions.
+All 44 bracketed acoustic captures (original/new SDK primary cohorts, their bounded
+follow-ups and twelve secondary controls) are complete. STT_CAPTURE_LOCK_RUNS.md
+contains every row's WER/label denominators, qualified timing, lock wait/hold,
+copy/clear work and queue/loss counters. Raw audio/captions/logs remain private.
+
+Prefix clearing reduces clearing work roughly 61–74%, without an established
+caption-speed gain. Hold adoption: the new primary conv4 speaker/unknown concern
+and x2f label-after-caption p90 flag remain. The one permitted conv4 follow-up did
+not repeat the original pattern; it does not erase that hold or prove noninferiority.
+Do not restart a favorable-sample search or implement the more complex ownership
+rewrite; measured capture contention does not justify C/D.
+
+The model-local SDK preparation repair remains default off. Actual P4 recognition
+hash equality, independent-model overlap and 104 optional-storage refusals with exact
+fallback/recovery pass. Arbitrary shape changes, same-model reentry, physical-OOM
+recovery and unrelated prebuilt-consumer ABI compatibility remain unqualified.
+The independent speaker fixture is still failed: coarse int16 ReLU tables explain
+the dominant error; the causal direct-ReLU probe still has residual error. Neither
+speaker model/thresholds nor production defaults were changed.
+
+The continuous diagnostic reliability soak completed twenty mixed-length sessions
+on one boot: 4,003.987 device seconds (66m44s), 621 final captions, no observed DMA
+overflow, phrase drop, watchdog, panic, unexpected session/model restart or clock
+reset. Reader pins/queues drain each time. PSRAM-free/largest-block checkpoints are
+constant through five cycles; internal free changes 36 bytes after the first conv2
+checkpoint, then matched-fixture values remain stable. Cumulative 31 feature-cache
+fallbacks are not lost microphone audio. This is bounded diagnostic reliability,
+not overall accuracy, indefinite reliability or transient-peak qualification.
+
+The separately requested block-14 fixture/RAM experiment is also finished with a
+failed numerical gate. Each model was compared against ITS OWN exported fixture
+at identical input bytes: control passes all three runs; candidate fails all three
+with 8,069/9,628 unequal output bytes and maximum error 37, despite stable cold/warm
+outputs. Therefore additional 100/1,000/2,000-frame workloads were not run; candidate
+RAM viability and full-application fit remain unqualified. The delta travelled in
+the diagnostic firmware; no separate full-model/audio upload or SD scratch write
+was used. First divergent operation/root cause was not localized. A future numerical
+investigation should compare ordinary/prepared and single/multicore paths, then
+trace conversions/the changed block before reopening RAM benchmarking.
+
+The final controller restored and hash/readback-verified the selected x2f app
+(b55bf096...), confirmed reconnect/perf logging off, closed the port and released
+its lock. No controller remains running. No HardwareOne synchronization/push,
+main merge, outward issue or production-default promotion occurred. Preserve
+concurrent training-agent edits; these are not part of this work's commits.
+
+The seven-cohort comparison has all 44 bracketed captures with missing metrics
+explicit. Data and selection/legend/state behavior were checked; browser layout
+was not verified after the local-preview URL policy rejection, and no workaround
+was attempted. Dedicated silence false-caption behavior, physical-display/word
+alignment, physical FAT power loss, formal noninferiority and general OOM behavior
+remain unchecked. See STT_CAPTURE_LOCK_RESULTS.md for the coverage audit, artifact
+identities and accept/reject/hold decisions. Do not describe these findings as an
+adoption pass or silently promote the default-off options.

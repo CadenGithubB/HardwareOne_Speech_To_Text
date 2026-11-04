@@ -1,8 +1,14 @@
 # STT capture-lock work: actual progress and evidence
 
-3 November 2026. Goal active. This is an implementation record, not a claim that
-capture contention has been reduced or that device qualification is complete.
-The controlling requirements remain in `STT_CAPTURE_LOCK_PLAN.md`.
+4 November 2026. The capture comparison and continuous diagnostic soak are
+complete; production adoption remains held. The default-off isolation repair
+passes controlled P4 equality, cross-model and optional-storage-refusal checks.
+Prefix clearing reduces clearing work but has no established caption-speed gain;
+conv4 quality and x2f label-delay concerns remain. The independent speaker fixture
+still fails. The separate block-14 experiment also completed: the control passes its own
+fixture, while the candidate fails and therefore receives no RAM qualification.
+Final audit and source/handoff reconciliation are recorded below. The controlling requirements are in STT_CAPTURE_LOCK_PLAN.md.
+Earlier sections below retain chronological evidence and their original scope.
 
 ## Instrumentation milestone
 
@@ -683,3 +689,162 @@ reset/reload/fault behavior and observed memory trends. It is diagnostic reliabi
 evidence, not a qualified-finalist or accuracy claim. At least one continuous hour
 is required; any watchdog triggers the unchanged sequence from boot once more.
 The soak is running, not passed, and its final selected-app restoration is pending.
+
+### Continuous diagnostic soak completed and restored — 4 November
+
+One uninterrupted boot completed five cycles of conv2/conv3/conv4/long22: twenty
+sessions and 621 final captions. Host elapsed time is 4,005.109 s and device
+elapsed time is 4,003.987 s (66 min 44 s). No model reload, unexpected session
+restart, clock reset, watchdog, panic, phrase drop or DMA overflow was observed.
+Completed captures also have zero timeouts, read errors, short/odd reads and
+rejected reads. Queue/running counts and both reader pins drain after each session.
+
+Capture-wait p99 remains in the (10,50] us histogram bucket, with a 4.086 ms
+maximum. Maximum read-to-push is 11.099 ms; maximum read interval is 74.526 ms.
+These are observed reliability/timing values, not a matched full-clear versus
+prefix-clear soak comparison. The largest nominal-sample-duration/device-time
+difference within a session is 91.271 ms; no microphone PCM was retained, so
+counter consistency is not a byte-for-byte recording audit.
+
+PSRAM free is 3,462,836 bytes at every session-end checkpoint and the largest
+PSRAM block is always 3,407,872 bytes. Internal free ranges 483,651–483,687 bytes:
+a 36-byte change after the first conv2 checkpoint, then stable matched-fixture
+checkpoints through five cycles. Internal largest block remains unchanged.
+These are checkpoints/trends, not transient allocation peaks or proof of no
+possible leak. Cumulative feature-cache overruns reach 31: these are explicit
+cache/recompute fallbacks, not lost microphone samples.
+
+The controller terminated successfully, restored and readback-verified the selected
+app, confirmed ring reconnect/perf logging off, and released its lock. No mandatory
+watchdog repeat was triggered because no watchdog was observed. This satisfies
+the bounded diagnostic reliability question; it does not erase the primary conv4
+quality hold, x2f label-delay flag or failed speaker fixture, and does not establish
+indefinite reliability or overall finalist qualification.
+
+Evidence: soak-local-status.json, soak-local-score-final.json, continuous serial
+log/clock sidecar and twenty private capture directories under
+private/stt-capture-lock/. Every completed session is audited individually by
+score_soak_local.py. The model benchmark is separate and remains pending.
+
+### Model-local preparation coverage and limits
+
+| Case | Evidence and conclusion |
+|---|---|
+| I01: disabled option | Runtime/cache host configurations retain the legacy path; original-SDK device evidence is kept separately. This does not repair or qualify legacy cross-model isolation. |
+| I02: cold model | Actual P4 recognition pairs reconstruct cold resident state; all six pairs match the pre-fix hashes. |
+| I03: warm model | Repeated real recognition lengths and independent-model repeated embeddings match. |
+| I04: alternating shapes | Three actual recognition lengths repeat in each clearing arm; host resident tests assert temporal reshaping without moving tensor storage. This is the fixed-channel contract, not arbitrary channel/layout changes. |
+| I05: preparation failure | P4 refuses 104 optional prepared-storage requests; input/output activation snapshots stay unchanged, fallback output equals normal output and restored preparation recovers exactly. Conv::prepare disarms an existing generation before argument construction. Warmed-block growth failure and physical heap exhaustion were not injected; no general OOM guarantee is claimed. |
+| I06: mixed operators | The default no-op module preparation and Conv-only implementation were inspected; non-Conv modules are not forwarded by Model::prepare_args. Actual speaker-model sentinels and equality checks exercise a graph containing non-Conv operators. Host SDK fakes do not establish kernel arithmetic. |
+| I07: activation sentinels | Actual independent model input/output snapshots remain unchanged during preparation. This directly checks those boundary tensors; it is not a hash of every intermediate allocation. |
+| I08: concurrent independent B | Fixed P4 runs preserve B exactly during 83 and then 82 real A preparations. Controlled overlap is proven; historical acoustic incidence is not. |
+| I09: old global flag | Holding the unrelated global flag no longer changes B with the option enabled. The original old-SDK experiment changed B and recovered exactly. |
+| I10: controls/recovery | Same input repeats, distinct inputs differ, normal B on the same worker matches, and recovery is exact. |
+| I11: lifetime | Resident/per-call, diagnostic/non-diagnostic and preparation-option host combinations pass sanitizers; P4 reconstructs/deletes models during equality checks. Heap checkpoints are not transient peaks or proof of all allocation-failure paths. |
+| I12: recognition equality | Six actual P4 pairs match input/logit/text hashes across clearing modes and pre-fix control. They are synthetic deterministic inputs, not an acoustic WER qualification. |
+
+Evidence: exact2-status.json, exact-local-status.json, exact-prepare-refusal-status.json,
+runtime-both-prepare-host.log and source snapshots under private/stt-capture-lock/.
+The complete diagnostic intentionally reports complete_with_findings because the
+independent speaker fixture fails. This failure is not erased by passing isolation
+or fallback equality. The causal ReLU probe explains the dominant mismatch but
+still fails the original tolerance.
+
+The enabled option adds a module virtual method: all consumers/modules must be
+rebuilt with the same configuration. The tested standalone images satisfy their
+frozen build manifests; this does not establish ABI compatibility for unrelated
+prebuilt consumers or qualify an untested full HardwareOne integration. Default
+remains off. No arbitrary-shape, same-model reentry or full application RAM-fit
+claim follows from this evidence.
+
+### Separate block-14 experiment completed with a numerical gate failure
+
+The isolated app built with ESP-IDF 5.5.5, 64-byte L2, 200 MHz PSRAM, model-local
+preparation, assertions enabled, and heap hooks/allocation abort disabled. App size
+is 1,251,632 bytes, SHA-256
+`410e20b0debafebf8e1bf719abaf144a75605b1d585fa88cb8e1700b4d1cd365`.
+The initial full build exposed an early-IDF CMake-pass validation ordering mistake;
+its log was retained, validation moved after component registration, and the
+subsequent complete build passed. This was a build failure, not a board fault.
+
+The control and candidate raw identities were pinned and checked. Reconstruction
+used the embedded 670,133-byte host-verified delta and immutable reads from the
+verified stored control payload already on the card. The reconstruction delta travelled in the flashed firmware; no separate full-model
+or audio upload, scratch SD write, production-model replacement or runtime-guard
+relaxation occurred.
+
+Each model was compared against ITS OWN exported final-output fixture, using
+identical embedded input bytes at 663 frames. They were not compared against each
+other's expected output. Results repeat across one cold and two warm calls:
+
+| Model | Own fixture | Unequal output bytes | Maximum absolute byte error | Cold/warm output |
+|---|---|---:|---:|---|
+| Control, 201 modules | Exact pass, all three | 0 / 9,628 | 0 | Identical |
+| Block-14, 203 modules | Fail, all three | 8,069 / 9,628 | 37 | Identical |
+
+Both-model fixture passage was the frozen prerequisite for the additional matched
+100/1,000/2,000-frame workloads. That gate failed, so those workloads were NOT RUN.
+No matched longer-shape RAM comparison or candidate viability/production RAM-fit
+conclusion is claimed. The first divergent mixed-precision operation and its cause
+were not localized in this benchmark; operator execution without a crash is not
+proof of correct mixed-precision arithmetic. No tolerance was relaxed.
+
+The allocator-maintained local-minimum windows observed one physical PSRAM heap
+and five byte-addressable internal heaps (capability masks 1028 and 2052). PSRAM
+peak heap use is exact for those windows; summed internal minima provide a
+conservative aggregate peak-used bound. They are registered heap usage, not total
+SoC memory including static image storage. Largest blocks are end checkpoints.
+The fixture-valid control reaches 21,549,200 bytes of isolated PSRAM heap use and
+119,852 bytes of internal peak-used upper bound during fixture inference. Candidate
+raw windows are retained privately but are not interpreted as a viable-model RAM
+comparison. Neither isolated image qualifies full-application memory requirements.
+
+No watchdog, panic or failed contiguous allocation request occurred. The controller
+terminated as complete_with_findings, restored/readback-verified the selected app,
+confirmed reconnect/logging off and released its lock. The port is closed. The
+unmet numerical prerequisite and deliberately skipped measurements are the result,
+not pending background tests or an adoption pass.
+
+Evidence: precision-probe-ready.json, precision-probe-status.json, model delta
+manifest, retained configure-failure log, actual sdkconfig/ELF/source snapshots and
+serial logs under private/stt-capture-lock/. The reusable isolated app is
+`tools/device_tests/stream/p4_precision/`; its bounds-tested decoder is separate
+from the production loader.
+
+### Decisions and remaining qualification limits
+
+- **Model-local preparation:** retain the reviewed default-off repair as an
+  integration candidate. Controlled isolation, recognition equality and optional
+  allocation-refusal recovery pass. Full HardwareOne integration, consistency with
+  unrelated prebuilt consumers, arbitrary shapes, same-model reentry and general
+  physical-OOM recovery are unqualified. Do not promote its production default.
+- **Prefix clearing:** hold adoption. It reduces clearing work by roughly 61–74%
+  across the reported brackets, but saves only tens of milliseconds per multi-minute
+  recording. Caption speedup is unproven; primary conv4 quality and x2f label-delay
+  gates remain concerning. Bounded follow-ups are closed, not a mandate for more
+  favorable-sample hunting.
+- **Larger buffer ownership rewrite:** skip Milestones C/D. Capture wait is already
+  small; additional leases/chunking states are not justified by these measurements.
+- **Speaker numerical contract:** dominant coarse int16 ReLU-table error is
+  explained, but residual error remains. Direct ReLU was a causal diagnostic, not
+  a production change or a passed fixture. A separate validated export/runtime
+  numerical repair is required before broader speaker qualification.
+- **Block-14:** reject this artifact for device adoption pending a corrected
+  export/runtime numerical contract. A useful next discriminating experiment is
+  its same own fixture with ordinary versus prepared execution and single versus
+  multicore paths, followed by intermediate comparison around the conversions and
+  changed block. That investigation is not performed here; RAM benchmarking stays
+  gated until the numerical contract passes.
+
+[STT_CAPTURE_LOCK_RUNS.md](STT_CAPTURE_LOCK_RUNS.md) contains all 44 bracketed runs,
+with WER/label denominators, qualified median/p90 timing, draft freshness, first
+preview timing and capture/copy/clear costs. Seven-cohort comparison data retains
+all unavailable metrics explicitly. The inline comparison's data and selection/
+legend/state behavior were checked; actual browser drawing/layout was not verified
+because the browser rejected the local preview URL under its security policy.
+No alternate browser or indirect-server workaround was attempted. Outside-playback
+caption counts are reported, but no dedicated silence false-caption benchmark was
+performed. Host tests do not prove FAT power-loss behavior, general model accuracy
+or every P4 realtime condition. All audio, transcripts, logs, model artifacts and
+rollback images remain private/ignored. No production-default change, HardwareOne
+synchronization/push, main merge or outward issue was performed.

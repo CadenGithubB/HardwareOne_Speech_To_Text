@@ -1,7 +1,11 @@
 # Isolated block-14 fixture and memory probe
 
-Status: source passes a P4-compiler syntax check against the existing diagnostic
-SDK configuration. The separate target is not yet built or device-tested. This app is a separate
+Status, 4 November 2026: built and device-tested. The control passes its own
+fixture exactly in three runs; block-14 fails all three with 8,069/9,628 differing
+output bytes and maximum error 37. Longer-shape workloads were gated off, so
+candidate memory viability is unqualified. The controller restored/readback-verified
+the selected app and released the lock. See docs/STT_CAPTURE_LOCK_RESULTS.md.
+This app is a separate
 experiment from capture-lock qualification. It changes no production model,
 guard, kernel, speaker threshold or default.
 
@@ -9,7 +13,8 @@ The app mounts the actual model card through the standalone adapter without
 entering the product loop or starting PDM, speaker workers, LM loading or note
 persistence. It verifies the installed stored envelope and complete control raw
 SHA. The embedded private reconstruction delta reads that immutable payload;
-it needs no model/audio upload or scratch write. The complete candidate SHA must
+the delta travels in the flashed firmware, avoiding a separate full-model or any
+audio upload and any scratch write. The complete candidate SHA must
 match before its bytes reach ESP-DL. Different envelopes/codecs are refused.
 
 Each model is constructed independently with the existing greedy allocator,
@@ -44,6 +49,10 @@ only a single-region capability class is marked exact. The heap registry must
 remain stable. Largest-free-block values are end checkpoints, not transient
 contiguity minima. The monitor's bookkeeping and embedded delta are probe overhead
 and remain present for both models; report actual configuration and image size.
+Capability masks are recorded: internal measurements cover byte-addressable
+internal heaps, and external measurements cover byte-addressable PSRAM heaps.
+Totals/minimum free and their difference describe registered heap space; they
+exclude static image storage outside those heaps and are not total SoC RAM use.
 
 The allocation-failure callback uses bounded integer-only ROM output, recording
 requested contiguous bytes, capabilities and phase/stage. It does not traverse

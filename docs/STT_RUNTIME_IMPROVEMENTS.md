@@ -60,12 +60,20 @@ and the current reviewed override was staged and digest-verified before building
 The existing build directory is reused with a separate private candidate sdkconfig;
 the prior root sdkconfig is preserved and no source defaults were changed.
 
-## Capture-lock work approved for planning
+## Capture-lock investigation executed — 4 November
 
-The user selected target 2. [The detailed capture-lock plan](STT_CAPTURE_LOCK_PLAN.md)
-records the actual producer/consumer paths, ownership invariants, measurement
-strategy, progressively riskier candidates, 36 targeted correctness cases and
-device acceptance/rollback gates. First implementation milestone: bounded
-instrumentation and an unchanged baseline. A default-off committed-prefix clearing
-candidate now passes host sanitizer and exact-replay checks; device qualification
-is incomplete. No ownership rewrite or production default change is adopted.
+Target 2's [detailed plan](STT_CAPTURE_LOCK_PLAN.md) has reached a recorded decision:
+hold prefix-clearing adoption and skip the larger ownership rewrite. Host/exact P4
+checks pass, clearing work falls approximately 61–74%, and 44 bracketed captures
+plus a 66m44s single-boot diagnostic soak are complete. Caption speedup is unproven;
+conv4 speaker quality and x2f label-delay concerns remain. The soak has no observed
+watchdog, panic, DMA overflow or phrase drop, with stable PSRAM checkpoints.
+
+The investigation also reproduced target 7's cross-model preparation hazard.
+The reviewed default-off model-local repair passes controlled isolation,
+recognition equality and optional-storage refusal/recovery tests. The independent
+speaker fixture still fails; neither this repair nor prefix clearing is promoted
+to a production default. Full integration/prebuilt-consumer compatibility remains
+unqualified. See [results and limits](STT_CAPTURE_LOCK_RESULTS.md) and
+[all bracketed runs](STT_CAPTURE_LOCK_RUNS.md). No HardwareOne synchronization
+or ownership rewrite occurred. Training work remains separate.
