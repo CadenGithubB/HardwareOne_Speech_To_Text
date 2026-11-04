@@ -77,3 +77,23 @@ the app through the approved helper, retain raw logs privately, repeat every
 watchdog-bearing image/input/mode unchanged at least once, and restore/readback-
 verify the selected app before releasing the lock. Never run during another
 owner's bench chain or flash generated partition/bootloader images.
+
+### Corrected speaker package
+
+For the separately qualified pinned model, regenerate a local native graph with
+the speaker exporter's `--save-native` flag in a new private export directory.
+Use the same learned model, 128 requested calibration examples (126 effective),
+and 300 frames. Run `tools/stt_p4/speaker/correct_p4_contract.py` with
+`--source` pointing to the original installed package, `--trusted-native`
+pointing to that locally generated graph, and `--output` pointing to a fresh
+private directory. The converter verifies the original package digest and
+reproduces its embedded reference before calculating the independent new one.
+
+Build this diagnostic with `-DHW1_SPEAKER_CONTRACT=/absolute/private/speaker.spk`
+and `-DHW1_SPEAKER_SECOND_REFERENCE=/absolute/private/synthetic-reference.bin`.
+The separate entry point runs entirely from RAM and app-embedded data. Each
+of the four execution modes constructs a fresh model with normal deserialization.
+It checks cold, warm, independent input and restored-input outputs. Require
+all 16 `STT_SPEAKER_RESULT` records to report exact equality and a completion
+record. The diagnostic also uses the product speaker loader with the SDK self-test enabled and checks two embeddings of identical synthetic PCM. Require the product record to report self-test 0, repeat 1 and nonzero 1. [Numerical qualification](../../../../docs/STT_NUMERICAL_QUALIFICATION.md)
+includes the separate labeled speech evaluation and original fixture failure.

@@ -1690,3 +1690,13 @@ alignment, physical FAT power loss, formal noninferiority and general OOM behavi
 remain unchecked. See STT_CAPTURE_LOCK_RESULTS.md for the coverage audit, artifact
 identities and accept/reject/hold decisions. Do not describe these findings as an
 adoption pass or silently promote the default-off options.
+
+### Numerical-correctness takeover and paired training trials, 4 November 2026
+
+The follow-up to ec22e39 reproduced both numerical failures and corrected their distinct causes. The corrected speaker package uses direct ReLU and a host reference that preserves integer accumulation precision. Its own fixture and an independent synthetic fixture passed cold/warm, ordinary/prepared and single/multicore P4 checks. The product speaker loader's built-in test returned zero. The package is private and ready for integration review. The installed speaker package still fails its original test. Host speaker labeling improved by one correct turn on 170.
+
+The original block-14 export passes on the P4 when the isolated firmware links the bias-free signed-16 depthwise kernel for dispatch key 0x0315. The 2,000-frame candidate uses 1,579,696 more bytes of peak PSRAM and takes approximately one second longer per warm call. Keep the existing int8 recognizer. The standalone diagnostic is not full-application memory qualification.
+
+On 24 matched meeting excerpts, RMS matching increased distant-mic errors from 110 to 117 on 292 words. A matched output-head training experiment gave 112 distant errors after training on the headset view and 113 after training on the distant view. Keep the existing gain and checkpoint. The final controller restored and readback-verified the selected x2f app and released the port. No default was changed.
+
+See [STT numerical qualification](STT_NUMERICAL_QUALIFICATION.md) for the original and corrected identities, exact numerical references, matched device RAM/timing, training A/B results and remaining limits. Source implementation checkpoint 829e863 is local to this standalone repository.

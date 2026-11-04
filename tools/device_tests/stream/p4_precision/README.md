@@ -1,13 +1,17 @@
 # Isolated block-14 fixture and memory probe
 
-Status, 4 November 2026: built and device-tested. The control passes its own
-fixture exactly in three runs; block-14 fails all three with 8,069/9,628 differing
-output bytes and maximum error 37. Longer-shape workloads were gated off, so
-candidate memory viability is unqualified. The controller restored/readback-verified
-the selected app and released the lock. See docs/STT_CAPTURE_LOCK_RESULTS.md.
-This app is a separate
-experiment from capture-lock qualification. It changes no production model,
-guard, kernel, speaker threshold or default.
+The 4 November numerical follow-up localized the original stable failure to the
+missing bias-free INT16 depthwise kernel at block 14 main.6 (dispatch key
+`0x0315`). The isolated app now links that kernel. Both models passed their
+original fixtures and the matched three-length benchmark completed on the P4.
+See [numerical qualification](../../../../docs/STT_NUMERICAL_QUALIFICATION.md)
+for memory, timing and the adoption decision.
+
+Use `-DHW1_PRECISION_TRACE=ON` for the separate localization build. It reloads
+the payload and constructs a fresh model for each ordinary/prepared and
+single/multicore combination, runs the same fixture three times and emits
+whole-tensor hashes on the first call. It skips the extended RAM workloads.
+Use the default trace-off build for memory and elapsed-time results.
 
 The app mounts the actual model card through the standalone adapter without
 entering the product loop or starting PDM, speaker workers, LM loading or note
