@@ -1277,3 +1277,45 @@ free bytes. Required transcript/storage/viewer/bridge host checks passed; detail
 hashes, timing exclusions and unperformed product-level checks are recorded in the
 final report. Private backups, raw logs/audio/captions and final numeric audits remain
 ignored. No push, main merge, production-default change or external filing occurred.
+
+### Approved production adoption — 3 November
+
+The user approved trying x2f pacing and the identified storage prevention fixes.
+Deploy **x2f-only**, local HardwareOne `04827588`, based on fixed production
+`027eef22`; existing pauses, fixed models and speaker rules remain unchanged.
+Hold combined storage commit `f68e4adc` for investigation. No push, main merge or
+outward filing occurred. Full evidence and per-run numbers: `STT_X2F_ADOPTION.md`.
+
+The isolated worktree is on `codex/stt-x2f-storage`. The storage proposal defers
+automatic boot/day CSV creation until eligible data, advances R1 dedup only after
+a complete write and reserves capped-log rotation copy space. Actual-code host
+regression/failure checks passed. The combined image also passed three fresh-boot
+no-data checks: R1 CSV logging is active/autostart ON, ring reconnect stays off,
+and no target boot directory is created while waiting for data.
+
+Six live smoke captures (three per image, 260 captions) have zero watchdog
+warnings, panics or audio overruns. Their RMS/clock fits pass. However, combined
+conv3 produced 17 unknown labels, then nine in the bounded follow-up comparison;
+x2f-only produced five, then six. The combined repeat also has worse WER and
+fewer correct speaker labels than the x2f-only repeat. This does not prove a
+storage-code regression, but does not qualify the combined image for production.
+Keep both storage changes reviewable; isolate and repeat them before integration.
+The selected x2f-only image still has the old empty health-log creation behavior.
+
+Both builds used IDF 5.5.5 and actual SDK 64B L2 / 250MHz PSRAM. App, ELF, SDK,
+build identity, source patch/bundle and private evidence are preserved. A real
+first R1 sample remains host-tested only; ring reconnection stays off. Physical
+near-full-media and SD/FAT power-loss behavior are untested. Rotation headroom
+is not a global storage quota; the no-SD fallback can still append to flash.
+
+A pre-flash x2f-only audit found two CPU0 `cmd_exec_task` watchdog warnings on
+`files json "/logging_captures/sensors"`; its fresh-boot same-image/command repeat
+had one. Sampled instructions differ (initial flash-cache critical exit; repeat
+LittleFS read/memcpy). This reproduces a directory-listing problem, not an STT
+DNN warning or an established kernel/cache root cause. Narrow target checks pass.
+
+Final x2f-only selection/readback passed: app SHA `b55bf0961564…`, ring reconnect
+disabled, perf logging disabled, 7,106,560 free bytes, port and lock released. Automatic approval review rejected
+deletion of this task's disposable build/dependency copies for lack of explicit
+destructive-cleanup authorization. Nothing was deleted; about 1.7 GiB remains
+in the isolated worktree. Other checkouts and concurrent training work are preserved.
