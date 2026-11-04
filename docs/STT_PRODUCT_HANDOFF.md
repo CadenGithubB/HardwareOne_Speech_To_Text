@@ -1552,3 +1552,18 @@ for evidence and limits. Matched capture-lock controls are now building with
 original serialized speaker math and the opt-in preparation repair; secondary
 captures, continuous soak, final audit and the separate mixed-precision RAM
 request remain incomplete. Training-agent work is preserved.
+
+### Fresh capture-lock SDK cohort: first ABBA bracket measured — 4 November
+
+Six model-local-preparation control images are built and hash/config verified.
+Conv2 ABBA is complete: WER edits are B0 78, P1 78, P2 75, B3 81 (499 words each);
+speaker correct is 29/38, 28/38, 28/38, 28/38; unknowns 1,2,1,2. All fits qualify
+and all four captures have zero observed driver/phrase loss, watchdogs, panics or
+application errors. Clearing time falls 68.9%; no caption speedup or formal
+noninferiority is established. Original speaker lookup math is unchanged; the
+numerical fixture remains failed. See STT_CAPTURE_LOCK_RESULTS.md.
+
+The controller is actively running the remaining conv3–4 captures and owns the
+board lock. It has not yet restored the selected app for this cohort. Secondary
+controls, continuous soak, final audit and the separate block-14 RAM request are
+still incomplete. Do not touch the board during the active chain.

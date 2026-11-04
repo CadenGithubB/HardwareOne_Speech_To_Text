@@ -432,3 +432,35 @@ as an adoption hold, and finish the original capture-lock performance/reliabilit
 controls using unchanged serialized speaker math in both arms. Six matched
 module-local-preparation profiles are building; exact ReLU is excluded from those
 images. Any future exact-ReLU accuracy experiment is a separate comparison.
+
+### New SDK cohort: conv2 bracket complete, wider runs active — 4 November
+
+The six matched control images built successfully with model-local preparation,
+64-byte L2 and 200 MHz PSRAM. Original serialized speaker math is retained; the
+diagnostic exact-ReLU option is absent. Source/SDK hashes match across clearing
+arms and the generated baseline/prefix sdkconfigs differ only in the clearing
+flag. The frozen build source is 4e5bf32; later diagnostic/docs commits do not
+change the control images.
+
+The first fresh ABBA bracket (conv2) is complete:
+
+| Run | Clearing | Word edits / words | Speaker correct / eligible | Unknown |
+|---|---|---:|---:|---:|
+| B0 | Full | 78 / 499 | 29 / 38 | 1 |
+| P1 | Prefix | 78 / 499 | 28 / 38 | 2 |
+| P2 | Prefix | 75 / 499 | 28 / 38 | 1 |
+| B3 | Full | 81 / 499 | 28 / 38 | 2 |
+
+All four waveform alignment fits qualify, with zero observed DMA loss, phrase
+drops, watchdogs, panics or application errors. Median per-recording clearing time
+falls 88.282→27.430 ms (68.9%); no separated quality/latency gate is raised in this
+bracket. That is not proof of noninferiority or a caption-speed gain. Keep this
+SDK cohort separate from the original twelve runs; historical acoustic scores
+cannot establish that the isolation defect caused their variation.
+
+Evidence: `primary-local-score-4.json`, `primary-local-status.json`,
+`local-controls-verified.json` and raw captures under private/stt-capture-lock/.
+The same controller is now running conv3–4. The board remains reserved and on a
+test app; this cohort's restoration is still pending. Secondary controls and the
+continuous soak remain unrun. The baseline numerical fixture still fails, so no
+production adoption or overall numerical qualification is claimed.
