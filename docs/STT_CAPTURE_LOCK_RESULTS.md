@@ -517,3 +517,35 @@ The follow-up owns the board lock and will restore the selected app in finally.
 Secondary controls, continuous soak and final audit remain incomplete. A separate
 optional prepared-block refusal diagnostic is source-only/unbuilt; do not count
 it as a passed test. Production defaults and training-agent work remain unchanged.
+
+### Bounded conv4 follow-up complete; secondary controls active — 4 November
+
+The one permitted new-SDK conv4 follow-up completed using unchanged frozen images,
+models, decoder, audio and scoring. Its only measurement change is the recorded
+monotonic receive-log clock. All four sample fits and publication clocks qualify;
+zero observed DMA loss, phrase drops, watchdogs, panics or application errors
+occurred. The selected app was restored/readback-verified, reconnect/logging off,
+and the lock released before the next controller acquired it.
+
+| Run | Word edits / words | Speaker correct / eligible | Unknown | Final publication median / p90 (s) |
+|---|---:|---:|---:|---:|
+| B0 | 77/470 | 32/34 | 2 | 2.367 / 3.265 |
+| P1 | 78/470 | 30/34 | 4 | 2.370 / 3.315 |
+| P2 | 72/470 | 32/34 | 2 | 2.382 / 3.307 |
+| B3 | 74/470 | 26/33 | 7 | 2.413 / 3.410 |
+
+The original separated speaker/unknown pattern does not repeat: this bracket has
+no separated quality/latency flags. Clearing time again falls 64.8%. Neither that
+result nor the broader control variation erases the primary conv4 flag, establishes
+noninferiority, or demonstrates a caption-speed gain. Adoption remains held; no
+more conv4 follow-up brackets are planned. The clock-invalid original capture
+remains in the evidence with publication timing withheld.
+
+Evidence: followup-conv4-local-score-4-final.json, followup-conv4-local-status.json
+and per-capture clock sidecars under private/stt-capture-lock/. The twelve secondary
+controls are now active (probes on/off, x2f clearing control/candidate, speakers
+on/off). They retain original serialized speaker math and the stable receive
+clock. The secondary controller currently owns the board lock; its restoration
+is pending. Probes-off has no DMA-loss or sample-aligned timing claim, and
+speaker-off is not an accuracy arm. Continuous soak, optional prepare-refusal
+hardware check, final audit and the separate model/RAM benchmark remain incomplete.

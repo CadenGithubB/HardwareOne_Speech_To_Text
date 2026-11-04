@@ -1585,3 +1585,19 @@ models and scoring, and owns the board lock. See STT_CAPTURE_LOCK_RESULTS.md.
 Secondary controls, continuous soak and final audit remain incomplete. The optional
 allocation-refusal probe is unbuilt source only; the separate block14 delta is
 host-verified but not deployed or RAM-qualified. Training edits remain preserved.
+
+### Bounded conv4 follow-up closed; secondary controls running — 4 November
+
+The one new-SDK conv4 follow-up completed and restored/readback-verified the
+selected app, then released the lock. Its B/P/P/B WER edits are 77/78/72/74 over 470;
+speaker correct 32/34,30/34,32/34,26/33; unknown 2/4/2/7. All sample and monotonic
+publication-clock checks qualify, with zero observed capture faults. The primary
+separated pattern does not repeat; the original quality flag remains and adoption
+is held. No more conv4 brackets are planned. Clearing time falls 64.8%, without a
+demonstrated caption-speed gain or formal noninferiority.
+
+The secondary twelve-run controller is now active and owns the board lock.
+It uses the same fixed model math and recorded monotonic receive clock. Secondary
+controls, continuous soak, unbuilt optional allocation-refusal check, final audit
+and separate model/RAM benchmark remain incomplete. See STT_CAPTURE_LOCK_RESULTS.md
+and private/stt-capture-lock/next-actions.json. Production defaults remain unchanged.
