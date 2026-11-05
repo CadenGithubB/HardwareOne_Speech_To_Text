@@ -30,4 +30,4 @@ Source result SHA-256: `d40046cc85664b7836503160196aaf249466ef5105f5b7f725703164
 
 B source result SHA-256: `583bb5e7806e06ffcef8c3528037cb482f05a79c52ed2568dec22fd86c89e058`.
 
-Private evidence: `private/stt-model-comparison/audit-scores-float-A-4096-development.json`, `audit-scores-float-B-8192-development.json`, `float-protocol-audit.json`, `float-comparison-audit.json`, archived results and the source results under `private/training-track/compact16k-round2/scores-float-*/`. A's saved-microphone comparison is complete and failed; B's is still in progress. No production model, decoder, detector or firmware default was changed.
+Private evidence: `private/stt-model-comparison/audit-scores-float-A-4096-development.json`, `audit-scores-float-B-8192-development.json`, `float-protocol-audit.json`, `float-comparison-audit.json`, archived results and the source results under `private/training-track/compact16k-round2/scores-float-*/`. Both saved-microphone comparisons are complete and failed; see docs/STT_SELECTED_MICROPHONE_COMPARISON.md. No production model, decoder, detector or firmware default was changed.
