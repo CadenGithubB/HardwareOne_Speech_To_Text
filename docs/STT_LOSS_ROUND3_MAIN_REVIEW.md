@@ -35,7 +35,7 @@ The reservation's historical exclusion-file hashes match their current files. Th
 
 ## Completed control scoring and queued microphone comparisons
 
-The main agent independently audited the completed A1024 and raw-mixture development controls: 243 cases, 486 output streams and 19 profile groups each. Saved int8 greedy transcripts, finite speaker vectors, actual portable cluster replay, global reference/profile mapping and error arithmetic passed. The exported control is linked to its actual checkpoint and numerical-verification record. Both controls exactly reproduce the prior round's observed PCM identities, hypotheses, embeddings, profile assignments and scores: A1024 has 4,556 errors and raw mixture has 2,462, over 3,400 reference words. The subsequently completed A4096 audit also passes all 243 cases and exactly reproduces its prior observed outputs and 4,302-error score. These are control consistency results, not candidate gains.
+The main agent independently audited the completed A1024 and raw-mixture development controls: 243 cases, 486 output streams and 19 profile groups each. Saved int8 greedy transcripts, finite speaker vectors, actual portable cluster replay, global reference/profile mapping and error arithmetic passed. The exported control is linked to its actual checkpoint and numerical-verification record. Both controls exactly reproduce the prior round's observed PCM identities, hypotheses, embeddings, profile assignments and scores: A1024 has 4,556 errors and raw mixture has 2,462, over 3,400 reference words. The subsequently completed A4096 and A8192 audits also pass all 243 cases each and exactly reproduce their prior observed outputs and 4,302 / 4,471 error scores. These are control consistency results, not candidate gains.
 
 A separate host-only comparison controller is queued. It waits for all six development scores, frozen per-arm selections, fresh synthetic qualification, reused real regression, both controls in each partition and the upstream completion record. It then requires independent completed-score audits before comparing selected models on the unchanged 163-case saved microphone/caption panel and two continuous recordings. Those comparisons preserve the original admission cuts and count both output streams. Sixteen isolated missing-evidence/tamper checks passed, including earlier-step ties, stale audits, changed checkpoint/native bytes and mismatched selection records. These are admission tests, not completed candidate tests.
 
@@ -44,6 +44,56 @@ The controller owns a nonblocking lock and uses the existing shared evaluation l
 Both training arms have now completed 8,192 updates. The main agent verified all 32,768 ordered training records per arm against the frozen manifest: exact recipe, mixture/target PCM, gain and model-input/target digests match. Recorded learning-rate schedules and metadata also passed. This checks saved training traces, without independently reconstructing waveforms or replaying optimization. The completed known-source development control passed the same 243-case/486-stream score audit and reproduces its prior 886-error result exactly. Known sources are a diagnostic, not a deployable separator.
 
 All six exports are saved. The main review reconciled their actual model/native/checkpoint bytes, fixed export policy, int8 interfaces and recorded independent-verifier logs. B4096's export worker returned signal 11 after writing its export report; its subsequent separate verifier exited successfully and reloaded the exact saved artifact to reproduce the 96,000-value fixture. The crash cause is not established. It is recorded rather than described as a clean export-worker exit. These are host artifact checks, not recognition results or P4 qualification.
+
+## First changed-loss recognition result
+
+B1024 has completed and passed the main agent's 243-case / 486-stream saved-logit, portable-cluster and error-count audit. This is one exposed-development checkpoint; neither checkpoint selection nor qualification is complete.
+
+| Error view | Raw-mixture baseline | A1024 original loss | B1024 changed loss |
+|---|---:|---:|---:|
+| Global profile-attributed errors / 3,400 reference words | 2,462 | 4,556 | 4,270 |
+| Ordinary oracle errors / 425 words | 58 | 471 | 409 |
+| Quiet oracle errors / 425 words | 66 | 493 | 364 |
+| Two-speaker oracle errors / 2,550 words | 2,025 | 2,533 | 2,444 |
+
+B1024 reduces global errors by 286 against matched A1024, but remains 1,808 errors worse than the raw-mixture baseline. Its global insertions fall from 2,834 to 2,370, while substitutions rise from 952 to 1,092 and deletions from 770 to 808. In the separate two-speaker oracle view, deletions rise from 119 to 210. Fewer extra words alone do not establish successful retention.
+
+The ordinary single-speaker cases still produce text on both outputs in 47/48 cases, and quiet cases in 45/48. Extra-head words under oracle assignment fall from 400 to 337 for ordinary speech and from 392 to 286 for quiet speech. The analytic loss change has not eliminated this observed behavior at 1,024 updates. Unassignable recognized words are 825 for B versus 498 for A; no stable-label improvement is established. These are descriptive correlated development views, not a fresh holdout or a trained causal attribution. Later checkpoints and the completed selection are reported below; no tuning or promotion follows from this first result.
+
+## Changed loss at 4,096 updates
+
+B4096 also passed the full 243-case / 486-stream main audit. Its global profile-attributed errors are **4,635**, versus matched A4096's **4,302** and baseline **2,462**, over the same 3,400 reference words. B has 932 substitutions, 1,166 deletions and 2,537 insertions. This checkpoint regresses the primary metric despite fewer extra-head words.
+
+In the separate oracle assignment view, B's ordinary / quiet / two-speaker errors are 365 / 323 / 2,387, versus A's 452 / 430 / 2,457. That local view improves while the global attributed score worsens. Unassignable recognized words rise from A's 391 to B's 1,299. This discrepancy reinforces why per-case remapping or suppression of an output cannot replace stable-speaker scoring. It does not isolate the speaker model, clusterer or separator as the sole cause. The final B checkpoint and development selection are reported below. No model has been promoted.
+
+## Development complete; qualification underway
+
+All six learned-model development results and both controls have now passed the stronger main-agent score audit. The frozen selection records and their exact report digests were independently reconciled. The scores below count global profile-attributed errors over the same 3,400 reference words.
+
+| Updates | Original loss A | Changed loss B |
+|---|---:|---:|
+| 1,024 | 4,556 | **4,270 — selected B** |
+| 4,096 | **4,302 — selected A** | 4,635 |
+| 8,192 | 4,471 | 4,580 |
+
+The raw-mixture baseline is 2,462 errors; known individual sources score 886. The best new-loss checkpoint improves on the selected original-loss checkpoint by only 32 errors and still has 1,808 more errors than baseline. More training did not rescue B under the fixed budget and selection rule. These are exposed-development findings, not independent qualification.
+
+A4096 has also completed the new 323-case qualification partition and passed the main audit of all 646 streams and 25 groups: 15,657 profile-attributed errors (2,934 substitutions, 2,674 deletions, 10,049 insertions) over 11,688 words. Ordinary / quiet / two-speaker oracle errors are 1,608 / 1,584 / 8,348. Its single-speaker ordinary and quiet cases each produce recognized text on both heads in 64/64 cases. B1024 has subsequently completed as reported below; the two qualification controls remain unfinished, so a baseline-relative qualification conclusion is still pending. The old real32 regression and selected saved-microphone comparisons also remain pending. The existing host workers continue without changing selections or settings.
+
+## Both selected qualification models audited
+
+B1024 completed the same 323 cases and passed the main 646-stream / 25-group audit. The locally reserved speech panel does not reproduce B's slight selected-development advantage.
+
+| Error view | Selected A4096 | Selected B1024 |
+|---|---:|---:|
+| Global profile-attributed errors / 11,688 words | 15,657 | 15,721 |
+| Ordinary oracle errors / 1,461 words | 1,608 | 1,598 |
+| Quiet oracle errors / 1,461 words | 1,584 | 1,562 |
+| Two-speaker oracle errors / 8,766 words | 8,348 | 8,544 |
+
+B's global counts are 2,818 substitutions, 2,732 deletions and 10,171 insertions. Both models still produce recognized text on both heads in all 64 ordinary and all 64 quiet single-speaker cases. Under oracle assignment, ordinary extra-head words are 1,430 for both; quiet extra-head words are 1,393 for A and 1,383 for B. The active-loss change has not resolved the observed duplication on this panel. This is a descriptive paired result, not proof of a sole training failure cause or statistical equivalence. Both produce zero words on the three reused nonspeech fixtures, which cannot establish broad noise robustness.
+
+The raw-mixture qualification control is running and the known-source control follows. Those controls are still needed for baseline-relative checks. The existing real32 regression and the main saved-microphone comparisons remain pending; no model or firmware has been adopted.
 
 ## Remaining main-agent work
 
