@@ -12,7 +12,12 @@ any signal processing, placement and enclosure.
 
 ## What has already been measured (standalone speech project, 6 Nov 2026)
 
-The evidence lives in `/Users/cadbecaimacmini/Documents/ChatGPT/HardwareOne_Speech_To_Text`:
+The evidence lives in the standalone STT project, on this Mac at
+`/Users/cadbecaimacmini/Documents/ChatGPT/HardwareOne_Speech_To_Text`. It is also on GitHub at
+`https://github.com/CadenGithubB/ESP32_Onboard_Speech_To_Text`, branch
+`claude/spkeval-diagnostics`. Clone it read-only next to your checkout if you need it; don't work
+inside the user's copy. Its `private/` results and the audio on `/Volumes/Audiodrive` are local
+only, not on GitHub. Read these:
 - `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md` sections 13–17;
 - `docs/STT_PRODUCT_HANDOFF.md`, the end of the file;
 - the caption scoring in `tools/overlap_gate/caption_wer.py`.
