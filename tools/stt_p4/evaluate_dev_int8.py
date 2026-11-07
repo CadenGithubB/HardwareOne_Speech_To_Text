@@ -31,10 +31,13 @@ DEV = ['ami-sdm-validation', 'ami-ihm-validation', 'librispeech-dev-clean']
 def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def select(store, count, excluded, seed):
+def select(store, count, excluded, seed, excluded_pcm=()):
     order = list(range(len(store))); random.Random(f'{seed}:{store.name}').shuffle(order)
     chosen = [i for i in order if (store.name, i) not in excluded
               and 320 <= store.lengths[i] <= 480000 and store.texts[i].strip()]
+    if excluded_pcm:
+        chosen = [i for i in chosen if hashlib.sha256(np.asarray(store.audio[
+            store.offsets[i]:store.offsets[i]+store.lengths[i]], dtype='<i2').tobytes()).hexdigest() not in excluded_pcm]
     return chosen[:count]
 
 
@@ -55,10 +58,13 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     torch.set_num_threads(args.threads)
     sys.dont_write_bytecode = True
-    sys.path.insert(0, str(HERE.parent/'stt_train'))
+    sys.path.insert(0, str(HERE.parent/'stt_train_15x5'))
+    from compare_stages import stage_report
+    from diagnostics import atomic_json, digest
     from data import Store
 
     models, excluded, frontend_diffs = {}, set(), {}
+    excluded_pcm = set()
     for spec in args.model:
         name, rest = spec.split('=', 1); ckpt, export = (Path(x) for x in rest.split(':', 1))
         manifest = json.loads((export/'manifest.json').read_text())
@@ -83,6 +89,9 @@ def main():
             parity.append(case['fixture'])
         for clip in (manifest.get('calibration_stores') or {}).get('clips', []):
             excluded.add((clip['store'], clip['index']))
+            if not clip.get('pcm_sha256'):
+                raise ValueError('Calibration clip lacks stable PCM identity')
+            excluded_pcm.add(clip['pcm_sha256'])
         models[name] = {'full': full, 'quantized': quantized, 'frontend': frontend, 'manifest': manifest,
                         'vocab': config['decoder']['params']['vocabulary'],
                         'out': dict(manifest['runtime']['outputs'][0]), 'parity': parity,
@@ -101,15 +110,21 @@ def main():
               'sets': {}}
     if frontend_diffs: report['frontend_max_abs_diff_vs_first_model'] = frontend_diffs
     for set_name in args.sets:
-        store = Store(set_name); items = select(store, args.count, excluded, args.seed)
+        store = Store(set_name); items = select(store, args.count, excluded, args.seed, excluded_pcm)
+        if len(items) != args.count:
+            raise ValueError(f'{set_name}: insufficient eligible clips')
         started = time.time()
         words = 0; tallies = {n: {'float': 0, 'int8': 0, 'agree': 0, 'hi': 0, 'lo': 0, 'values': 0,
                                   'float_over': 0, 'max_abs_float': 0.0, 'in_sat': 0, 'in_values': 0} for n in models}
         saved = {n: {'q': [], 'offsets': [0]} for n in models}
         examples = []
+        stage_rows = {n: {'float': [], 'int8': []} for n in models}
+        pcm_hashes = []
         for k, i in enumerate(items):
             o, count = int(store.offsets[i]), int(store.lengths[i])
             pcm = np.array(store.audio[o:o+count], dtype=np.int16); ref = store.texts[i]
+            pcm_hash = hashlib.sha256(pcm.astype('<i2').tobytes()).hexdigest()
+            pcm_hashes.append(pcm_hash)
             words += len(ref.split()); row = {'index': i, 'ref': ref}
             x = features(pcm, None, next(iter(models.values()))['frontend'], 'portable')
             for n, m in models.items():
@@ -125,10 +140,20 @@ def main():
                 t['float_over'] += int((fl.abs() > limit).sum()); t['max_abs_float'] = max(t['max_abs_float'], float(fl.abs().max()))
                 saved[n]['q'].append(q); saved[n]['offsets'].append(saved[n]['offsets'][-1] + len(q))
                 row[n] = {'float': ft, 'int8': it}
+                for stage, hyp in [('float', ft), ('int8', it)]:
+                    stage_rows[n][stage].append({'id': f'{set_name}:{store.ids[i]}', 'ref': ref, 'hyp': hyp,
+                        'pcm_sha256': pcm_hash, 'seconds': len(pcm)/16000,
+                        'source': set_name, 'speaker': store.speakers[i]})
             if k < 8: examples.append(row)
         entry = {'utterances': len(items), 'words': words, 'audio_s': round(float(store.lengths[items].sum()) / 16000, 1),
                  'seconds': round(time.time() - started, 1), 'examples': examples}
         for n, t in tallies.items():
+            provenance = {k:report['models'][n][k] for k in ('weights_sha256', 'espdl_sha256')}
+            provenance['frontend_sha256'] = digest({k:hashlib.sha256(v.numpy().tobytes()).hexdigest()
+                for k,v in next(iter(models.values()))['frontend'].items()})
+            for stage in ('float', 'int8'):
+                atomic_json(args.output/f'{n}-{set_name}-{stage}.json',
+                            stage_report(stage, provenance, stage_rows[n][stage]))
             entry[n] = {'float_wer': t['float'] / words, 'int8_wer': t['int8'] / words,
                         'float_errors': t['float'], 'int8_errors': t['int8'], 'identical_text': t['agree'],
                         'int8_at_127': t['hi'] / t['values'], 'int8_at_-128': t['lo'] / t['values'],
@@ -136,7 +161,10 @@ def main():
                         'input_at_int8_limits': t['in_sat'] / t['in_values'], 'max_abs_float_logit': t['max_abs_float']}
             np.savez(args.output/f'{n}-{set_name}.npz', q=np.concatenate(saved[n]['q']).astype(np.int8),
                      offsets=np.array(saved[n]['offsets']), indices=np.array(items),
-                     texts=np.array([store.texts[i] for i in items]), exponent=models[n]['out']['exponents'][0])
+                     texts=np.array([store.texts[i] for i in items]), exponent=models[n]['out']['exponents'][0],
+                     ids=np.array([f'{set_name}:{store.ids[i]}' for i in items]),
+                     pcm_sha256=np.array(pcm_hashes), seconds=np.array([float(store.lengths[i])/16000 for i in items]),
+                     provenance=np.array(json.dumps(provenance)))
         report['sets'][set_name] = entry
         print(set_name, json.dumps({n: {k: round(v, 4) if isinstance(v, float) else v for k, v in entry[n].items()}
                                      for n in models}), flush=True)

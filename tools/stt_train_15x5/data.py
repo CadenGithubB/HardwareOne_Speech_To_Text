@@ -23,13 +23,11 @@ class Store:
         self.offsets = np.asarray(index['offsets'], dtype=np.int64)
         self.lengths = np.asarray(index['lengths'], dtype=np.int64)
         self.texts = index['texts']
-        # Optional keep.json (filter_store.py): indices of items whose
-        # transcript the reference model agrees with; others are never used.
-        keep = directory / 'keep.json'
-        if keep.exists():
-            ids = json.loads(keep.read_text())['keep']
-            self.offsets, self.lengths = self.offsets[ids], self.lengths[ids]
-            self.texts = [self.texts[i] for i in ids]
+        from diagnostics import effective_ids
+        self.ids = effective_ids(directory, index)
+        self.offsets, self.lengths = self.offsets[self.ids], self.lengths[self.ids]
+        self.texts = [self.texts[i] for i in self.ids]
+        self.speakers = [index['speakers'][i] for i in self.ids]
         self.path = directory / 'audio.bin'
         self._audio = None
 
@@ -226,7 +224,9 @@ class TrainSet(torch.utils.data.Dataset):
         feats = self.frontend(x, dither=True, rng=np.random.default_rng(rng.randrange(1 << 30)))
         label = self.encoder(store.texts[i])
         # Speed-up can make a label too long for CTC; the collate drops those.
-        return feats, torch.tensor(label, dtype=torch.long)
+        return feats, torch.tensor(label, dtype=torch.long), {
+            'source': store.name, 'id': int(store.ids[i]) if hasattr(store, 'ids') else i,
+            'salt': salt, 'spec_seed': rng.randrange(1 << 63)}
 
 
 BUCKET_FRAMES = 64
@@ -242,48 +242,72 @@ def batch_shape(frames, max_seconds, max_items):
 
 
 def collate(batch, spec_augment=True, max_seconds=None, max_items=None, reduction=2):
-    # reduction: the model's time downsampling (QuartzNet 2, Citrinet 8)
-    batch = [(f, l) for f, l in batch if ctc_min_frames(l.tolist()) <= f.shape[1] // reduction - 1]
+    # Deterministic item-local SpecAugment is independent of worker/prefetch order.
+    detailed = len(batch[0]) == 3
+    rows = [(item[0], item[1], item[2] if detailed else {}) for item in batch]
+    diagnostics = {'requested': len(rows), 'ctc_dropped': 0, 'bucket_dropped': 0,
+                   'repeated': 0, 'sources': {}}
+    valid = []
+    for f, l, m in rows:
+        source = m.get('source', 'unspecified')
+        counter = diagnostics['sources'].setdefault(source, {'requested': 0, 'ctc_dropped': 0,
+                                                             'bucket_dropped': 0, 'repeated': 0})
+        counter['requested'] += 1
+        if ctc_min_frames(l.tolist()) > (f.shape[1] + reduction - 1) // reduction:
+            diagnostics['ctc_dropped'] += 1
+            counter['ctc_dropped'] += 1
+        else:
+            valid.append((f, l, m))
+    if not valid:
+        raise ValueError('All examples in batch are invalid for CTC: ' + json.dumps(diagnostics))
     padded = None
-    if max_seconds is not None and batch:
-        items, padded = batch_shape(max(f.shape[1] for f, _ in batch), max_seconds, max_items)
-        # Trim or repeat items to the bucket's size; SpecAugment still makes
-        # repeated rows differ.
-        batch = [batch[i % len(batch)] for i in range(items)]
-    lengths = torch.tensor([f.shape[1] for f, _ in batch])
-    feats = torch.zeros(len(batch), batch[0][0].shape[0], padded or int(lengths.max()))
-    for i, (f, _) in enumerate(batch):
+    selected = valid
+    if max_seconds is not None:
+        items, padded = batch_shape(max(f.shape[1] for f, _, _ in valid), max_seconds, max_items)
+        selected = [valid[i % len(valid)] for i in range(items)]
+        for _, _, m in valid[items:]:
+            diagnostics['sources'][m.get('source', 'unspecified')]['bucket_dropped'] += 1
+            diagnostics['bucket_dropped'] += 1
+        for _, _, m in selected[len(valid):]:
+            diagnostics['sources'][m.get('source', 'unspecified')]['repeated'] += 1
+            diagnostics['repeated'] += 1
+    lengths = torch.tensor([f.shape[1] for f, _, _ in selected])
+    feats = torch.zeros(len(selected), selected[0][0].shape[0], padded or int(lengths.max()))
+    metadata = []
+    for i, (f, _, m) in enumerate(selected):
         feats[i, :, :f.shape[1]] = f
         if spec_augment:
-            _spec_augment(feats[i], f.shape[1])
-    labels = torch.cat([l for _, l in batch])
-    label_lengths = torch.tensor([len(l) for _, l in batch])
-    return feats, lengths, labels, label_lengths
+            _spec_augment(feats[i], f.shape[1], random.Random(m['spec_seed'] + i) if detailed else random)
+        metadata.append(m)
+    labels = torch.cat([l for _, l, _ in selected])
+    label_lengths = torch.tensor([len(l) for _, l, _ in selected])
+    result = (feats, lengths, labels, label_lengths)
+    return (*result, metadata, diagnostics) if detailed else result
 
 
-def _spec_augment(f, valid):
-    # Milder than NeMo's pretraining recipe (5x rect 50x120): fine-tuning.
+def _spec_augment(f, valid, rng=random):
     for _ in range(2):
-        w = random.randint(0, 12)
-        s = random.randint(0, f.shape[0] - w)
+        w = rng.randint(0, min(12, f.shape[0]))
+        s = rng.randint(0, f.shape[0] - w)
         f[s:s + w, :valid] = 0
     for _ in range(2):
-        w = random.randint(0, min(40, max(1, valid // 8)))
-        s = random.randint(0, max(0, valid - w))
+        w = rng.randint(0, min(40, max(1, valid // 8)))
+        s = rng.randint(0, max(0, valid - w))
         f[:, s:s + w] = 0
 
 
 class MixedBatchSampler(torch.utils.data.Sampler):
     """Weighted mix of stores, grouped by duration to limit padding."""
 
-    def __init__(self, stores, weights, max_seconds, max_items, steps, seed=0):
+    def __init__(self, stores, weights, max_seconds, max_items, steps, seed=0, start_batch=0):
         self.stores, self.max_seconds, self.max_items = stores, max_seconds, max_items
         total = sum(weights)
         self.weights = [w / total for w in weights]
         self.steps, self.seed = steps, seed
+        self.start_batch = start_batch
 
     def __len__(self):
-        return self.steps
+        return max(0, self.steps - self.start_batch)
 
     def __iter__(self):
         rng = random.Random(self.seed)
@@ -311,4 +335,5 @@ class MixedBatchSampler(torch.utils.data.Sampler):
                 if produced >= self.steps:
                     return
                 produced += 1
-                yield b
+                if produced > self.start_batch:
+                    yield b

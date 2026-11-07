@@ -53,8 +53,10 @@ def convert(name):
     index['audio_sha256'] = sha.hexdigest()
     index['offsets'] = offsets
     index['lengths'] = [int(n) for n in src.lengths]
+    index['texts'] = list(src.texts)
+    index['speakers'] = list(src.speakers)
     index['source'] = {'store': name, 'channel': 'agc -24 dB + LC3 16k/10ms/40B, 0.2% PLC',
-                       'seed': '1000003*i+17'}
+                       'seed': '1000003*i+17', 'source_indices': list(src.ids)}
     (out / 'index.json.tmp').write_text(json.dumps(index))
     (out / 'index.json.tmp').replace(out / 'index.json')
     print(f'{out.name}: done, {len(src)} items')

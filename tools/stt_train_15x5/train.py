@@ -5,14 +5,17 @@ Copy of experiments/stt_train/train.py with these deliberate differences:
   * TRAIN_MIX is run2's mix (AMI SDM/IHM + LibriSpeech clean-100), not run3's.
   * The run length is measured in audio hours seen (run2 saw ~175 h) instead
     of wall-clock time, because the 15x5 is ~3x slower per audio second. The
-    cosine schedule follows max(audio fraction, wall-clock fraction), so a
-    slow run still decays fully before the deadline.
+    cosine schedule now follows audio exposure; --schedule legacy-wall retains
+    the older max(audio fraction, wall-clock fraction) recipe.
   * Dev evaluations are spaced by audio hours (run2's 30-min cadence was
     ~26 h of audio; its first eval came after ~12.6 h).
   * Gradient accumulation: --max-seconds / --max-items give the effective
     batch per optimizer step (run2: 110 s / 32 items) and --accum splits it
-    into micro-batches so the bigger model fits in memory. Same optimizer
-    steps, same batch, same LR as run2.
+    into micro-batches so the bigger model fits in memory. Loss is normalized
+    by the actual total item count across the accumulated micro-batches.
+Diagnostics added 2026-11-03: strict dataset audit, immutable input identity,
+per-source exposure/loss/gradient health, paired evaluation and deterministic
+CPU resume. See docs/STT_TRAINING_DIAGNOSTICS.md for migration and limits.
 Options added 2026-09-30 for continued training, all off by default:
 --optimizer novograd (NeMo's recipe), --mix broad (+VoxPopuli), --dev g2 and
 --g2-prob (simulated glasses mic channel, see lc3codec.py).
@@ -34,6 +37,11 @@ import functools
 import os
 import json
 import math
+import random
+import platform
+import sys
+import shutil
+import importlib.metadata
 import time
 from pathlib import Path
 
@@ -51,6 +59,9 @@ def save_checkpoint(model, template, config, directory):
         (Path(directory) / 'vocab.txt').write_text('\n'.join(model.tokenizer.vocab) + '\n')
 from data import Store, Augmenter, TrainSet, MixedBatchSampler, collate
 from evaluate import evaluate_stores
+from diagnostics import audit_stores, atomic_json, sha256, digest, paired_changes
+from training_state import seed_all, rng_state, restore_rng, save_state, restore_matching, Exposure
+
 
 TRAIN_MIX = [  # run2's mix: (store, weight, far_field)
     ('ami-sdm-train', 0.35, True),
@@ -274,8 +285,24 @@ def main():
     p.add_argument('--eval-device', choices=['mps', 'cpu'], default='mps',
                    help='--device mps only: mps = dev eval of the training model on MPS, padded to the '
                         'training bucket shapes (~110 s); cpu = a CPU copy (~20 min). Citrinet always uses cpu')
+    p.add_argument('--stop-after-steps', type=int, default=0,
+                   help='Checkpoint and stop at this absolute step without a new evaluation; safe to resume')
+    p.add_argument('--seed', type=int, default=2026)
+    p.add_argument('--gradient-diagnostics-every', type=int, default=50,
+                   help='per-source microbatch gradient norms; 0 disables the expensive diagnostic')
+    p.add_argument('--diagnostic-sets', nargs='*', default=[],
+                   help='Additional DEVELOPMENT stores (e.g. noise-only/noisy speech); reported but not selected on')
+    p.add_argument('--audit-test-stores', nargs='*', default=[],
+                   help='reserved test stores to check for overlap, never evaluated during training')
+    p.add_argument('--fingerprint-audio', choices=['sha256', 'metadata'], default='sha256')
+    p.add_argument('--schedule', choices=['audio', 'legacy-wall'], default='audio')
     a = p.parse_args()
+    if a.accum < 1 or a.workers < 0 or a.warmup < 1 or a.target_hours <= 0:
+        p.error('accum/warmup/target-hours must be positive and workers nonnegative')
+    seed_all(a.seed)
     train_mix = MIXES[a.mix]
+    if any('test' in name.split('-') for name in a.diagnostic_sets):
+        p.error('Use reserved development stores for diagnostic evaluations, not test stores')
     dev_sets = {'g2': G2_DEV_SETS, 'broad': BROAD_DEV_SETS}.get(a.dev, DEV_SETS)
     micro_seconds = a.max_seconds / a.accum
     micro_items = max(1, a.max_items // a.accum)
@@ -291,6 +318,37 @@ def main():
         log.write(line + '\n')
         log.flush()
 
+    # Hash inputs before loading weights or launching workers. No source data is changed.
+    from data import STORES
+    noise_names = ['musan-noise', 'musan-speech', 'rirs']
+    if 'demand' in a.noise_pool or 'demand' in a.noise_only_pool:
+        noise_names.append('demand-noise-train')
+    partitions = {'train': [n for n, _, _ in train_mix], 'dev': list(dict.fromkeys([n for n, _ in dev_sets] + a.diagnostic_sets)),
+                  'test': a.audit_test_stores, 'augmentation': noise_names}
+    emit(event='audit_start', audio_verification=a.fingerprint_audio)
+    audit = audit_stores(STORES, partitions, a.fingerprint_audio == 'sha256')
+    atomic_json(out / 'dataset-audit.json', audit)
+    if audit['issues']:
+        raise ValueError('Dataset integrity audit failed; see dataset-audit.json')
+    recipe = {k:v for k,v in vars(a).items() if k not in
+              ('deadline', 'out', 'init', 'max_footprint_gb', 'save_steps', 'workers', 'benchmark_steps', 'stop_after_steps')}
+    identity = {'recipe': recipe, 'datasets': audit['fingerprint'],
+                'code': {p.name: sha256(p) for p in sorted(Path(__file__).parent.glob('*.py'))},
+                'initial_weights': sha256(Path(a.init)/'model_weights.ckpt'),
+                'initial_config': sha256(Path(a.init)/'model_config.yaml'),
+                'runtime': {'python': sys.version, 'torch': torch.__version__, 'numpy': np.__version__,
+                            'platform': platform.platform(),
+                            'packages': {n:importlib.metadata.version(n) for n in ('scipy','PyYAML')},
+                            'mps_fallback': os.environ.get('PYTORCH_ENABLE_MPS_FALLBACK'),
+                            'threads': torch.get_num_threads()}}
+    vocab_path = Path(a.init) / 'vocab.txt'
+    if vocab_path.exists():
+        identity['tokenizer_sha256'] = sha256(vocab_path)
+    identity['fingerprint'] = digest(identity)
+    manifest_path = out / 'run-manifest.json'
+    if manifest_path.exists() and json.loads(manifest_path.read_text()) != identity:
+        raise ValueError('Run inputs changed; start a new output directory instead of resuming')
+    atomic_json(manifest_path, identity)
     device = torch.device(a.device)
     config, template = load_checkpoint(a.init)
     if is_citrinet(config):
@@ -314,18 +372,30 @@ def main():
                                       weight_decay=a.weight_decay, fused=fused)
 
     step, best = 0, None
+    exposure = Exposure()
+    pending_rng = None
     # Rollback guard: after `patience` evals worse than the best, restore the
     # best weights and halve the learning rate instead of drifting further.
     guard = {'bad': 0, 'lr_scale': 1.0, 'audio_seconds': 0.0}
     resume = out / 'resume.pt'
     if resume.exists() and not a.benchmark_steps:
-        blob = torch.load(resume, weights_only=False, map_location='cpu')
-        model.load_state_dict(blob['model'])
-        optimizer.load_state_dict(blob['optimizer'])
+        blob = restore_matching(resume, model, optimizer)
+        if blob.get('identity') != identity['fingerprint']:
+            raise ValueError('Resume identity differs')
+        exposure = Exposure(blob.get('exposure'))
+        pending_rng = blob['rng']
         if a.optimizer == 'adamw':
             set_fused(optimizer, fused)
         step, best = blob['step'], blob.get('best')
         guard.update(blob.get('guard', {}))
+        if 'last_eval_step' in guard:
+            previous = out / 'evals' / f"step_{guard['last_eval_step']:06d}" / 'utterances.json'
+            atomic_json(out / 'previous-evaluation.json', json.loads(previous.read_text()))
+        if best is not None:
+            selected = out / 'evals' / f"step_{best['step']:06d}"
+            for name in ('model_weights.ckpt', 'model_config.yaml', 'metrics.json', 'vocab.txt'):
+                if (selected / name).exists():
+                    shutil.copy2(selected / name, out / 'best' / name)
         emit(event='resumed', step=step, best=best, guard=guard)
     emit(event='config', accum=a.accum, micro_seconds=micro_seconds, micro_items=micro_items,
          target_hours=a.target_hours, lr=a.lr, optimizer=a.optimizer, betas=a.betas,
@@ -335,12 +405,12 @@ def main():
          device=str(device), fast_dwconv=a.fast_dwconv, custom_dw_convs=custom_dw,
          fused_adamw=a.fused_adamw, adamw_fused=optimizer.param_groups[0].get('fused'),
          eval_device=('mps' if eval_bucket else 'cpu') if device.type == 'mps' else str(device),
-         eval_bucket=eval_bucket, workers=a.workers)
+         eval_bucket=eval_bucket, workers=a.workers, seed=a.seed, schedule=a.schedule,
+         identity=identity['fingerprint'], gradient_diagnostics_every=a.gradient_diagnostics_every)
 
     def save_resume():
-        torch.save({'model': model.state_dict(), 'optimizer': optimizer.state_dict(),
-                    'step': step, 'best': best, 'guard': guard}, out / 'resume.pt.tmp')
-        (out / 'resume.pt.tmp').replace(resume)
+        save_state(resume, model, optimizer, step=step, best=best, guard=guard,
+                   exposure=exposure.state(), identity=identity['fingerprint'])
 
     from data import NoiseOnlyStore
     if a.g2_prob:  # build the LC3 library once here, not in every DataLoader worker
@@ -352,16 +422,17 @@ def main():
     if a.noise_only_share > 0:
         train_mix = train_mix + [(NOISE_ONLY, a.noise_only_share, False)]
     stores = [NoiseOnlyStore(only_noise) if name == NOISE_ONLY else Store(name) for name, _, _ in train_mix]
-    dataset = TrainSet(stores, [f for _, _, f in train_mix], template, augmenter, seed=step + 1,
+    dataset = TrainSet(stores, [f for _, _, f in train_mix], template, augmenter, seed=a.seed,
                        **({'encoder': encoder} if encoder else {}))
     total_steps = (a.benchmark_steps * a.accum) or 10 ** 9
     sampler = MixedBatchSampler(stores, [w for _, w, _ in train_mix], micro_seconds, micro_items,
-                                total_steps, seed=step + 17)
+                                total_steps, seed=a.seed + 17, start_batch=guard.get('consumed_batches', 0))
     loader = torch.utils.data.DataLoader(dataset, batch_sampler=sampler,
                                          collate_fn=functools.partial(collate, max_seconds=micro_seconds,
                                                                       max_items=micro_items, reduction=reduction),
-                                         num_workers=a.workers, persistent_workers=True,
-                                         prefetch_factor=4)
+                                         num_workers=a.workers,
+                                         generator=torch.Generator().manual_seed(a.seed),
+                                         **({'persistent_workers': True, 'prefetch_factor': 4} if a.workers else {}))
 
     start = time.time()
     deadline = parse_deadline(a.deadline) if not a.benchmark_steps else start + 1e9
@@ -375,7 +446,7 @@ def main():
     # Score the starting point first so "best" can never be worse than it.
     if best is None and not a.benchmark_steps:
         best = run_eval(model, template, config, out, step, best, emit, device, guard, a.patience, dev_sets,
-                        rollback=a.rollback == 'on', bucket=eval_bucket)
+                        rollback=a.rollback == 'on', bucket=eval_bucket, optimizer=optimizer, diagnostic_sets=a.diagnostic_sets)
         guard['last_eval_audio'] = -(a.eval_hours - a.first_eval_hours) * 3600
         save_resume()
     guard.setdefault('last_eval_audio', 0.0)
@@ -384,7 +455,9 @@ def main():
     micro, micro_loss = 0, 0.0
     train_mode(model)
 
-    for feats, lengths, labels, label_lengths in loader:
+    if pending_rng is not None:
+        restore_rng(pending_rng)
+    for feats, lengths, labels, label_lengths, metadata, batch_stats in loader:
         if micro == 0:
             now = time.time()
             if now >= deadline:
@@ -395,13 +468,16 @@ def main():
                 break
             # Linear warmup, then cosine decay over the audio budget (or the
             # remaining wall-clock time, whichever runs out first).
-            progress = min(1.0, max(guard['audio_seconds'] / target, (now - start) / span))
+            progress = min(1.0, guard['audio_seconds'] / target)
+            if a.schedule == 'legacy-wall':
+                progress = min(1.0, max(progress, (now-start)/span))
             lr = a.lr * guard['lr_scale'] * min(1.0, (step + 1) / a.warmup) * \
                 (0.05 + 0.95 * 0.5 * (1 + math.cos(math.pi * progress)))
             for g in optimizer.param_groups:
                 g['lr'] = lr
             optimizer.zero_grad(set_to_none=True)
             micro_loss = 0.0
+            effective_items = 0
 
         if a.amp and device.type == 'cuda':
             with torch.autocast('cuda', dtype=torch.bfloat16):
@@ -414,10 +490,31 @@ def main():
         else:
             labels, label_lengths = labels.to(device), label_lengths.to(device)
         nll = F.ctc_loss(log_probs.transpose(0, 1), labels, out_lengths, label_lengths,
-                         blank=blank, reduction='none', zero_infinity=True)
-        loss = (nll / ctc_divisor(label_lengths, out_lengths)).mean()
-        (loss / a.accum).backward()
-        micro_loss += loss.item() / a.accum
+                         blank=blank, reduction='none', zero_infinity=False)
+        per_item = nll / ctc_divisor(label_lengths, out_lengths)
+        invalid = int((~torch.isfinite(per_item)).sum())
+        if invalid:
+            emit(event='nonfinite_ctc', step=step, count=invalid,
+                 items=[m for m, bad in zip(metadata, (~torch.isfinite(per_item)).tolist()) if bad])
+            raise FloatingPointError('Nonfinite CTC loss; optimizer was not stepped')
+        if a.gradient_diagnostics_every and step % a.gradient_diagnostics_every == 0:
+            norms = {}
+            for source in sorted({m['source'] for m in metadata}):
+                indices = [i for i,m in enumerate(metadata) if m['source'] == source]
+                grads = torch.autograd.grad(per_item[indices].mean(), tuple(model.parameters()),
+                                            retain_graph=True, allow_unused=True)
+                norms[source] = float(torch.stack([g.detach().float().square().sum()
+                                                   for g in grads if g is not None]).sum().sqrt())
+            if not all(math.isfinite(n) for n in norms.values()):
+                emit(event='nonfinite_source_gradient', step=step)
+                raise FloatingPointError('Nonfinite per-source gradient')
+            emit(event='source_gradient', step=step, microbatch=micro, mean_loss_gradient_norm=norms)
+        # Accumulate sums, then divide ALL gradients by actual effective item count.
+        per_item.sum().backward()
+        effective_items += len(metadata)
+        micro_loss += float(per_item.detach().sum())
+        exposure.add(metadata, lengths.tolist(), per_item.detach().tolist(), batch_stats)
+        guard['consumed_batches'] = guard.get('consumed_batches', 0) + 1
         seconds = float(lengths.sum()) * 0.01
         guard['audio_seconds'] += seconds
         process_audio += seconds
@@ -425,11 +522,31 @@ def main():
         if micro < a.accum:
             continue
         micro = 0
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+        for parameter in model.parameters():
+            if parameter.grad is not None:
+                parameter.grad.div_(effective_items)
+        try:
+            norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0, error_if_nonfinite=True)
+        except RuntimeError:
+            emit(event='nonfinite_gradient', step=step, effective_items=effective_items)
+            raise
+        guard['optimizer_steps_observed'] = guard.get('optimizer_steps_observed', 0) + 1
+        guard['clipped_steps'] = guard.get('clipped_steps', 0) + int(float(norm) > 5.0)
+        micro_loss /= effective_items
+        if step % 50 == 0:
+            emit(event='health', step=step, gradient_norm=float(norm), clipped=float(norm) > 5.0,
+                 effective_items=effective_items, sources=exposure.report(), nonfinite_ctc=0,
+                 clipped_steps=guard['clipped_steps'], optimizer_steps_observed=guard['optimizer_steps_observed'])
         optimizer.step()
         step += 1
         window_loss += micro_loss
         window_n += 1
+
+        if a.stop_after_steps and step >= a.stop_after_steps:
+            save_resume()
+            emit(event='requested_stop', step=step, sources=exposure.report())
+            log.close()
+            os._exit(0)
 
         if a.benchmark_steps and step % 10 == 0 and footprint_gb() > a.max_footprint_gb:
             emit(event='benchmark_memory', step=step, mem_gb=round(footprint_gb(), 2))
@@ -465,16 +582,17 @@ def main():
 
         if guard['audio_seconds'] - guard['last_eval_audio'] >= a.eval_hours * 3600:
             best = run_eval(model, template, config, out, step, best, emit, device, guard, a.patience, dev_sets,
-                            rollback=a.rollback == 'on', bucket=eval_bucket)
+                            rollback=a.rollback == 'on', bucket=eval_bucket, optimizer=optimizer, diagnostic_sets=a.diagnostic_sets)
             guard['last_eval_audio'] = guard['audio_seconds']
             save_resume()
             train_mode(model)
 
     save_checkpoint(model, template, config, out / 'last')
     best = run_eval(model, template, config, out, step, best, emit, device, guard, a.patience, dev_sets,
-                    rollback=a.rollback == 'on', bucket=eval_bucket)
+                    rollback=a.rollback == 'on', bucket=eval_bucket, optimizer=optimizer, diagnostic_sets=a.diagnostic_sets)
     save_resume()
-    emit(event='finished', step=step, best=best, audio_hours=round(guard['audio_seconds'] / 3600, 2))
+    emit(event='finished', step=step, best=best, audio_hours=round(guard['audio_seconds'] / 3600, 2),
+         sources=exposure.report())
     log.close()
     os._exit(0)
 
@@ -504,7 +622,10 @@ def train_mode(model):
 
 
 def run_eval(model, template, config, out, step, best, emit, device, guard, patience, dev_sets=DEV_SETS,
-             rollback=True, bucket=None):
+             rollback=True, bucket=None, optimizer=None, diagnostic_sets=()):
+    selection_sets = dev_sets
+    dev_sets = list(dev_sets) + [(name, 300) for name in diagnostic_sets
+                                 if name not in {n for n, _ in dev_sets}]
     model.eval()
     t0 = time.time()
     if device.type == 'mps' and bucket:
@@ -525,22 +646,36 @@ def run_eval(model, template, config, out, step, best, emit, device, guard, pati
         del cpu_model
     else:
         results = evaluate_stores(model, template, dev_sets, device)
-    wers = {k: r['wer'] for k, r in results.items()}
-    score = broad_score(wers) if dev_sets is BROAD_DEV_SETS else float(np.mean(list(wers.values())))
+    if set(results) != {name for name, _ in dev_sets} or any(results[name]['wer'] is None for name, _ in selection_sets):
+        raise ValueError('Incomplete or empty-word selection evaluation')
+    wers = {name: results[name]['wer'] for name, _ in selection_sets}
+    score = broad_score(wers) if selection_sets is BROAD_DEV_SETS else float(np.mean(list(wers.values())))
     metrics = {'score': score, 'step': step, 'audio_hours': round(guard['audio_seconds'] / 3600, 2),
                'sets': {k: v['wer'] for k, v in results.items()}}
     emit(event='eval', step=step, score=round(score, 4), eval_s=round(time.time() - t0),
          audio_hours=metrics['audio_hours'], mem_gb=round(footprint_gb(), 2),
-         **{k: round(v['wer'], 4) for k, v in results.items()})
+         **{k: round(v['wer'], 4) if v['wer'] is not None else None for k, v in results.items()},
+         diagnostics={k: {x: v[x] for x in ('wer','errors','words','phantom_words_per_minute')}
+                      for k,v in results.items() if k in diagnostic_sets})
     # Every evaluated point is kept (~76 MB each for the 15x5).
     snapshot = out / 'evals' / f'step_{step:06d}'
     save_checkpoint(model, template, config, snapshot)
     (snapshot / 'metrics.json').write_text(json.dumps(metrics, indent=2))
+    previous_path = out / 'previous-evaluation.json'
+    if previous_path.exists():
+        previous = json.loads(previous_path.read_text())
+        for name, result in results.items():
+            result['paired'] = paired_changes(previous[name]['records'], result['records'])
+    atomic_json(snapshot / 'utterances.json', results)
+    atomic_json(previous_path, results)
+    guard['last_eval_step'] = step
     if best is None or score < best['score']:
         best = metrics
         guard['bad'] = 0
         save_checkpoint(model, template, config, out / 'best')
         (out / 'best' / 'metrics.json').write_text(json.dumps(best, indent=2))
+        if optimizer is not None:
+            save_state(snapshot / 'training.pt', model, optimizer, step=step)
         emit(event='new_best', step=step, score=round(score, 4))
         return best
     if not rollback:  # --rollback off: keep training straight through
@@ -550,8 +685,12 @@ def run_eval(model, template, config, out, step, best, emit, device, guard, pati
     if score > best['score'] * 1.01:
         guard['bad'] += 1
     if (guard['bad'] >= patience or score > best['score'] * 1.05) and step != best['step']:
-        _, state = load_checkpoint(out / 'best')
-        model.load_nemo(state)
+        if optimizer is None:
+            raise ValueError('Rollback requires matching optimizer state')
+        fused = optimizer.param_groups[0].get('fused')
+        restore_matching(out / 'evals' / f"step_{best['step']:06d}" / 'training.pt', model, optimizer)
+        if isinstance(optimizer, torch.optim.AdamW):
+            set_fused(optimizer, fused)
         guard['bad'] = 0
         guard['lr_scale'] *= 0.5
         emit(event='rollback', to_step=best['step'], score=round(best['score'], 4),

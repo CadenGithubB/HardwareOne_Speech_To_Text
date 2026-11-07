@@ -12,6 +12,13 @@ microphone-to-serial captions example; the model and language model it needs are
 - `firmware/components/hw1_stt`: the speech engine (frontend, ESP-DL runtime, segmenter, LM decoder) as an
   ESP-IDF component; `firmware/examples/p4_eye_captions`: the minimal app.
 - `tools/stt_train_15x5`: QuartzNet 15x5 fine-tuning, data stores and benchmarks.
+- [Training diagnostics and reproducible comparisons](docs/STT_TRAINING_DIAGNOSTICS.md): dataset audits, batch/loss diagnostics, resume, and linked recognition-stage reports.
+- [Corrected splits and fixed-model baseline](docs/STT_BASELINE_PREPARATION.md): preserved source data, fresh screening/reserve sets, and float/int8/LM results.
+- [Fixed-model quantization investigation](docs/STT_QUANTIZATION_INVESTIGATION.md): measured activation/output sensitivity and the next calibration experiment.
+- [P4 floating-point feasibility](docs/STT_P4_FLOAT_FEASIBILITY.md): exact model memory costs, runtime limits, and mixed-precision options.
+- [Layer sensitivity experiments](docs/STT_LAYER_SENSITIVITY.md): controlled activation interventions, decoder comparisons and selective ESP-DL export.
+- [Twelve training and caption investigations](docs/STT_TWELVE_INVESTIGATIONS.md) with measurements and findings.
+- [Speech release benchmark](docs/STT_RELEASE_BENCHMARK.md) with the command for comparing two exports.
 - `tools/stt_train`: data preparation, the earlier 5x5 trainer, the word language model (`lm/`) and the tech
   vocabulary build (`techvocab/`).
 - `tools/stt_p4`: int8 export, model packing, deploy scripts and the speaker-label model exporter (`speaker/`).

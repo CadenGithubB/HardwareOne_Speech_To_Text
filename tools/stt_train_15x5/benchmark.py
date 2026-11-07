@@ -22,6 +22,7 @@ import json
 from pathlib import Path
 import os
 import re
+from diagnostics import inspect_store, sha256, digest
 STT_ROOT = Path(os.environ.get('STT_ROOT', 'stt-data'))  # data root: set STT_ROOT
 
 HERE = Path(__file__).resolve().parent
@@ -84,26 +85,38 @@ def weights_sha(ckpt):
     return h.hexdigest()
 
 
+_IDENTITIES = {}
+
+
+def evaluation_identity(name):
+    if name not in _IDENTITIES:
+        record, _, _ = inspect_store(STT_ROOT / 'stores' / name)
+        code = {p.name: sha256(p) for p in HERE.glob('*.py')}
+        import torch
+        import numpy as np
+        _IDENTITIES[name] = digest({'dataset': record, 'code': code,
+                                    'torch': torch.__version__, 'numpy': np.__version__})
+    return _IDENTITIES[name]
+
+
 def cache_path(sha, name):
-    return CACHE / sha[:16] / f'{name}.json'
+    return CACHE / sha / evaluation_identity(name) / f'{name}.json'
+
 
 
 def store(sha, name, result, source):
     path = cache_path(sha, name)
     path.parent.mkdir(parents=True, exist_ok=True)
     keep = {k: result[k] for k in ('wer', 'errors', 'words', 'utterances')}
-    path.write_text(json.dumps({**keep, 'source': source}, indent=1))
+    path.write_text(json.dumps({**keep, 'source': source, 'evaluation_identity': evaluation_identity(name),
+                               'records': result.get('records'),
+                               'substitutions': result.get('substitutions'),
+                               'deletions': result.get('deletions'),
+                               'insertions': result.get('insertions')}, indent=1))
 
 
 def import_existing():
-    for ckpt, report in EXISTING:
-        if not Path(report).exists() or not (Path(ckpt) / 'model_weights.ckpt').exists():
-            continue
-        sha = weights_sha(ckpt)
-        for name, result in json.loads(Path(report).read_text())['results'].items():
-            if name in SETS and not cache_path(sha, name).exists():
-                store(sha, name, result, report)
-                print(f'imported {name} for {ckpt} from {report}')
+    raise ValueError('Legacy cached reports have no dataset/evaluator identity; re-evaluate them')
 
 
 def run_missing(models):
@@ -113,7 +126,9 @@ def run_missing(models):
     from evaluate import evaluate_stores
     from data import STORES
     device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
-    available = [s for s in SETS if (STORES / s / 'index.json').exists()]
+    available = SETS
+    for name in available:
+        evaluation_identity(name)  # all required sets must exist before scoring
     for m in models:
         missing = [s for s in available if not cache_path(m['sha'], s).exists()]
         if not missing:
@@ -137,7 +152,8 @@ def main():
     models = json.loads((HERE / 'benchmark_models.json').read_text())
     for m in models:
         m['ckpt'] = resolve_ckpt(m['ckpt'])
-        m['sha'] = weights_sha(m['ckpt'])
+        m['sha'] = digest({p.name: sha256(p) for p in Path(m['ckpt']).iterdir()
+                           if p.name in ('model_weights.ckpt', 'model_config.yaml', 'vocab.txt')})
     if a.run:
         run_missing(models)
     from train import broad_score

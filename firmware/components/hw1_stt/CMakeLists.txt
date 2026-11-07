@@ -15,6 +15,7 @@ if(NOT IDF_TARGET STREQUAL "esp32p4")
 endif()
 
 option(HW1_STT_SPEAKER_LABELS "Also compile the speaker-label model (stt/speaker_model.h)" OFF)
+option(HW1_OVERLAP_GATE "Also compile the overlap-gate model (stt/overlap_gate.h)" OFF)
 
 set(hw1_stt_srcs
     stt/quartznet_runtime.cpp
@@ -27,6 +28,9 @@ set(hw1_stt_srcs
 if(HW1_STT_SPEAKER_LABELS)
     list(APPEND hw1_stt_srcs stt/speaker_frontend.cpp stt/speaker_model.cpp)
 endif()
+if(HW1_OVERLAP_GATE)
+    list(APPEND hw1_stt_srcs stt/overlap_gate.cpp)
+endif()
 
 idf_component_register(SRCS ${hw1_stt_srcs}
     INCLUDE_DIRS "." "stt"
@@ -38,6 +42,9 @@ set_source_files_properties(stt/quartznet_frontend.cpp PROPERTIES COMPILE_OPTION
 set_source_files_properties(stt/quartznet_runtime.cpp stt/stt_lm.cpp PROPERTIES COMPILE_OPTIONS "-O2")
 if(HW1_STT_SPEAKER_LABELS)
     set_source_files_properties(stt/speaker_frontend.cpp stt/speaker_model.cpp PROPERTIES COMPILE_OPTIONS "-O2")
+endif()
+if(HW1_OVERLAP_GATE)
+    set_source_files_properties(stt/overlap_gate.cpp PROPERTIES COMPILE_OPTIONS "-O2")
 endif()
 # One resident model per session (quartznet_runtime.h). Every translation unit
 # that includes the runtime header must see the same value.
@@ -60,9 +67,15 @@ esp_dl_compile_add_yml("${CMAKE_CURRENT_LIST_DIR}/stt/quartznet.compile_req.yml"
 if(HW1_STT_SPEAKER_LABELS)
     esp_dl_compile_add_yml("${CMAKE_CURRENT_LIST_DIR}/stt/speaker.compile_req.yml")
 endif()
+if(HW1_OVERLAP_GATE)
+    esp_dl_compile_add_yml("${CMAKE_CURRENT_LIST_DIR}/stt/overlap_gate.compile_req.yml")
+endif()
 
 if(HW1_STT_SPEAKER_LABELS)
     target_compile_definitions(${COMPONENT_LIB} PUBLIC HW1_STT_SPEAKER_LABELS=1)
+endif()
+if(HW1_OVERLAP_GATE)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC HW1_OVERLAP_GATE=1)
 endif()
 
 if(CONFIG_CAPTIONS_STREAM_METRICS)

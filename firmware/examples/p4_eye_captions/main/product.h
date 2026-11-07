@@ -10,6 +10,13 @@ namespace product {
 struct Receipt {uint32_t note=0,sequence=0;};
 Receipt receipt();
 void speaker(Receipt,int8_t label);
+// Overlap gate flag for a final caption (metadata beside the speaker label; caption text unchanged).
+void overlap(Receipt,bool flag,float fraction,uint32_t frames);
+// Test/diagnostic commands owned by other modules: the hook sees each USB command first and returns
+// true when it handled it. reply() emits a normal STT_EVENT message. bootNumber(): persistent boot count.
+void setCommandHook(bool (*hook)(const char* command));
+void reply(const char* text, bool ok = true);
+uint64_t bootNumber();
 void platformBegin();
 void begin();
 void poll();

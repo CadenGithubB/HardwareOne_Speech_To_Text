@@ -48,6 +48,7 @@ bool commandOverflow = false;
 float languageStrength = 1.0f;
 uint32_t draftVersion = 0;
 bool draftActive = false;
+bool (*commandHook)(const char*) = nullptr;
 
 uint64_t nowMs() { return uint64_t(esp_timer_get_time()) / 1000; }
 void number(cJSON* obj, const char* name, uint64_t value) {
@@ -223,6 +224,7 @@ void run(char* cmd) {
 #if HW1_STT_STREAM_METRICS
   if (!std::strcmp(cmd, "perf dump")) { captions_perf::request(); return; }
 #endif
+  if (commandHook && commandHook(cmd)) return;
   if (!std::strcmp(cmd, "help")) message("vocab list | vocab add DISPLAY[|spoken] | vocab remove spoken | vocab reload | note start | note stop | notes | note read FILENAME [OFFSET] | clock set EPOCH | lm strength 0..1 | status. Stop saves accepted results through this command; microphone/captions continue.");
   else if (!std::strcmp(cmd, "vocab list")) {
     cJSON* obj = event("vocabulary"); if (!obj) return; cJSON* rows = cJSON_AddArrayToObject(obj, "words");
@@ -318,6 +320,19 @@ void speaker(Receipt receipt,int8_t label){
   cJSON* obj=event("speaker");if(!obj)return;identity(obj);
   cJSON_AddNumberToObject(obj,"sequence",receipt.sequence);cJSON_AddNumberToObject(obj,"speaker",label);
   cJSON_AddBoolToObject(obj,"ready",true);
+  if(saving)saveEvent(obj);
+  emit(obj);
+}
+void setCommandHook(bool (*hook)(const char*)) { commandHook = hook; }
+void reply(const char* text, bool ok) { message(text, ok); }
+uint64_t bootNumber() { return boot.boot; }
+void overlap(Receipt receipt,bool flag,float fraction,uint32_t frames){
+  // Same guards as speaker(): never attach to another recording or a future phrase.
+  if(receipt.note!=noteNumber||!receipt.sequence||receipt.sequence>phrase)return;
+  cJSON* obj=event("overlap");if(!obj)return;identity(obj);
+  cJSON_AddNumberToObject(obj,"sequence",receipt.sequence);cJSON_AddBoolToObject(obj,"overlap",flag);
+  cJSON_AddNumberToObject(obj,"fraction",double(int(fraction*10000.0f+0.5f))/10000.0);
+  cJSON_AddNumberToObject(obj,"frames",frames);cJSON_AddBoolToObject(obj,"ready",true);
   if(saving)saveEvent(obj);
   emit(obj);
 }

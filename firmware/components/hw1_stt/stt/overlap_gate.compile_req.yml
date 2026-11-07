@@ -1,0 +1,24 @@
+# Overlap gate (tools/overlap_gate/g2_export.py, G2c, W8A8 esp32p4): the same operator set as the
+# recognizer. Graph: depthwise 1x1 normalization (bias), 5x1 stem conv 64->48 (bias, relu), three
+# [depthwise 7x1 (dilated) -> 1x1 48->48 (bias)] blocks with residual Add + Relu, 1x1 48->3 head
+# (bias, unaligned channels). The s8 kernels below are a superset of what ESP-DL may bind for those
+# shapes; unused ones only cost code size. Verify on the device with the kernel-bind log and trim.
+kernel_abi: 1
+ops:
+  - Add
+  - Conv
+  - Relu
+  - RequantizeLinear
+kernels:
+  - dl_esp32p4_s8_conv2d_per_channel_11cn_bias
+  - dl_esp32p4_s8_conv2d_per_channel_11cn_bias_relu
+  - dl_esp32p4_s8_conv2d_per_channel_hwcn_bias
+  - dl_esp32p4_s8_conv2d_per_channel_hwcn_bias_relu
+  - dl_esp32p4_s8_unaligned_conv2d_per_channel_11cn_bias
+  - dl_esp32p4_s8_unaligned_conv2d_per_channel_hwcn_bias
+  - dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1
+  - dl_esp32p4_s8_depthwise_conv2d_per_channel_hwc1_bias
+  - dl_esp32p4_s8_add2d_11c
+  - dl_esp32p4_s8_add2d_11c_relu
+  - dl_esp32p4_s8_unaligned_add2d_11c
+  - dl_esp32p4_s8_relu_hw1

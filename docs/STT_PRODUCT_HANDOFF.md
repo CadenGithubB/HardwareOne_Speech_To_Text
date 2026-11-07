@@ -1278,6 +1278,61 @@ hashes, timing exclusions and unperformed product-level checks are recorded in t
 final report. Private backups, raw logs/audio/captions and final numeric audits remain
 ignored. No push, main merge, production-default change or external filing occurred.
 
+### Training diagnostics implemented — 3 November 2026
+
+The user requested the full training-debugging coverage identified in the training
+pipeline audit. Implementation is confined to standalone training/evaluation tools;
+no model, data store, firmware default, board state or HardwareOne checkout was
+changed. The unrelated `STT_X2F_ADOPTION.md` from the other session was left untouched.
+
+See [STT_TRAINING_DIAGNOSTICS.md](STT_TRAINING_DIAGNOSTICS.md) for the numbered pipeline
+coverage, migration rules, commands, report schemas and evidence limits.
+
+Implemented: cross-shard speaker/exclusion checks and strict required evaluation
+coverage; full input/code/runtime fingerprints; independent permanent exclusions;
+versioned benchmark/CER caches; deterministic item augmentation and sampler resume;
+per-source exposure/loss and sampled gradient diagnostics; nonfinite CTC/gradient
+failure; actual-item-weighted gradient accumulation; matching optimizer rollback;
+per-utterance word edits and paired evaluation; optional extra development diagnostics;
+and linked float/frozen-int8/LM/streaming report producers/importer/comparator.
+Glasses-derived stores now keep filtered labels/speakers aligned with filtered audio.
+Legacy resume files and unversioned caches fail explicitly; migrate initial weights
+to a new private run. Audio-based LR scheduling is now the default. These recipe
+changes require new comparisons, not relabeling earlier results.
+
+Validation:
+- **22 targeted tests passed**, including the actual rollback function, dataset/cache
+  failure paths, filtered glasses metadata, uneven accumulation math, RNG/optimizer
+  recovery, sampler continuation, linked report rejection, streaming capture import,
+  and the real LM CLI on synthetic logits with a tiny test LM.
+- The **real trainer's synthetic CPU smoke passed**: uninterrupted versus interrupted/
+  resumed model and optimizer tensors match exactly after four steps; exposure counters
+  match, including a loader change from zero to two workers. Final evaluation and
+  paired reports complete. The first sandboxed attempt was blocked by the PyTorch
+  shared-memory helper; the bounded rerun and final run succeeded with execution
+  permission. This is plumbing evidence, not trained-model accuracy.
+- Transcript, production storage, viewer and bridge host checks passed. The bridge
+  needed execution permission to bind its temporary loopback port. No USB was used.
+- Python compilation and `git diff --check` passed.
+
+Read-only metadata audit of the full general2 training/development list found
+**35 overlapping VoxPopuli speakers**, **two overlapping AMI speaker IDs**, and
+missing speaker IDs in both VoxPopuli training shards. The AMI IDs are normal corpus
+speaker labels, not the missing-ID sentinel. These are present-store metadata
+findings; no historical snapshot or duplicate-audio claim is implied. New training
+fails preflight until these are resolved on prepared working copies. Reports are
+under ignored `private/training-diagnostics/`, including `general2-audit.json`,
+`tests-final.log`, and `smoke-final/smoke-result.json` with its run manifests/logs.
+
+Not performed: real-store repairs; corpus-wide byte hashing (the real audit used
+explicit metadata-only mode); a full model-training run; a fresh full float/int8/LM/
+measured-device comparison; GPU/MPS reproducibility; long-run overhead/convergence
+qualification. The available training Python has torch/scipy but lacks ONNX, so the
+new frozen-int8 report emission was syntax-checked, not exercised through full
+inference. Stage comparison/import and LM emission were tested independently.
+The comparator requires complete, identity-matched evidence; missing hardware
+results can only produce an explicitly incomplete report. No accuracy gain claimed.
+
 ### Approved production adoption — 3 November
 
 The user approved trying x2f pacing and the identified storage prevention fixes.
@@ -1321,6 +1376,39 @@ in the isolated worktree were removed (1.69 GiB of pre-removal allocation).
 Saved firmware hashes were reverified; source, local commits, Git bundle/patch,
 rollback images and private test evidence remain intact. Other checkouts and
 concurrent training work are preserved. The board was not accessed for cleanup.
+
+
+## Quantization investigation — 3 November 2026
+
+Completed host-only fixed-model diagnostics on the 64-clip fresh development
+screen. Exact fixture, float transcript, original int8 logit and saved-LM
+transcript controls passed. Original float/int8 errors: 95/112 over 633 words.
+Final output scale 0.25 reduces greedy errors to 107, but saved-LM errors only
+from 103 to 102; 0.125 saturates scores and performs worse. On a fixed 16-clip
+subset, bypassing activation quantization returns the float error total (25),
+while bypassing parameter quantization gives 30 versus original int8 29.
+Internal activation calibration is the stronger next lead; clipping statistics
+identify candidates but do not establish causal layer attribution.
+
+Three new diagnostic tests pass. No retraining, recalibration, candidate export,
+board access or deployment occurred; reserve remains unscored. Actual device
+precision/runtime and streaming results remain unmeasured. See
+`STT_QUANTIZATION_INVESTIGATION.md` for tables, limitations and next experiment.
+Private evidence: `private/quantization-investigation-20261103/`.
+
+
+## P4 floating-point feasibility — 3 November 2026
+
+Counted the actual folded gen2 model, whose export hash matches this checkout's
+pinned identity. FP32 parameters alone: 75,542,900 bytes (72.04 MiB); FP16:
+37,771,450 bytes (36.02 MiB). Neither fits resident in this 32 MiB board, before
+working buffers. Local patched ESP-DL 3.3.12 Conv accepts INT8/INT16/W8A16 but not
+FP32; the application also requires INT8 input/output. Smaller float models or a
+custom streamed-weight executor are possible in principle, with unmeasured speed.
+Selective INT16 activation precision is the relevant next candidate; depthwise
+weights also expand under W8A16 fallback. No candidate export or device timing
+was produced. See `STT_P4_FLOAT_FEASIBILITY.md` for exact accounting and limits.
+No board access, firmware changes or reserve inference occurred.
 
 ### Standalone STT runtime improvement — 3 November
 
@@ -1373,6 +1461,28 @@ This is a plan-only milestone: no runtime change, new test result, board access
 or default change occurred. First implementation deliverable is instrumentation,
 not an unlocked read from live capture memory. Actual contention and benefit
 remain unmeasured; existing SDK/model/pacing conditions must be held fixed.
+
+
+## Selective precision: measured candidate ranking — 3 November 2026
+
+On 64 fresh development clips (633 words), four single internal activation
+experiments and two combinations shortlisted blocks 3 and 14. Two actual full
+ESPDL exports used the unchanged ONNX, original 102 calibration clips and saved
+LM. Host greedy / LM word errors: original 112 / 103; block 3 114 / 101; block
+14 109 / 97. Selection changed after export: block 3 led the interface-only
+simulation, but block 14 performs best among actual exports tested. Its second
+number represents six fewer word errors, six clips improved and one worsened.
+Block 14 grew 41,776 bytes; block 3 grew 10,848. Both passed embedded and
+reloaded fixture checks. Four targeted unit tests passed. This is small-sample
+development evidence. No reserve scored, firmware changed or device accessed.
+
+First bench candidate: block 14 `main.6` W16A16 depthwise plus `main.7` W8A16
+pointwise, SHA `432ca0f49f64b2c32b9729cff46fb51dd04210b7e50dfa8288fc84072e2d0c26`.
+Validate on meeting audio; build a mixed-capable isolated benchmark before
+measuring P4 fixture parity, peak RAM and latency. The board-owning chat retains
+qualification priority and will hand off the verified app, lock and port state.
+See `STT_LAYER_SENSITIVITY.md`; artifacts and `completion.json` are under
+`private/layer-sensitivity-20261103/`.
 
 ### Capture-lock instrumentation and first device smoke — 3 November
 
@@ -1442,6 +1552,25 @@ allocation, disabled-feature/snapshot, terminal-order and probes-off capture hos
 checks pass; 24 prefix replay comparisons match the old scheduler/frontend bytes.
 The twelve-capture ABBA, device instrumentation controls, secondary pacing/speaker
 checks and at least one-hour soak remain incomplete. No defaults were promoted.
+
+## Twelve training and caption investigations, 3 November 2026
+
+All twelve host/offline investigations completed. Results, limitations and
+private evidence locations are in [the investigation log](STT_TWELVE_INVESTIGATIONS.md).
+The actual C++ inference frontend disables dither. Use it for future release
+comparisons. On 24 matched AMI segments from 11 meetings the headset scored
+57 errors versus 110 on the distant microphone (292 words). Two same-run
+checkpoint finalists reversed their fresh-panel ordering after quantization and
+saved-LM decoding (98 vs 101 errors); that small screen does not justify
+changing the selected checkpoint.
+
+The [release benchmark](STT_RELEASE_BENCHMARK.md) is runnable against the frozen
+48-case development suite. Current int8 scored 146/687 errors and block 14
+147/687. Both emitted zero words in three minutes of labeled no-speech audio.
+Retain current int8 as default. The P4 RAM/fixture benchmark remains a separate
+board-owner task. This investigation accessed archived device events/PCM only.
+The standalone event audit found 103 invalid preview jobs totaling 66.64 s of
+worker wall time across three natural captures. The reserve remains unscored.
 
 
 ### Capture-lock primary ABBA: speaker-quality gate raised — 3 November
@@ -1725,6 +1854,7 @@ The [P4/G2 quality report](STT_DUAL_MIC_QUALITY.md) pins the installed source an
 
 The [conditioning report](STT_SHARED_CONDITIONING_AB.md) audits 1,815 arm records across 11 policies, physical P4/G2 audio, 131 regression/confirmation cases and two continuous-sequence replays. Conditioning only detection while preserving raw model input reduced continuous G2 edits 97→74 and concatenated P4 edits 88→65 on 146 words each. No candidate passed all speech, quiet-recovery and background gates. The strongest detection policy worsened noisy read speech 33→35 errors and background output 4→7 words across six minutes, with incidental-voice caveats. Preserve the default. No candidate was flashed; the G2 rearm fix was excluded.
 
+
 ### Detector follow-ups completed; training comparison pending, 4 November 2026
 
 Two host investigations audited 2,640 arm records across 16 detector configurations. None passed every gate. See `docs/STT_DETECTOR_FOLLOWUP.md` and `docs/STT_RELATIVE_DETECTOR_AB.md`. The measured gain-ramp/calibration and histogram-range mismatches explain some triggers, but their combined correction lost the P4 quiet gain. Raw detection at 1.25× noise with onset confirmation recovered quiet speech without amplification (actual continuous G2 97→68 errors; constructed P4 88→70), while distant/noisy speech and recorded-background retention still failed. No production model, settings or firmware changed; no candidate advanced to hardware. G2 remained saved-audio only while the user had the glasses.
@@ -1776,3 +1906,50 @@ Round-three main review update: both loss-only training arms completed 8,192 upd
 The separate host-only main comparison controller in ignored `private/stt-loss-round3-review/` is live (session17121/PID24710 at launch), waiting for the original training chat's complete score/selection records and all 16 independent report audits. It then serially executes both selected models on the unchanged saved 163-case microphone/caption panel plus two continuous recordings and audits actual outputs, under the existing shared evaluation lock. It owns no fitting, export or upstream inference jobs. Sixteen admission-tamper checks and six reducer checks passed; actual selected runs remain pending. Read `private/stt-model-comparison/GOAL_STATUS.md` and `monitor-cadence.json` before continuing. Do not restart workers on observation timeouts or poll before the five-minute due time. The 323-case qualification partition consists of 320 newly reserved synthetic speech cases and three reused nonspeech fixtures; old real32 are regression only. No firmware/default/device/Bluetooth change or P4/30MB qualification follows. Broader accuracy goal remains active.
 
 Round-three recognition review: all six development checkpoints and both controls are now independently audited. Frozen choices are A4096 (4,302 errors) and B1024 (4,270), versus raw-mixture baseline 2,462 / 3,400 words. Both selected models have completed the 323-case qualification partition and passed the main cache/logit/portable-cluster audit: A15,657 and B15,721 global attributed errors / 11,688 words. Both still emit recognized text on both outputs in all 64 ordinary and 64 quiet single-speaker cases. Thus the slight exposed-development advantage of the active-loss change did not become an overall advantage on the reserved speech panel. Qualification raw-mixture/known-source controls, reused real32 regression and main selected saved-microphone execution/audits remain incomplete. No baseline-relative qualification pass or device acceptance is claimed. See `docs/STT_LOSS_ROUND3_MAIN_REVIEW.md`; private main controller17121 remains alive, waiting for full frozen upstream scoring. Do not restart upstream jobs or relax the seven prior necessary host checks; the new review reducer reproduces all 14 old check outcomes from actual round-two reports. Goal remains active, host-only and defaults unchanged.
+
+Round-three closure (5 November 2026, Claude, continuing the two Codex threads after they hit their usage limit): all remaining host scoring finished and passed audit. That covers both qualification controls, real32 regression for both arms and controls, and both selected saved-microphone comparisons; main controller 17121 ended at `host-comparisons-and-audits-finished`. The frozen seven-check reducer was run (`private/stt-loss-round3-review/selected-host-review.json`). A4096 and B1024 each fail 4/7: real32 profile errors 912/809 vs baseline 611, real32 oracle errors, ordinary 1,608/1,598 vs 170, and quiet 1,584/1,562 vs 178. Fresh qualification totals are 15,657/15,721 vs baseline 8,874 / 11,688 words. Saved-microphone caption errors are 2,221/2,000 vs baseline 609 / 2,168 words, and 17 of 18 group cells regress on both P4 and G2 microphones. Both candidates are rejected. No firmware, default, device or Bluetooth change. Round three needs no more host work; another separator attempt requires a new frozen experiment. See `docs/STT_LOSS_ROUND3_MAIN_REVIEW.md`.
+
+Next direction after round three (5 November 2026, Claude): the user chose an overlap gate over further separator training. Plan in `docs/STT_OVERLAP_GATE_PLAN.md`: a small per-segment two-or-more-speakers detector so the unchanged single-speaker path always runs and any two-stream model runs only on flagged segments. Three candidates (logit/energy heuristics, speaker-trunk dispersion, small log-mel classifier) scored on existing panels; frame labels come from the AMI Parquet speaker intervals already on disk (about 75 h train distant + headset). Phase zero freezes labels, collar, false-alarm ceiling and panels before any scoring. Flag-only first; raw captions unchanged; host-only until the P4 gates in the plan. No code or default changed yet.
+
+Overlap gate phase zero complete (5 November 2026, Claude): frame-level who-spoke-when labels derived from AMI Parquet intervals for train 77.1 h / validation 9.0 h / test 8.7 h (about 19% of non-collar frames have two or more speakers); all 32 real pairs, all 24 distant overlap clips and all frozen records reconcile; splits share no meeting, and the two speakers shared by train and validation are excluded from fitting. Protocol frozen in `private/training-track/overlap-gate/experiment.json`: 10 ms hop, 200 ms collar, 2% segment false-alarm ceiling, validation-only threshold selection, pinned panels and round-three outputs. Code in `tools/overlap_gate/`, 16 constructed checks in `tests/test_overlap_gate.py` (run with the export venv). No model trained, no firmware or default change. Next: phase one, G0 heuristics and oracle-gated recombination of frozen baseline/B1024 outputs. See `docs/STT_OVERLAP_GATE_PLAN.md` section 11.
+
+Overlap gate phase one complete (5 November 2026, Claude). Oracle-gated recombination of the pinned round-three outputs: a perfect gate removes 99% of B1024's excess errors on the saved microphone panel and 62% on fresh synthetic qualification, but both separators lose to the plain recognizer on overlapped audio itself (synthetic two-speaker 8,544 vs 6,817; real32 635 vs 594; saved overlap clips 83 vs 66), so no gate yields a gain with them; the acceptance bar for any second path is to beat baseline on labelled-overlap cases. G0 heuristics from the deployed recognizer's logits: frame ROC area 0.72–0.80 (entropy) but only 3.1% recall at the frozen 2% false-alarm ceiling on the AMI validation subsample; not usable. A learned gate (G2) is required. Evidence in `private/training-track/overlap-gate/phase1/`; code `tools/overlap_gate/{oracle_recombine,g0_extract,g0_score}.py`. No model trained, no firmware or default change. See `docs/STT_OVERLAP_GATE_PLAN.md` section 12.
+
+Overlap gate phase two complete (6 November 2026, Claude). G1, dispersion of the frozen speaker trunk's frame vectors with a train-fitted logistic calibration: frame ROC area 0.63 on AMI validation (best raw statistic 0.62), 0% recall under the frozen protocol; weaker than G0 (0.72). The pairwise-distance statistic separates synthetic two-speaker mixtures at 0.91 but real overlap at 0.62, the same synthetic-to-real gap seen with separators. Both heuristic floors are measured; the trained G2 classifier is the remaining candidate. Evidence `private/training-track/overlap-gate/phase2/`; code `tools/overlap_gate/{g1_extract,g1_score}.py`. No model trained, no firmware or default change. See `docs/STT_OVERLAP_GATE_PLAN.md` section 13.
+
+Overlap gate phase three (6 November 2026, Claude). G2, a 23,811-parameter log-mel overlap classifier trained on 72.5 h of labelled AMI, is the first candidate to work on real meetings: AMI test (scored once) frame ROC area 0.852, 28.6% of overlapped segments flagged at 2.14% false alarms with 92.5% precision, matching validation. It fails the saved-microphone adoption gate (11 of 155 single-speaker clips flagged vs a ceiling of 3), and every false alarm is clean read speech from non-AMI corpora; device recordings, AMI clips, noise and silence produced none. Cause: all training speech was AMI. Export to ESP-DL int8 verified: 55,776 bytes, fixture byte-exact, 25.6 KB static activations per 2 s, int8 costs 0.002 ROC area. Next: declared variant G2b adding non-AMI single-speaker speech as class-1 negatives, selected on AMI validation plus non-AMI dev negatives, then AMI test and saved panel scored once. Code `tools/overlap_gate/g2_*.py`; evidence `private/training-track/overlap-gate/phase3/`. No firmware or default change. See `docs/STT_OVERLAP_GATE_PLAN.md` section 14.
+
+Overlap gate phase 3b (6 November 2026, Claude). G2b adds non-AMI single-speaker speech (30% of speech windows, half with log-domain noise at 0-20 dB SNR) to G2's training. It passes the saved-microphone adoption gate (0 of 155 single-speaker clips flagged, G2 had 11; 2 of 7 overlap clips caught; no-speech 0) and exports byte-exact to 56,112 bytes int8. But AMI test frame ROC fell 0.852 to 0.830, false alarms at the selected threshold are 3.6% on test because pooling easy non-AMI dev negatives into the threshold selection lowered the threshold (AMI-only selection would give 30% recall at 2.7%), and it detects 0 of 128 clean synthetic two-speaker mixtures while still detecting real overlap: it learned "clean read speech = one speaker" as a shortcut. Features now on /Volumes/Audiodrive/stt/overlap-gate/features (linked). Next proposed: G2c with non-AMI two-speaker log-domain mixtures as positives and the ceiling applied to AMI negatives only. Nothing adopted; no firmware or default change. See `docs/STT_OVERLAP_GATE_PLAN.md` section 15.
+
+Overlap gate phase 3c (6 November 2026, Claude). G2c adds non-AMI two-speaker log-domain mixtures as positives and applies the 2% ceiling to AMI validation negatives only. It passes the saved-microphone adoption gate (0 of 155 single-speaker clips flagged, 3 of 7 overlap clips caught, no-speech 0), restores synthetic two-speaker detection (30 of 128, zero synthetic false alarms; frame ROC 0.92) and on AMI test (scored once) gives frame ROC 0.838, 33.2% recall, 2.74% false alarms, 91.8% precision; validation met the ceiling at 1.99%. Int8 export 56,096 bytes, byte-exact fixture, ROC cost 0.002. Recommended as the phase-four flag-only candidate; phase four needs the board (measured peak RAM, latency, device numerical parity, partition inspection and rollback image first). Evidence `private/training-track/overlap-gate/phase3c/`. Three-variant table in `docs/STT_OVERLAP_GATE_PLAN.md` section 16. Nothing adopted; no firmware or default change.
+
+Overlap gate phase four planned (6 November 2026, Claude): `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md`. Flag-only integration of G2c into the standalone P4 example, copying the speaker-model pattern (SD-card model file, PSRAM blob, dl::Model with arena check and self-test, CMake option OFF by default, STT_EVENT beside the speaker label), with a host step 0 that re-scores G2c under the exact device rule (200-frame chunks, no collar, threshold 0.2451) and writes a per-clip answer key before any board work. Board steps follow the handoff rules: MAC check, partition-table compare, private rollback image, app-only flash at 0x10000, caption byte-identity between gate OFF/ON, memory and timing via perf dump and TL lines, restore at the end. No HardwareOne change. Nothing implemented yet.
+
+Overlap gate phase four step 0 (6 November 2026, Claude). G2c re-scored with the int8 graph under the exact device rule (int8 input at exponent -3, 200-frame chunks, silence padding, no collar). Saved-microphone gate unchanged (0 of 155 false alarms). On real meetings the protocol threshold 0.245 gives 4.3% false alarms on AMI test (collar frames now count); a threshold re-selected on AMI validation under the device rule, 0.443, meets the 2% ceiling on test (1.95%, 92% precision) at 23.4% recall, catching 1 of 7 saved overlap clips instead of 3. Answer key, sha and silence constant written to `private/training-track/overlap-gate/phase4/`. User decision pending: flash at 0.443, try a label-free boundary-suppression rule on the host first, or accept ~4% false alarms at 0.245. See `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md` section 7. No code or firmware change.
+
+Overlap gate phase four step 0b (6 November 2026, Claude). Six label-free boundary-suppression rules tried on the device posteriors, thresholds chosen on AMI validation at the 2% ceiling, winner scored once on test. Best: drop marked runs shorter than 10 frames (200 ms), threshold 0.360: AMI test 24.7% recall, 2.1% false alarms, 91.6% precision; saved panel 0 of 155 false alarms, 2 of 7 overlap clips. Plain rule gave 21.8% validation recall, so suppression recovers about two points; the device gate at 2% false alarms flags about one overlapped segment in four. Device rule settled with R10 at 0.360; answer key updated. See `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md` section 8. Code `tools/overlap_gate/{device_rule,suppression}.py`. No firmware change.
+
+Overlap gate phase four step 1 (6 November 2026, Claude). Firmware code for the flag-only gate, off by default: `overlap_rule.h` (portable decision rule, host-tested against the Python reference on 300 random sequences), `overlap_gate.{h,cpp}` (ESP-DL int8 model class copying the speaker-trunk construction), `overlap_gate.compile_req.yml`, `HW1_OVERLAP_GATE` CMake option, `overlap_adapter.{h,cpp}` (SD model load with admission and self-test, per-segment chunked run on cached raw rows plus recomputed tail rows, `TL overlap` log), `product::overlap` STT_EVENT, main-loop hook after the caption, `CONFIG_CAPTIONS_OVERLAP_GATE` Kconfig and `sdkconfig.overlap`. Both profiles build for esp32p4: off 646,912 bytes, on (latency + speaker + overlap) 788,928 bytes. Caption code unchanged; with the flag off the adapter is empty stubs. Nothing flashed. Steps 2-7 need the board, card and flash go-ahead. See `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md` section 9.
+
+Overlap gate phase four step 2 (6 November 2026, Claude). Board inspection only, no writes. Test unit e8:f6:0a:e3:a7:68 (ESP32-P4 v3.2, /dev/cu.usbmodem101) confirmed by esptool; the second P4 (a7:73) is attached but untouched. Partition table read from 0x8000 matches this checkout's partitions.csv (factory 0x10000 7252K, LittleFS 0x725000). App slot backed up: 7,426,048 bytes, SHA-256 in `private/training-track/overlap-gate/phase4/board/app-slot-backup.sha256`; the image is HardwareOne integrated firmware 0.99.99 (hardwareone-idf, compiled 3 Nov 2026, ELF 82c9c1d9...), so flashing the standalone gate build replaces production firmware until this backup is restored. Boot log captured. The microSD was not mounted on the Mac; step 3 needs it. Manifest: `phase4/board/step2-manifest.json`.
+
+Overlap gate phase four steps 3-4 (6 November 2026, Claude, user go-ahead given). overlap_gate.espdl copied to the card and verified; gate-ON latency build flashed app-only to 0x10000 on a7:68 (hash verified; production 0.99.99 backup held in phase4/board/). Boot with card: recognizer and speaker loaded; `TL overlap_load ... arena_psram=25600 test=0`: the ESP-DL self-test passed on the device, 25.6 KB arena, 9 ms build, ~5 ms per 200-frame chunk. Note: `sttperf pcmsrc` replay exists only in HardwareOne's bench branch; the standalone example is microphone-only, so device behaviour tests use acoustic playback (Mac speakers, afplay) as the existing heaptw bench tooling does. The board currently runs the gate build, not production.
+
+Overnight run 1 (launched 6 November 2026 00:18, Claude, user approved). Device: 28 acoustic-playback runs on a7:68 (14 twelve-minute blocks, 1,270 clips incl. 541 overlap, gate ON/OFF alternating, fresh boot each, Mac mini speaker at volume 70, P4 ~1 ft away), stream metrics and kernel-bind logging on, per-segment gate logits logged and every final segment's PCM saved to the card; full serial logs recorded; production 0.99.99 restored automatically at the end (restore checks pre-tested). Measured gate memory cost on device: 117,352 B PSRAM, 96 B internal. Host: G2c recall variants G2d-G2g training and scoring under the device rule on AMI validation; G2c reference 24.1% recall at 2% FA. See `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md` section 13. Evidence under `private/training-track/overlap-gate/phase4/night1-runs/` and `phase5/`.
+
+Overnight run 1 result (6 November 2026, Claude). All 28 runs completed and production 0.99.99 was restored and booted (verified). The gate flagged 0 of 1,368 segments. Diagnosis with `tools/overlap_gate/night_rescore.py`: the host int8 gate on the P4's saved PCM reproduces the device posteriors to about 1e-8, so the device implementation is correct. The source clips would have given 130 flags (121 true), and overlap separation (AUC) is 0.79 at the source against 0.59 after the Mac-mini-speaker → room → P4-mic chain. Gain (+6 to +30 dB) and spectral EQ do not recover it. So speaker replay is not a valid bench for this gate, and live-audio detection remains unproven. No phase-5 variant beat G2c; AMI test is untouched. Details are in `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md` section 14. The saved PCM is at `/Volumes/Audiodrive/stt/overlap-gate/night1-card`.
+
+G2h (6 November 2026, Claude): G2c retrained with replayed P4 audio from night 1 (training blocks, AMI-validation clips only; `replay_store.py`, `replay_eval.py`). On held-out replay blocks it goes from 0% to 28.8% recall at 1.2% false alarms on AMI clips, and keeps clean AMI (24.8% vs 23.6% at 2% FA). At the deployable AMI threshold, replay false alarms are 4.8–8.9%, worst on clean LibriSpeech (20%), because replay training had no non-AMI single speakers. Not adopted; replay test blocks and AMI test unread. The next step, if pursued, is a night-2 playlist from training splits only. See `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md` section 15.
+
+Night 2 and G2i (6 November 2026, Claude, user-requested daytime session): a replay of training-split material only (10 blocks, 971 segments, 0 failures, production restored and verified). G2i (G2h plus night-2 replay) is the first gate within 2% false alarms on held-out replayed audio at the deployable threshold: 18.0% recall at 1.0% false alarms, with LibriSpeech false alarms down from 20% to 6%. Clean AMI recall drops to 20.5% (G2c 23.6%), and it catches 0 of 12 replayed real P4 overlaps. Not adopted; replay test blocks and AMI test are unread; live labelled recordings remain the deciding evidence. See `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md` section 16.
+
+Live session 1 (6 November 2026 evening, Claude with the user, solo): the user read alone, a LibriSpeech voice played alone, and the user read over that voice; 78 trials, 118 P4 segments saved, production restored. G2c, G2h and G2i rank overlap above single speech (AUC 0.72–0.76), but none flags a single overlap segment at its AMI threshold, on the device or on the host. Boosting the audio +9/+18 dB does not change that. The P4 captures at about −60 dBFS, its normal level (the earlier p4-ordinary recordings are the same). Correction: `real32` are AMI distant-mic overlap pairs, not P4-microphone recordings. See `docs/STT_OVERLAP_GATE_PHASE4_PLAN.md` section 17.
+
+Caption accuracy through the P4 (6 November 2026, Claude, user-requested): `tools/overlap_gate/caption_wer.py` scores the night-1/2 replay captions against the clip text. One host decoder (the deployed int8 model plus the P4's `meeting.lm`) runs on both the original clip files and the P4's saved segment audio; its WER on the P4 audio matches the device's own captions to about 1 point. Results, original file → through the P4:
+- clean read speech 5.2% → 13.3%;
+- ordinary single speaker 10.2% → 19.0%;
+- the same 18 dB quieter 10.3% → 89.4% (64% of words in clips never segmented);
+- AMI single-speaker 33.8% → 60.8%;
+- AMI overlapped 54.7% → 72.3%.
+
+Deletions dominate. The device's rawText is not bit-identical to an offline host decode of its saved PCM (61/200 segments identical, 21% word difference): finals are streamed and mostly promoted from speculative drafts. The microphone-path investigation brief for the HardwareOne agent is `docs/STT_MIC_INVESTIGATION_PROMPT.md`. Not checked: live-talker WER, and how much of each clip's speech lies outside every device segment.

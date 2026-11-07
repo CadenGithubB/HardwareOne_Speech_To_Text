@@ -7,16 +7,40 @@ Picks whole speakers (People's Speech: source recording; VoxPopuli: speaker)
 from SRC_STORE until ~--items utterances, writes stores/DEV_NAME/ as a small
 real store (its own audio.bin with just those items: exFAT, where the data
 now lives, has no symlinks) and removes
-them from SRC_STORE's keep.json (created or intersected), so training never
-sees them. Idempotent: an existing DEV_NAME is left untouched.
+them from SRC_STORE's keep.json and writes independent excluded.json files in
+all same-corpus training shards. Existing DEV_NAME audio is left untouched,
+but re-running repairs cross-shard exclusions. Quality filtering cannot restore
+these examples. Run only against prepared working copies when migrating old data.
 """
 import argparse
 import json
 import os
 import hashlib
 import random
+import re
 
 from data import STORES
+from diagnostics import atomic_json, effective_ids, family
+
+
+def exclude_speakers(root, source, speakers):
+    """Persist exclusions independently of quality filters, across every corpus train shard."""
+    matched = []
+    for directory in sorted(root.iterdir()):
+        if family(directory.name) != family(source) or not any(re.fullmatch(r'train[0-9]*', token) for token in directory.name.split('-')):
+            continue
+        path = directory / 'index.json'
+        if not path.exists():
+            continue
+        idx = json.loads(path.read_text())
+        held = [i for i, speaker in enumerate(idx['speakers']) if speaker in speakers]
+        target = directory / 'excluded.json'
+        previous = json.loads(target.read_text()) if target.exists() else {}
+        excluded = sorted(set(previous.get('excluded', [])) | set(held))
+        atomic_json(target, {'excluded': excluded, 'reason': 'reserved development speakers'})
+        matched.append({'store': directory.name, 'excluded': len(held)})
+    return matched
+
 
 
 def main():
@@ -28,12 +52,15 @@ def main():
     a = ap.parse_args()
     src, dev = STORES / a.src, STORES / a.dev
     if (dev / 'index.json').exists():
-        print(f'{a.dev}: exists, skipped')
+        existing = json.loads((dev / 'index.json').read_text())
+        if existing.get('source', {}).get('store') != a.src:
+            raise ValueError('Existing development store has a different source')
+        print(exclude_speakers(STORES, a.src, set(existing['speakers'])))
         return
     index = json.loads((src / 'index.json').read_text())
     n = len(index['lengths'])
     keep_path = src / 'keep.json'
-    keep = set(json.loads(keep_path.read_text())['keep']) if keep_path.exists() else set(range(n))
+    keep = set(effective_ids(src, index))
     by_speaker = {}
     for i in sorted(keep):
         by_speaker.setdefault(index['speakers'][i], []).append(i)
@@ -60,6 +87,7 @@ def main():
             pos += n
         f.flush()
         os.fsync(f.fileno())
+    exclude_speakers(STORES, a.src, {index['speakers'][i] for i in chosen})
     (dev / 'index.json').write_text(json.dumps({
         'offsets': offsets, 'lengths': [index['lengths'][i] for i in chosen],
         'texts': [index['texts'][i] for i in chosen], 'speakers': [index['speakers'][i] for i in chosen],

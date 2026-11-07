@@ -31,7 +31,10 @@
 #include "stt/stt_stream.h"
 #include "product.h"
 #include "speaker_adapter.h"
+#include "overlap_adapter.h"
+#include "segment_recorder.h"
 #include "capture_diagnostics.h"
+#include <cstring>
 
 #ifndef CONFIG_CAPTIONS_DRAFTS
 #define CONFIG_CAPTIONS_DRAFTS 0
@@ -42,6 +45,13 @@
 
 namespace {
 constexpr const char* TAG = "captions";
+// Test and diagnostic USB commands handled outside product.cpp.
+bool testCommand(const char* cmd) {
+  if (captions_overlap::command(cmd)) return true;
+  if (!std::strcmp(cmd, "pcm save on")) { captions_pcm::setEnabled(true); return true; }
+  if (!std::strcmp(cmd, "pcm save off")) { captions_pcm::setEnabled(false); return true; }
+  return false;
+}
 
 // Files on the card. The model file must be the one stt/stt_model_identity.h was generated
 // for (the engine checks its size and SHA-256); a different model needs a new identity header
@@ -518,6 +528,8 @@ extern "C" void app_main() {
   const size_t speakerReserve =
       std::max<size_t>(3u << 20, hw1::stt::callBudget(kPhraseSamples, &gWeights, &speakerBlock) + (1u << 20));
   captions_speaker::begin(speakerReserve, speakerBlock);
+  captions_overlap::begin(speakerReserve);
+  product::setCommandHook(testCommand);
   startFeatures(gWeights);
   if (!startMic()) halt("Microphone start failed.");
   if (xTaskCreatePinnedToCore(captureTask, "capture", 8192, nullptr, 3, nullptr, 1) != pdPASS)
@@ -558,9 +570,11 @@ extern "C" void app_main() {
         printf("[%7.1f s] %s\n", double(work.start_sample) / kSampleRate, text);
         product::caption(text, work.start_sample, work.start_sample + work.captured_samples, work.hard_limit,
                          gPipeline.counters().dropped);
+        captions_overlap::run(product::receipt(), work);   // after the caption; reads rows before complete()
         captions_speaker::submit(product::receipt(), work.pcm, work.samples);
       } else if (!ok)
         product::status("error", error);
+      captions_pcm::save(work, product::receipt(), valid && text[0]);   // test-only, off unless "pcm save on"
     } else if (work.kind == hw1::stt::StreamWorkKind::Draft && valid)
       product::draft(text);
     ESP_LOGI(TAG,

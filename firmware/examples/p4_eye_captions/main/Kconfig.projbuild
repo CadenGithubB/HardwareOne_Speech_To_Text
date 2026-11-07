@@ -9,6 +9,14 @@ config CAPTIONS_STREAM_METRICS
 config CAPTIONS_CAPTURE_FEATURES
     bool "Compute reusable features during capture"
     default y
+config CAPTIONS_OVERLAP_GATE
+    bool "Emit an overlap flag per final caption (also needs -DHW1_OVERLAP_GATE=ON)"
+    default n
+    help
+        Runs the small overlap-gate model on the segment's raw log-mel rows after
+        the caption is emitted and publishes an "overlap" event beside the speaker
+        label. Caption text is unchanged. Needs /sd/STT Models/overlap_gate.espdl;
+        without it the gate is absent and nothing is emitted.
 config CAPTIONS_CLEAR_COMMITTED_FEATURES
     bool "Clear only committed feature-cache rows (experimental)"
     depends on CAPTIONS_CAPTURE_FEATURES

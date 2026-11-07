@@ -8,7 +8,10 @@ import argparse, json, sys
 from pathlib import Path
 import numpy as np
 sys.dont_write_bytecode = True
-sys.path.insert(0, 'experiments/stt_train/lm')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'stt_train_15x5'))
+from compare_stages import stage_report
+from diagnostics import atomic_json
 import hw1lm
 
 
@@ -28,6 +31,7 @@ ap.add_argument('--npz-dir', type=Path, required=True)
 ap.add_argument('--model', required=True)
 ap.add_argument('--lm', action='append', required=True)
 ap.add_argument('--sets', nargs='*', default=['ami-sdm-validation', 'ami-ihm-validation', 'librispeech-dev-clean'])
+ap.add_argument('--output-dir', type=Path, help='Write linked per-utterance LM stage reports')
 a = ap.parse_args()
 out = {}
 for lm_path in a.lm:
@@ -39,11 +43,21 @@ for lm_path in a.lm:
         d = np.load(a.npz_dir / f'{a.model}-{s}.npz')
         q, off, texts, e = d['q'], d['offsets'], d['texts'].tolist(), int(d['exponent'])
         ge = le = words = 0
+        records = []
+        if a.output_dir and not {'ids', 'pcm_sha256', 'seconds', 'provenance'} <= set(d.files):
+            raise ValueError('Legacy logits lack audio provenance; re-run evaluate_dev_int8.py')
         for i, ref in enumerate(texts):
             x = q[off[i]:off[i + 1]]
             g = ' '.join(hw1lm.greedy_device(x).split())
             h = hw1lm.decode_int8(x, -e, lm, None, **params)
+            if a.output_dir:
+                records.append({'id': str(d['ids'][i]), 'pcm_sha256': str(d['pcm_sha256'][i]),
+                                'seconds': float(d['seconds'][i]), 'ref': ref, 'hyp': h})
             ge += word_errors(ref, g); le += word_errors(ref, h); words += len(ref.split())
+        if a.output_dir:
+            provenance = {**json.loads(str(d['provenance'])), 'lm_sha256': lm.sha256, 'decoder_params': params}
+            atomic_json(a.output_dir/f'{a.model}-{s}-{lm.sha256[:12]}-lm.json',
+                        stage_report('lm', provenance, records))
         res[s] = {'utterances': len(texts), 'words': words, 'greedy_int8_wer': ge / words, 'lm_int8_wer': le / words}
         print(a.model, lm_path, s, json.dumps(res[s]), flush=True)
     out[lm_path] = res

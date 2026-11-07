@@ -135,6 +135,9 @@ def main():
     p.add_argument('--frontend',choices=['portable','torch'],default='portable')
     p.add_argument('--stage',choices=['c1','full'],default='full')
     p.add_argument('--quant-type',choices=['w8a8','w8a16','w16a16'],default='w8a8')
+    p.add_argument('--precision-op',action='append',default=[],metavar='NODE=SCHEME',
+                   help='Local experiment: override a named Conv with w16a16 or w8a16')
+    p.add_argument('--save-native',action='store_true',help='Save trusted local PPQ graph for host evaluation')
     p.add_argument('--calib-steps',type=int,default=8)
     p.add_argument('--threads',type=int,default=4)
     p.add_argument('--calib-stores',nargs='*',default=[],metavar='STORE:COUNT',
@@ -196,6 +199,19 @@ def main():
     model=full.blocks[6] if args.stage=='c1' else full
     from esp_ppq.api import espdl_quantize_torch
     from esp_ppq import TorchExecutor
+    precision={}
+    setting=None
+    if args.precision_op:
+        from esp_ppq import QuantizationSettingFactory
+        from esp_ppq.api import get_target_platform
+        setting=QuantizationSettingFactory.espdl_setting(num_of_bits=8)
+        if args.quant_type!='w8a8':p.error('Selective dispatch expects an int8 base')
+        for spec in args.precision_op:
+            node,sep,scheme=spec.rpartition('=')
+            if not sep or not node.endswith('/Conv') or scheme not in ('w16a16','w8a16') or node in precision:
+                p.error('Expected a unique NODE=w8a16 or NODE=w16a16 convolution')
+            precision[node]=scheme
+            setting.dispatching_table.append(node,get_target_platform('esp32p4',scheme))
     export=args.output/'quartznet.espdl'
     started=time.perf_counter()
     # Repeated passes only stabilize statistics; report the two unique clips.
@@ -203,7 +219,18 @@ def main():
         calib_dataloader=calibration,calib_steps=calib_steps,
         input_shape=list(cases[0]['_x'].shape),inputs=[cases[0]['_x']],
         target='esp32p4',quant_type=args.quant_type,device='cpu',error_report=False,
-        export_test_values=True,verbose=0)
+        export_test_values=True,verbose=0,setting=setting)
+    if precision:
+        exported_cfg=json.loads(export.with_suffix('.json').read_text())['configs']
+        for node,scheme in precision.items():
+            cfg=exported_cfg.get(node,{})
+            bits=[c['bit_width'] for n,c in cfg.items() if n.endswith('.weight')]
+            if bits!=[16 if scheme=='w16a16' else 8] or not any(c['bit_width']==16 for n,c in cfg.items() if not n.endswith(('.weight','.bias'))):
+                raise ValueError('Requested precision was not exported for '+node)
+    if args.save_native:
+        from esp_ppq.api import export_ppq_graph
+        from esp_ppq import TargetPlatform
+        export_ppq_graph(graph,TargetPlatform.NATIVE,str(args.output/'evaluation.native'))
     info=metadata(export)
     if set(info['operators'])-{'Conv','Add','Relu','Transpose','QuantizeLinear','DequantizeLinear','RequantizeLinear'}:
         raise ValueError('Unexpected exported operators: '+str(info['operators']))
@@ -244,6 +271,8 @@ def main():
             'versions':{p:importlib.metadata.version(p) for p in ['torch','esp-ppq','onnx','onnxruntime','numpy']},
             'scripts':{n:sha(HERE/n) for n in ['quartznet_graph.py','export_quartznet.py'] + (['frontend/reference_frontend.py'] if args.frontend=='portable' else [])
                                                                         + (['../stt_train/data.py'] if extra else [])}}
+    if precision:report['precision_overrides']=precision
+    if args.save_native: report['native_graph']=record(args.output/'evaluation.native')
     if frontend_source is not None: report['frontend_checkpoint']=frontend_source
     (args.output/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report,indent=2))

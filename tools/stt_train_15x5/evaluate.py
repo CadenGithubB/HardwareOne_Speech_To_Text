@@ -7,11 +7,13 @@ evaluate.py --ckpt DIR --sets ami-sdm-test ami-ihm-test librispeech-test-clean
 import argparse
 import json
 import random
+import hashlib
+from diagnostics import error_counts, summarize, paired_changes, atomic_json
 
 import numpy as np
 import torch
 
-from common import QuartzNet, Frontend, load_checkpoint, greedy_decode, word_errors, HOP
+from common import QuartzNet, Frontend, load_checkpoint, greedy_decode, HOP
 
 
 def _subset(store, limit):
@@ -33,17 +35,13 @@ def evaluate_stores(model, template, sets, device, batch_seconds=200.0, examples
     rng = np.random.default_rng(0)
     results = {}
     for name, limit in sets:
-        try:
-            store = Store(name)
-        except FileNotFoundError:
-            continue
+        store = Store(name)  # Required evaluation sets must fail closed.
         items = sorted(_subset(store, limit), key=lambda i: store.lengths[i])
-        errors = words = 0
         shown = []
+        utterances = []
         batch = []
 
         def flush():
-            nonlocal errors, words
             feats = [frontend(store.samples(i), dither=True, rng=rng) for i in batch]
             lengths = torch.tensor([f.shape[1] for f in feats])
             rows, frames = len(feats), int(lengths.max())
@@ -54,11 +52,17 @@ def evaluate_stores(model, template, sets, device, batch_seconds=200.0, examples
             for k, f in enumerate(feats):
                 x[k, :, :f.shape[1]] = f
             log_probs, out_lengths = model(x.to(device), lengths.to(device))
+            if not torch.isfinite(log_probs).all():
+                raise FloatingPointError(f'{name}: nonfinite evaluation logits')
             log_probs, out_lengths = log_probs[:len(feats)], out_lengths[:len(feats)]
             for i, hyp in zip(batch, decode(log_probs, out_lengths)):
                 ref = store.texts[i]
-                errors += word_errors(ref, hyp)
-                words += len(ref.split())
+                pcm = np.asarray(store.audio[store.offsets[i]:store.offsets[i]+store.lengths[i]], dtype='<i2')
+                counts = error_counts(ref, hyp)
+                utterances.append({'id': f'{name}:{store.ids[i]}', 'source': name,
+                    'speaker': store.speakers[i], 'ref': ref, 'hyp': hyp,
+                    'pcm_sha256': hashlib.sha256(pcm.tobytes()).hexdigest(),
+                    'seconds': float(store.lengths[i])/16000, **counts})
                 if len(shown) < examples:
                     shown.append({'ref': ref, 'hyp': hyp})
 
@@ -73,8 +77,7 @@ def evaluate_stores(model, template, sets, device, batch_seconds=200.0, examples
             batch.append(i)
         if batch:
             flush()
-        results[name] = {'wer': errors / max(words, 1), 'errors': errors, 'words': words,
-                         'utterances': len(items), 'examples': shown}
+        results[name] = {**summarize(utterances), 'examples': shown, 'records': utterances}
     return results
 
 
@@ -85,6 +88,7 @@ def main():
     p.add_argument('--limit', type=int)
     p.add_argument('--examples', type=int, default=8)
     p.add_argument('--out')
+    p.add_argument('--compare', help='Previous report with identical utterance coverage')
     p.add_argument('--device', default='cuda' if torch.cuda.is_available() else
                    'mps' if torch.backends.mps.is_available() else 'cpu')
     a = p.parse_args()
@@ -96,11 +100,17 @@ def main():
     else:
         model = QuartzNet(config).load_nemo(state).to(device).eval()
     results = evaluate_stores(model, state, [(s, a.limit) for s in a.sets], device, examples=a.examples)
+    if a.compare:
+        previous = json.loads(open(a.compare).read())['results']
+        if previous.keys() != results.keys():
+            raise ValueError('Comparison dataset coverage differs')
+        for name, r in results.items():
+            r['paired'] = paired_changes(previous[name]['records'], r['records'])
     for name, r in results.items():
-        print(f"{name}: WER {r['wer'] * 100:.1f}% ({r['errors']}/{r['words']} words, {r['utterances']} utts)")
+        metric = f"WER {r['wer']*100:.1f}%" if r['wer'] is not None else f"phantom words/min {r['phantom_words_per_minute']:.2f}"
+        print(f"{name}: {metric} ({r['errors']}/{r['words']} words, {r['utterances']} utts)")
     if a.out:
-        with open(a.out, 'w') as f:
-            json.dump({'ckpt': a.ckpt, 'results': results}, f, indent=2)
+        atomic_json(a.out, {'ckpt': a.ckpt, 'results': results})
 
 
 if __name__ == '__main__':

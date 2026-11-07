@@ -95,10 +95,35 @@ B's global counts are 2,818 substitutions, 2,732 deletions and 10,171 insertions
 
 The raw-mixture qualification control is running and the known-source control follows. Those controls are still needed for baseline-relative checks. The existing real32 regression and the main saved-microphone comparisons remain pending; no model or firmware has been adopted.
 
-## Remaining main-agent work
+## Round three closed · both selected candidates fail (5 November 2026)
 
-Complete matched-input and six-export record audits have passed. Remaining work is to audit the rest of the actual recognition results, verify frozen development-only selections, then review fresh synthetic speech qualification and clearly separate the reused nonspeech and old real-overlap regression checks. Compare selected candidates on the same saved microphone/regression panel without tuning thresholds or suppressing an output. Neither a preparation check nor a lower training loss is an adoption result.
+All planned host scoring finished: both qualification controls, the old real32 regression for both arms and both controls, and both selected saved-microphone comparisons. The evaluation controller logged "All planned loss-round3 host scoring complete", and main controller 17121 finished at stage `host-comparisons-and-audits-finished`. All 16 completed score reports are archived by SHA under `private/stt-loss-round3-review/audited-results/`. Both microphone comparisons passed the actual-output audit: 163 cases, 32 whole windows, 210 caption segments and 484 decoded-stream checks each. No worker was restarted, and no selection, threshold or setting changed.
 
-Both speakers' words and stable labels, P4 execution, realtime behavior and at most 30,000,000 bytes simultaneous total-application peak remain requirements. Fresh independent real-overlap evidence is not available in this local round; no product qualification or firmware promotion follows from its synthetic panel alone. Hardware access and Bluetooth changes are outside the current host-only work.
+The frozen reducer `review_selected.py` uses the same seven necessary host checks as round two and wrote `selected-host-review.json`. **Neither candidate passes; both fail the same four checks:**
 
-Private evidence: `private/stt-model-comparison/audit_round3_contract.py` and `round3-contract-audit.json`; original declarations remain under `private/training-track/compact16k-loss-round3/`. Existing worker handles belong to the training chat and must not be duplicated. User-facing checks remain on the five-minute cadence.
+| Necessary check (vs raw-mixture baseline) | A4096 | B1024 |
+|---|---|---|
+| Lower real32 profile-attributed errors | fail (912 vs 611) | fail (809 vs 611) |
+| Lower real32 profile-attributed deletions | pass (159 vs 260) | pass (189 vs 260) |
+| Lower real32 oracle errors | fail (717 vs 594) | fail (635 vs 594) |
+| Lower real32 oracle deletions | pass | pass |
+| Ordinary error nonregression (fresh synthetic) | fail (1,608 vs 170) | fail (1,598 vs 170) |
+| Quiet error nonregression (fresh synthetic) | fail (1,584 vs 178) | fail (1,562 vs 178) |
+| Three reused nonspeech fixtures emit zero words | pass | pass |
+
+On fresh synthetic qualification, global profile-attributed errors over 11,688 words are: raw-mixture baseline 8,874, A4096 15,657, B1024 15,721. The known-source diagnostic is 2,178. Two-speaker oracle errors are 6,817 / 8,348 / 8,544 respectively. Both separators lose more words and add far more duplicate words than the no-separator path. Real32 is reused regression evidence, not independent qualification.
+
+**Saved microphone and caption panel**, oracle acoustic assignment with both output streams counted:
+
+| Panel | Baseline errors | A4096 | B1024 |
+|---|---:|---:|---:|
+| Whole windows (292 words) | 146 | 288 | 219 |
+| Caption segments (2,168 words) | 609 | 2,221 | 2,000 |
+| G2 continuous recording (146 words) | 97 | 155 | 129 |
+| P4 concatenated recordings (146 words) | 88 | 158 | 115 |
+
+Both candidates regress 17 of 18 group/view cells and improve only background (4 → 0 and 4 → 1 errors). Both P4 and G2 microphone groups regress, so the result does not depend on which shared microphone path is used. Quiet caption cells are 73/73 errors for every arm, baseline included. Independent LibriSpeech and loud caption groups regress by roughly 300+ errors each. This panel uses cached decoding and oracle assignment. It does not test stable labels, fresh rooms or P4 execution.
+
+**Conclusion:** the active-loss change did not produce a usable compact separator. Neither selected model beats the existing single-speaker path on any accuracy gate, so production defaults stay unchanged and no firmware is promoted. Round three needs no more host work. Any further separator investigation needs a new, separately frozen experiment, not retuning of this one. P4 realtime operation, the 30,000,000-byte total-application peak and independent real-overlap qualification remain untested because no candidate reached them.
+
+Private evidence: `private/stt-loss-round3-review/selected-host-review.json`, `comparison-{A-4096,B-1024}-*/audit.json`, `comparison-controller-status.json`. Original declarations remain under `private/training-track/compact16k-loss-round3/`; contract audit in `private/stt-model-comparison/round3-contract-audit.json`.

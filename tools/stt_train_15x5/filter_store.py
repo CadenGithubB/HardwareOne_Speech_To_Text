@@ -24,6 +24,7 @@ import torch
 
 from common import QuartzNet, Frontend, load_checkpoint, greedy_decode
 from data import STORES
+from diagnostics import sha256, atomic_json
 import os
 from pathlib import Path
 STT_ROOT = Path(os.environ.get('STT_ROOT', 'stt-data'))  # data root: set STT_ROOT
@@ -86,12 +87,19 @@ def main():
     a = p.parse_args()
     store_dir = STORES / a.store
     cer_path = store_dir / 'cer.json'
+    identity = {'index': sha256(store_dir / 'index.json'), 'audio': sha256(store_dir / 'audio.bin'),
+                'weights': sha256(Path(a.ckpt) / 'model_weights.ckpt'),
+                'config': sha256(Path(a.ckpt) / 'model_config.yaml'),
+                'code': {n:sha256(Path(__file__).with_name(n)) for n in ('filter_store.py','common.py')},
+                'torch': torch.__version__, 'numpy': np.__version__}
     if cer_path.exists():
         saved = json.loads(cer_path.read_text())
+        if saved.get('identity') != identity:
+            raise ValueError('CER cache identity missing or changed; use a new cache after archiving the old one')
         cer, lengths = saved['cer'], json.loads((store_dir / 'index.json').read_text())['lengths']
     else:
         cer, lengths = score(store_dir, a.ckpt)
-        cer_path.write_text(json.dumps({'ckpt': a.ckpt, 'cer': cer}))
+        atomic_json(cer_path, {'ckpt': a.ckpt, 'identity': identity, 'cer': cer})
     keep = [i for i, c in enumerate(cer) if c <= a.max_cer]
     hours = lambda ids: sum(lengths[i] for i in ids) / 16000 / 3600
     q = np.percentile(cer, [10, 25, 50, 75, 90, 95])
@@ -100,7 +108,13 @@ def main():
              'cer_percentiles_10_25_50_75_90_95': [round(float(x), 3) for x in q]}
     print(json.dumps(stats))
     if not a.dry_run:
-        (store_dir / 'keep.json').write_text(json.dumps({'keep': keep, **stats}))
+        # Legacy split exclusions cannot be reconstructed safely from counts alone.
+        old = store_dir / 'keep.json'
+        previous = json.loads(old.read_text()) if old.exists() else {}
+        if previous.get('dev_held_out') and not (store_dir / 'excluded.json').exists():
+            keep = sorted(set(keep) & set(previous['keep']))
+        atomic_json(old, {**previous, **stats, 'keep': keep, 'identity': identity,
+                          'effective_kept': len(keep)})
 
 
 if __name__ == '__main__':
